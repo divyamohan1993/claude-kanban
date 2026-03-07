@@ -1,7 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { cards, sessions, audit, auditLog, VALID_COLUMNS } = require('./db');
+const { cards, sessions, audit, auditLog, backups, VALID_COLUMNS } = require('./db');
 const orchestrator = require('./orchestrator');
 const snapshot = require('./snapshot');
 const { spawn } = require('child_process');
@@ -662,6 +662,29 @@ adminApp.get('/api/export', (_req, res) => { res.json(orchestrator.exportBoard()
 adminApp.get('/api/audit', (_req, res) => { res.json(audit.recent(500)); });
 adminApp.get('/api/audit/card/:id', (req, res) => { res.json(audit.byResource('card', Number(req.params.id))); });
 adminApp.get('/api/archive', (_req, res) => { res.json(cards.getArchived()); });
+
+// --- Admin: database backups ---
+adminApp.get('/api/backups', (_req, res) => {
+  res.json({ backups: backups.list(), retentionDays: backups.getRetentionDays() });
+});
+
+adminApp.post('/api/backups/create', pinCheck, (req, res) => {
+  const label = req.body && req.body.label || '';
+  const result = backups.create(label);
+  if (result.success) {
+    auditLog('backup-create', 'backup', null, 'admin', '', result.file, 'manual backup');
+    broadcast('toast', { message: 'Manual backup created: ' + result.file, type: 'success' });
+  }
+  res.json(result);
+});
+
+adminApp.post('/api/backups/restore', pinCheck, (req, res) => {
+  const { backupPath } = req.body;
+  if (!backupPath) return res.status(400).json({ error: 'backupPath required' });
+  auditLog('backup-restore', 'backup', null, 'admin', '', backupPath, 'restore initiated');
+  const result = backups.restore(backupPath);
+  res.json(result);
+});
 
 // --- Admin: usage ---
 adminApp.get('/api/usage', (_req, res) => { res.json(orchestrator.getUsageStats()); });

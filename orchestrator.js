@@ -2,7 +2,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { cards, sessions, usage } = require('./db');
+const { cards, sessions, usage, backups } = require('./db');
 const snapshot = require('./snapshot');
 
 const IS_WIN = process.platform === 'win32';
@@ -559,6 +559,7 @@ function getConfig() {
       maxFixAttempts: MAX_FIX_ATTEMPTS,
       maxDoneVisible: MAX_DONE_VISIBLE,
       maxArchiveVisible: MAX_ARCHIVE_VISIBLE,
+      backupRetentionDays: backups.getRetentionDays(),
       claudeModel: CLAUDE_MODEL,
       claudeEffort: CLAUDE_EFFORT,
       webhookUrl: WEBHOOK_URL,
@@ -594,6 +595,7 @@ function setConfig(updates) {
   if (updates.maxFixAttempts !== undefined) { MAX_FIX_ATTEMPTS = Math.max(0, Number(updates.maxFixAttempts)); changed.maxFixAttempts = MAX_FIX_ATTEMPTS; }
   if (updates.maxDoneVisible !== undefined) { MAX_DONE_VISIBLE = Math.max(0, Number(updates.maxDoneVisible)); changed.maxDoneVisible = MAX_DONE_VISIBLE; }
   if (updates.maxArchiveVisible !== undefined) { MAX_ARCHIVE_VISIBLE = Math.max(0, Number(updates.maxArchiveVisible)); changed.maxArchiveVisible = MAX_ARCHIVE_VISIBLE; }
+  if (updates.backupRetentionDays !== undefined) { backups.setRetentionDays(updates.backupRetentionDays); changed.backupRetentionDays = backups.getRetentionDays(); }
   if (updates.claudeModel !== undefined) { CLAUDE_MODEL = String(updates.claudeModel); changed.claudeModel = CLAUDE_MODEL; }
   if (updates.claudeEffort !== undefined) { CLAUDE_EFFORT = String(updates.claudeEffort); changed.claudeEffort = CLAUDE_EFFORT; }
   if (updates.webhookUrl !== undefined) { WEBHOOK_URL = String(updates.webhookUrl); changed.webhookUrl = WEBHOOK_URL; }

@@ -4,16 +4,51 @@ const fs = require('fs');
 
 const DATA_DIR = path.join(__dirname, '.data');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const BACKUP_HOT = path.join(BACKUP_DIR, 'hot');
+const BACKUP_HOURLY = path.join(BACKUP_DIR, 'hourly');
+const BACKUP_DAILY = path.join(BACKUP_DIR, 'daily');
 const DB_PATH = path.join(DATA_DIR, 'kanban.db');
-const DB_BACKUP = path.join(BACKUP_DIR, 'kanban.db.bak');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+[BACKUP_HOT, BACKUP_HOURLY, BACKUP_DAILY].forEach(d => {
+  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+});
 
-// Auto-recover: if DB is missing but backup exists, restore it
-if (!fs.existsSync(DB_PATH) && fs.existsSync(DB_BACKUP)) {
-  fs.copyFileSync(DB_BACKUP, DB_PATH);
-  console.log('[db] Restored from backup:', DB_BACKUP);
+// Migrate old single backup file if it exists
+const OLD_BACKUP = path.join(BACKUP_DIR, 'kanban.db.bak');
+if (fs.existsSync(OLD_BACKUP)) {
+  try {
+    fs.renameSync(OLD_BACKUP, path.join(BACKUP_HOT, 'kanban.db'));
+    console.log('[db] Migrated legacy backup to hot/');
+  } catch (_) {}
+}
+
+// --- Backup: find best available backup for recovery ---
+function findBestBackup() {
+  const candidates = [];
+  for (const dir of [BACKUP_HOT, BACKUP_HOURLY, BACKUP_DAILY]) {
+    try {
+      for (const file of fs.readdirSync(dir)) {
+        if (!file.endsWith('.db')) continue;
+        const fp = path.join(dir, file);
+        try {
+          const stat = fs.statSync(fp);
+          if (stat.size > 0) candidates.push({ path: fp, mtime: stat.mtimeMs, size: stat.size });
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+  candidates.sort((a, b) => b.mtime - a.mtime);
+  return candidates.length > 0 ? candidates[0] : null;
+}
+
+// Auto-recover: if DB is missing, find best backup
+if (!fs.existsSync(DB_PATH)) {
+  const best = findBestBackup();
+  if (best) {
+    fs.copyFileSync(best.path, DB_PATH);
+    console.log('[db] Restored from backup:', best.path);
+  }
 }
 
 const db = new Database(DB_PATH);
@@ -119,18 +154,133 @@ const stmts = {
   auditAll: db.prepare('SELECT * FROM audit_log ORDER BY timestamp DESC'),
 };
 
-// Periodic DB maintenance: WAL checkpoint + optimize + backup every 5 min
-setInterval(() => {
+// --- Rolling Backup System ---
+// Hot: every 5 min (single file, quick recovery)
+// Hourly: one per hour (keep 24)
+// Daily: one per day (keep BACKUP_RETENTION_DAYS)
+var BACKUP_RETENTION_DAYS = 7;
+
+function hotBackupPath() { return path.join(BACKUP_HOT, 'kanban.db'); }
+function hourlyBackupPath(d) { return path.join(BACKUP_HOURLY, 'kanban-' + d.toISOString().slice(0, 13).replace(':', '-') + '.db'); }
+function dailyBackupPath(d) { return path.join(BACKUP_DAILY, 'kanban-' + d.toISOString().slice(0, 10) + '.db'); }
+
+function runBackupCycle() {
   try {
     db.pragma('wal_checkpoint(PASSIVE)');
     db.pragma('optimize');
-    // Rolling backup — overwrites previous (keeps one good copy)
-    db.backup(DB_BACKUP).catch(() => {});
+
+    const now = new Date();
+
+    // Hot backup — always
+    db.backup(hotBackupPath()).catch(() => {});
+
+    // Hourly — one per hour
+    const hPath = hourlyBackupPath(now);
+    if (!fs.existsSync(hPath)) {
+      db.backup(hPath).catch(() => {});
+    }
+
+    // Daily — one per day
+    const dPath = dailyBackupPath(now);
+    if (!fs.existsSync(dPath)) {
+      db.backup(dPath).catch(() => {});
+    }
+
+    // Prune old backups
+    pruneBackups();
   } catch (_) {}
-}, 5 * 60 * 1000);
+}
+
+function pruneBackups() {
+  // Hourly: keep 24
+  pruneDir(BACKUP_HOURLY, 24);
+  // Daily: keep BACKUP_RETENTION_DAYS
+  pruneDir(BACKUP_DAILY, BACKUP_RETENTION_DAYS);
+}
+
+function pruneDir(dir, keep) {
+  try {
+    const files = fs.readdirSync(dir)
+      .filter(f => f.endsWith('.db'))
+      .map(f => ({ name: f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    for (let i = keep; i < files.length; i++) {
+      try { fs.unlinkSync(path.join(dir, files[i].name)); } catch (_) {}
+    }
+  } catch (_) {}
+}
+
+function listBackups() {
+  const result = [];
+  for (const [tier, dir] of [['hot', BACKUP_HOT], ['hourly', BACKUP_HOURLY], ['daily', BACKUP_DAILY]]) {
+    try {
+      for (const file of fs.readdirSync(dir)) {
+        if (!file.endsWith('.db')) continue;
+        const fp = path.join(dir, file);
+        try {
+          const stat = fs.statSync(fp);
+          result.push({ tier, file, path: fp, size: stat.size, mtime: stat.mtimeMs, modified: new Date(stat.mtimeMs).toISOString() });
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+  result.sort((a, b) => b.mtime - a.mtime);
+  return result;
+}
+
+function restoreBackup(backupPath) {
+  // Validate the path is inside our backup directory
+  const resolved = path.resolve(backupPath);
+  if (!resolved.startsWith(BACKUP_DIR + path.sep)) {
+    return { success: false, reason: 'Invalid backup path' };
+  }
+  if (!fs.existsSync(resolved)) {
+    return { success: false, reason: 'Backup file not found' };
+  }
+  // Verify it's a valid SQLite file (magic bytes: "SQLite format 3\0")
+  try {
+    const fd = fs.openSync(resolved, 'r');
+    const buf = Buffer.alloc(16);
+    fs.readSync(fd, buf, 0, 16, 0);
+    fs.closeSync(fd);
+    if (buf.toString('utf-8', 0, 15) !== 'SQLite format 3') {
+      return { success: false, reason: 'Not a valid SQLite database' };
+    }
+  } catch (e) {
+    return { success: false, reason: 'Cannot read backup: ' + e.message };
+  }
+  // Take a safety backup of current DB before overwriting
+  try {
+    const safetyPath = path.join(BACKUP_HOT, 'pre-restore-' + Date.now() + '.db');
+    fs.copyFileSync(DB_PATH, safetyPath);
+  } catch (_) {}
+  // Close current DB, copy backup over, reopen
+  // Since better-sqlite3 holds a file lock, we use its backup API in reverse:
+  // copy the backup file over the DB path
+  try {
+    db.close();
+  } catch (_) {}
+  fs.copyFileSync(resolved, DB_PATH);
+  return { success: true, restored: resolved, note: 'Server restart required to use restored database' };
+}
+
+function createManualBackup(label) {
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const name = 'kanban-manual-' + (label ? label.replace(/[^a-zA-Z0-9_-]/g, '') + '-' : '') + ts + '.db';
+  const dest = path.join(BACKUP_DAILY, name);
+  try {
+    db.backup(dest).catch(() => {});
+    return { success: true, file: name, path: dest };
+  } catch (e) {
+    return { success: false, reason: e.message };
+  }
+}
+
+// Periodic DB maintenance + backup every 5 min
+setInterval(runBackupCycle, 5 * 60 * 1000);
 
 // Immediate backup on first load
-try { db.backup(DB_BACKUP).catch(() => {}); } catch (_) {}
+try { db.backup(hotBackupPath()).catch(() => {}); } catch (_) {}
 
 function auditLog(action, resourceType, resourceId, actor, oldVal, newVal, detail) {
   try {
@@ -215,5 +365,13 @@ module.exports = {
     byResource: (type, id) => stmts.auditByResource.all(type, id),
     recent: (limit) => stmts.auditRecent.all(limit || 100),
     all: () => stmts.auditAll.all(),
+  },
+  backups: {
+    list: listBackups,
+    restore: restoreBackup,
+    create: createManualBackup,
+    findBest: findBestBackup,
+    getRetentionDays: () => BACKUP_RETENTION_DAYS,
+    setRetentionDays: (days) => { BACKUP_RETENTION_DAYS = Math.max(1, Number(days) || 7); },
   },
 };

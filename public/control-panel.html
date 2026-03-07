@@ -438,6 +438,7 @@ function buildPageSections() {
   cpBody.appendChild(section('prompts', '#A855F7', 'Custom Instructions', null, false));
   cpBody.appendChild(section('processes', 'var(--warning)', 'Active Processes', 'proc-badge', false));
   cpBody.appendChild(section('system', 'var(--text-tertiary)', 'System Information', null, false));
+  cpBody.appendChild(section('backups', '#10B981', 'Database Backups', 'backup-badge', false));
   cpBody.appendChild(section('board-usage', '#3B82F6', 'Board Session Usage', null, false));
 }
 
@@ -570,6 +571,7 @@ function renderBuildConfig(r) {
     cfgSelect('claudeEffort', 'Effort Level', r.claudeEffort, ['low', 'medium', 'high'], 'CLI effort flag'),
     cfgNumber('maxDoneVisible', 'Done Column Limit', r.maxDoneVisible, '0 = show all'),
     cfgNumber('maxArchiveVisible', 'Archive Limit', r.maxArchiveVisible, '0 = show all · DB keeps everything'),
+    cfgNumber('backupRetentionDays', 'Backup Retention (days)', r.backupRetentionDays, 'Daily backups kept this many days'),
     cfgText('webhookUrl', 'Webhook URL', r.webhookUrl, 'POST on card state changes'),
   ]);
   body.appendChild(grid);
@@ -705,6 +707,62 @@ function loadBoardUsage() {
   });
 }
 
+// --- Database Backups ---
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+function renderBackups(data) {
+  var body = document.getElementById('backups-body');
+  var badge = document.getElementById('backup-badge');
+  var list = data.backups || [];
+  clear(body);
+  if (badge) badge.textContent = String(list.length);
+
+  // Controls row
+  var controls = el('div', { style: 'display:flex;gap:8px;margin-bottom:14px;align-items:center' }, [
+    el('button', { class: 'cp-btn cp-btn-primary', onclick: function() {
+      api('POST', '/api/backups/create', { label: '' }).then(function() { loadBackups(); });
+    } }, 'Create Backup Now'),
+    el('span', 'cfg-help', 'Auto: every 5min (hot), hourly (keep 24), daily (keep ' + (data.retentionDays || 7) + 'd)'),
+  ]);
+  body.appendChild(controls);
+
+  if (!list.length) { body.appendChild(el('div', 'queue-empty', 'No backups yet. First backup runs within 5 minutes of server start.')); return; }
+
+  // Group by tier
+  var tiers = { hot: [], hourly: [], daily: [] };
+  list.forEach(function(b) { if (tiers[b.tier]) tiers[b.tier].push(b); });
+
+  [['hot', 'Hot (Latest)', 'var(--error)'], ['hourly', 'Hourly (Last 24)', 'var(--warning)'], ['daily', 'Daily (' + (data.retentionDays || 7) + ' days)', 'var(--success)']].forEach(function(t) {
+    var items = tiers[t[0]];
+    if (!items.length) return;
+    body.appendChild(el('div', 'sec-label sec-label-mt', t[1]));
+    items.forEach(function(b) {
+      var restoreBtn = el('button', { class: 'cp-btn', style: 'font-size:10px;padding:3px 8px', onclick: function() {
+        if (confirm('Restore from ' + b.file + '?\n\nThis will overwrite the current database.\nA safety backup will be created first.\nServer restart required after restore.')) {
+          api('POST', '/api/backups/restore', { backupPath: b.path }).then(function(r) {
+            if (r.success) toast('Restored! Restart server to apply.', 'success');
+            else toast('Restore failed: ' + r.reason, 'error');
+          });
+        }
+      } }, 'Restore');
+      body.appendChild(el('div', 'queue-item', [
+        el('span', { style: 'width:8px;height:8px;border-radius:50%;background:' + t[2] + ';flex-shrink:0' }),
+        el('span', 'queue-title', b.file),
+        el('span', 'queue-meta', fmtSize(b.size) + ' \u00B7 ' + timeAgo(b.modified)),
+        restoreBtn,
+      ]));
+    });
+  });
+}
+
+function loadBackups() {
+  api('GET', '/api/backups').then(renderBackups);
+}
+
 // --- SSE ---
 var es = new EventSource('/api/events');
 es.addEventListener('toast', function(e) { var d = JSON.parse(e.data); toast(d.message, d.type); });
@@ -724,6 +782,7 @@ function initApp() {
   loadConfig();
   loadPrompts();
   loadProcesses();
+  loadBackups();
   loadBoardUsage();
   setInterval(function() { loadPipeline(); loadProcesses(); }, 30000);
 }

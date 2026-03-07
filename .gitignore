@@ -1,28 +1,9 @@
 # Dependencies
 node_modules/
 
-# Runtime generated files
-.runtime/
-logs/
-
-# Database
-kanban.db
-kanban.db-shm
-kanban.db-wal
-
-# Snapshots (file rollback state)
-.snapshots/
-
-# Playwright
-.playwright-mcp/
-*.png
-
-# Test artifacts
-test-workflow.js
-
-# Server runtime
-.server.pid
-server.log
+# All runtime data (db, logs, snapshots, pid, server.log)
+.data/
+kanban.db*
 
 # Environment
 .env

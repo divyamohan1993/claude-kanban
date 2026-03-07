@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const SNAPSHOT_ROOT = path.join(__dirname, '.snapshots');
-const SKIP_DIRS = new Set(['node_modules', '.git', '.snapshots', '.pnpm-store']);
+const SNAPSHOT_ROOT = path.join(__dirname, '.data', 'snapshots');
+const SKIP_DIRS = new Set(['node_modules', '.git', '.data', '.pnpm-store']);
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 function walkDir(dir, base) {

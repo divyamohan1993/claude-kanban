@@ -9,8 +9,9 @@ const IS_WIN = process.platform === 'win32';
 const IS_MAC = process.platform === 'darwin';
 const PROJECTS_ROOT = process.env.PROJECTS_ROOT || (IS_WIN ? 'R:\\' : path.join(os.homedir(), 'Projects'));
 const KANBAN_DIR = __dirname;
-const LOGS_DIR = path.join(KANBAN_DIR, 'logs');
-const RUNTIME_DIR = path.join(KANBAN_DIR, '.runtime');
+const DATA_DIR = path.join(KANBAN_DIR, '.data');
+const LOGS_DIR = path.join(DATA_DIR, 'logs');
+const RUNTIME_DIR = path.join(DATA_DIR, 'runtime');
 
 // Active pollers for build completion
 const activePollers = new Map();

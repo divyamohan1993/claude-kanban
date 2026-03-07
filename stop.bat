@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
 
-set PID_FILE=.server.pid
+set PID_FILE=.data\server.pid
 
 echo.
 echo   Claude Kanban - Stop

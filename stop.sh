@@ -1,7 +1,7 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
-PID_FILE=".server.pid"
+PID_FILE=".data/server.pid"
 
 echo ""
 echo "  Claude Kanban - Stop"
@@ -21,12 +21,10 @@ fi
 
 if kill -0 "$PID" 2>/dev/null; then
   kill "$PID" 2>/dev/null
-  # Wait for clean shutdown (up to 5s)
   for i in 1 2 3 4 5 6 7 8 9 10; do
     if ! kill -0 "$PID" 2>/dev/null; then break; fi
     sleep 0.5
   done
-  # Force kill if still alive
   if kill -0 "$PID" 2>/dev/null; then
     kill -9 "$PID" 2>/dev/null
   fi

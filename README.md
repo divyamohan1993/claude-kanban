@@ -103,6 +103,13 @@ public/
   index.html     Shell + modals
   app.js         Frontend logic, SSE, drag-and-drop, pipeline rendering
   style.css      Google enterprise light theme
+.data/           Runtime (gitignored, auto-created)
+  kanban.db      SQLite database
+  logs/          Build/review/fix log files
+  snapshots/     File snapshots for rollback/revert
+  runtime/       Generated .bat/.sh scripts for Claude sessions
+  server.pid     PID file for stop script
+  server.log     Server stdout/stderr
 ```
 
 ## API

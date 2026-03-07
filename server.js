@@ -8,7 +8,8 @@ const { spawn } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 51777;
-const LOGS_DIR = path.join(__dirname, 'logs');
+const DATA_DIR = path.join(__dirname, '.data');
+const LOGS_DIR = path.join(DATA_DIR, 'logs');
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -458,7 +459,7 @@ if (process.env.NODE_ENV === 'test') {
 }
 
 // --- Start ---
-const PID_FILE = path.join(__dirname, '.server.pid');
+const PID_FILE = path.join(DATA_DIR, 'server.pid');
 
 app.listen(PORT, () => {
   fs.writeFileSync(PID_FILE, String(process.pid));

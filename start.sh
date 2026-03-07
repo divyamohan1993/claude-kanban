@@ -3,7 +3,9 @@ set -e
 
 cd "$(dirname "$0")"
 
-PID_FILE=".server.pid"
+DATA_DIR=".data"
+PID_FILE="$DATA_DIR/server.pid"
+LOG_FILE="$DATA_DIR/server.log"
 PORT="${PORT:-51777}"
 
 info()  { printf "  [OK]   %s\n" "$1"; }
@@ -13,6 +15,8 @@ fail()  { printf "  [FAIL] %s\n" "$1"; exit 1; }
 echo ""
 echo "  Claude Kanban - Start"
 echo ""
+
+mkdir -p "$DATA_DIR"
 
 # --- Already running? ---
 if [ -f "$PID_FILE" ]; then
@@ -33,7 +37,6 @@ if ! command -v node >/dev/null 2>&1; then
     else
       step "Installing Homebrew first..."
       /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-      # Add brew to PATH for this session
       if [ -f /opt/homebrew/bin/brew ]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
       elif [ -f /usr/local/bin/brew ]; then
@@ -57,7 +60,6 @@ if ! command -v node >/dev/null 2>&1; then
   fi
 fi
 
-# Verify Node version (18+)
 if ! command -v node >/dev/null 2>&1; then
   fail "Node.js installation failed. Install manually: https://nodejs.org"
 fi
@@ -89,7 +91,7 @@ info "Dependencies ready"
 
 # --- Start server ---
 step "Starting server..."
-nohup node server.js > server.log 2>&1 &
+nohup node server.js > "$LOG_FILE" 2>&1 &
 disown
 
 # Wait for PID file (server writes it on listen)
@@ -102,11 +104,11 @@ if [ -f "$PID_FILE" ]; then
   PID=$(cat "$PID_FILE")
   echo ""
   info "Running at http://localhost:$PORT (PID $PID)"
-  info "Logs: server.log"
+  info "Logs: $LOG_FILE"
   echo ""
 else
   echo ""
-  printf "  [WARN] Server may have failed to start. Check server.log\n"
+  printf "  [WARN] Server may have failed to start. Check %s\n" "$LOG_FILE"
   echo ""
   exit 1
 fi

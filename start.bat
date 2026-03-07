@@ -3,12 +3,16 @@ setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
 
-set PID_FILE=.server.pid
+set DATA_DIR=.data
+set PID_FILE=%DATA_DIR%\server.pid
+set LOG_FILE=%DATA_DIR%\server.log
 set PORT=51777
 
 echo.
 echo   Claude Kanban - Start
 echo.
+
+if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
 
 :: --- Already running? ---
 if exist "%PID_FILE%" (
@@ -85,6 +89,6 @@ exit /b 0
 
 :start_failed
 echo.
-echo   [WARN] Server may have failed to start. Check server.log
+echo   [WARN] Server may have failed to start. Check %LOG_FILE%
 echo.
 exit /b 1

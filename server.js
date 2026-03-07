@@ -758,6 +758,154 @@ adminApp.post('/api/bulk-create', pinCheck, (req, res) => {
   res.json({ created: created.length, cards: created });
 });
 
+// --- Admin: factory reset ---
+adminApp.post('/api/factory-reset', pinCheck, (req, res) => {
+  auditLog('factory-reset', 'system', null, 'admin', '', '', 'full factory reset initiated');
+  // Kill all builds first
+  try { orchestrator.killAll(); } catch (_) {}
+  // Respond before destroying — client gets the confirmation
+  res.json({ success: true, note: 'Server will shut down. Restart to get a fresh instance.' });
+  // Give response time to flush, then wipe and exit
+  setTimeout(() => {
+    try { fs.rmSync(DATA_DIR, { recursive: true, force: true }); } catch (_) {}
+    console.log('[factory-reset] All data wiped. Exiting.');
+    process.exit(0);
+  }, 500);
+});
+
+// --- Admin: data housekeeping stats ---
+adminApp.get('/api/housekeeping', (_req, res) => {
+  res.json(getHousekeepingStats());
+});
+
+adminApp.post('/api/housekeeping/run', pinCheck, (_req, res) => {
+  const result = runHousekeeping();
+  res.json(result);
+});
+
+// --- Data Housekeeping ---
+const LOG_RETENTION_DAYS = 7;
+const SNAPSHOT_ARCHIVE_RETENTION_DAYS = 14;
+const MAX_AUDIT_ROWS = 10000;
+const RUNTIME_STALE_HOURS = 24;
+
+function dirSize(dir) {
+  let total = 0;
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const fp = path.join(dir, e.name);
+      if (e.isDirectory()) total += dirSize(fp);
+      else try { total += fs.statSync(fp).size; } catch (_) {}
+    }
+  } catch (_) {}
+  return total;
+}
+
+function getHousekeepingStats() {
+  const logsDir = path.join(DATA_DIR, 'logs');
+  const snapshotsDir = path.join(DATA_DIR, 'snapshots');
+  const archiveDir = path.join(DATA_DIR, 'archive');
+  const runtimeDir = path.join(DATA_DIR, 'runtime');
+  const backupsDir = path.join(DATA_DIR, 'backups');
+  return {
+    logs: { path: logsDir, size: dirSize(logsDir), files: countFiles(logsDir) },
+    snapshots: { path: snapshotsDir, size: dirSize(snapshotsDir), files: countFiles(snapshotsDir) },
+    archive: { path: archiveDir, size: dirSize(archiveDir), files: countFiles(archiveDir) },
+    runtime: { path: runtimeDir, size: dirSize(runtimeDir), files: countFiles(runtimeDir) },
+    backups: { path: backupsDir, size: dirSize(backupsDir), files: countFiles(backupsDir) },
+    total: dirSize(DATA_DIR),
+  };
+}
+
+function countFiles(dir) {
+  try {
+    let count = 0;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      if (e.isDirectory()) count += countFiles(path.join(dir, e.name));
+      else count++;
+    }
+    return count;
+  } catch (_) { return 0; }
+}
+
+function runHousekeeping() {
+  const now = Date.now();
+  let cleaned = { logs: 0, markers: 0, runtime: 0, snapshotArchive: 0, audit: 0 };
+
+  // 1. Prune old log files (> LOG_RETENTION_DAYS)
+  const logsDir = path.join(DATA_DIR, 'logs');
+  const logCutoff = now - LOG_RETENTION_DAYS * 86400000;
+  try {
+    for (const f of fs.readdirSync(logsDir)) {
+      const fp = path.join(logsDir, f);
+      try {
+        const stat = fs.statSync(fp);
+        if (stat.mtimeMs < logCutoff) {
+          fs.unlinkSync(fp);
+          cleaned.logs++;
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+
+  // 2. Remove .scanned marker files for logs that no longer exist
+  try {
+    for (const f of fs.readdirSync(logsDir)) {
+      if (!f.endsWith('.scanned')) continue;
+      const logFile = f.replace('.scanned', '');
+      if (!fs.existsSync(path.join(logsDir, logFile))) {
+        try { fs.unlinkSync(path.join(logsDir, f)); cleaned.markers++; } catch (_) {}
+      }
+    }
+  } catch (_) {}
+
+  // 3. Prune stale runtime scripts (> RUNTIME_STALE_HOURS)
+  const runtimeDir = path.join(DATA_DIR, 'runtime');
+  const rtCutoff = now - RUNTIME_STALE_HOURS * 3600000;
+  try {
+    for (const f of fs.readdirSync(runtimeDir)) {
+      const fp = path.join(runtimeDir, f);
+      try {
+        if (fs.statSync(fp).mtimeMs < rtCutoff) { fs.unlinkSync(fp); cleaned.runtime++; }
+      } catch (_) {}
+    }
+  } catch (_) {}
+
+  // 4. Prune old snapshot archives (> SNAPSHOT_ARCHIVE_RETENTION_DAYS)
+  const archiveDir = path.join(DATA_DIR, 'archive', 'snapshots');
+  const archCutoff = now - SNAPSHOT_ARCHIVE_RETENTION_DAYS * 86400000;
+  try {
+    for (const d of fs.readdirSync(archiveDir)) {
+      const dp = path.join(archiveDir, d);
+      try {
+        if (fs.statSync(dp).mtimeMs < archCutoff) {
+          fs.rmSync(dp, { recursive: true, force: true });
+          cleaned.snapshotArchive++;
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+
+  // 5. Trim audit log to MAX_AUDIT_ROWS (keep newest)
+  try {
+    const total = audit.all().length;
+    if (total > MAX_AUDIT_ROWS) {
+      const excess = total - MAX_AUDIT_ROWS;
+      // Delete oldest rows
+      const { db: rawDb } = require('./db');
+      rawDb.prepare('DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log ORDER BY timestamp ASC LIMIT ?)').run(excess);
+      cleaned.audit = excess;
+    }
+  } catch (_) {}
+
+  return cleaned;
+}
+
+// Run housekeeping every 30 minutes
+setInterval(runHousekeeping, 30 * 60 * 1000);
+
 // =============================================================================
 // START BOTH SERVERS
 // =============================================================================

@@ -716,6 +716,60 @@ function renderSystem(d) {
     grid.appendChild(el('div', 'sys-item', [el('span', 'sys-key', pair[0]), el('span', 'sys-val', String(pair[1]))]));
   });
   body.appendChild(grid);
+
+  // --- Housekeeping ---
+  body.appendChild(el('div', { class: 'sec-label sec-label-mt', style: 'margin-top:18px' }, 'Data Housekeeping'));
+  var hkContainer = el('div', { id: 'hk-stats' });
+  body.appendChild(hkContainer);
+  api('GET', '/api/housekeeping').then(function(hk) { renderHousekeeping(hk, hkContainer); });
+
+  // --- Factory Reset ---
+  body.appendChild(el('div', { class: 'sec-label sec-label-mt', style: 'margin-top:18px;color:var(--error)' }, 'Danger Zone'));
+  var resetBox = el('div', { style: 'padding:14px 16px;background:var(--error-soft);border:1px solid var(--error);border-radius:var(--radius-sm);display:flex;align-items:center;gap:12px' }, [
+    el('div', { style: 'flex:1' }, [
+      el('div', { style: 'font-size:13px;font-weight:600;color:var(--error)' }, 'Factory Reset'),
+      el('div', { style: 'font-size:11px;color:var(--text-secondary);margin-top:2px' }, 'Wipe all data: DB, logs, snapshots, backups, config. Server stops. Restart for a fresh instance.'),
+    ]),
+    el('button', { class: 'cp-btn cp-btn-danger', style: 'white-space:nowrap', onclick: function() {
+      var pass1 = confirm('FACTORY RESET\n\nThis will permanently delete:\n- All cards and sessions\n- All logs and snapshots\n- All backups\n- Custom prompts and config\n\nThis cannot be undone. Continue?');
+      if (!pass1) return;
+      var pass2 = prompt('Type RESET to confirm factory reset:');
+      if (pass2 !== 'RESET') { toast('Factory reset cancelled', 'info'); return; }
+      api('POST', '/api/factory-reset').then(function(r) {
+        if (r.success) {
+          toast('Factory reset complete. Server shutting down...', 'success');
+          setTimeout(function() { location.reload(); }, 3000);
+        }
+      });
+    } }, 'Factory Reset'),
+  ]);
+  body.appendChild(resetBox);
+}
+
+function renderHousekeeping(hk, container) {
+  clear(container);
+  var grid = el('div', 'sys-grid');
+  [
+    ['Logs', fmtSize(hk.logs.size) + ' (' + hk.logs.files + ' files)'],
+    ['Snapshots', fmtSize(hk.snapshots.size) + ' (' + hk.snapshots.files + ' files)'],
+    ['Snapshot Archive', fmtSize(hk.archive.size) + ' (' + hk.archive.files + ' files)'],
+    ['Runtime Scripts', fmtSize(hk.runtime.size) + ' (' + hk.runtime.files + ' files)'],
+    ['Backups', fmtSize(hk.backups.size) + ' (' + hk.backups.files + ' files)'],
+    ['Total .data/', fmtSize(hk.total)],
+  ].forEach(function(pair) {
+    grid.appendChild(el('div', 'sys-item', [el('span', 'sys-key', pair[0]), el('span', 'sys-val', pair[1])]));
+  });
+  container.appendChild(grid);
+  container.appendChild(el('div', { style: 'display:flex;gap:8px;align-items:center;margin-top:10px' }, [
+    el('button', { class: 'cp-btn', onclick: function() {
+      api('POST', '/api/housekeeping/run').then(function(r) {
+        var msg = 'Cleaned: ' + r.logs + ' logs, ' + r.markers + ' markers, ' + r.runtime + ' scripts, ' + r.snapshotArchive + ' archives, ' + r.audit + ' audit rows';
+        toast(msg, 'success');
+        api('GET', '/api/housekeeping').then(function(hk2) { renderHousekeeping(hk2, container); });
+      });
+    } }, 'Run Cleanup Now'),
+    el('span', 'cfg-help', 'Auto-runs every 30min. Prunes logs >7d, stale scripts >24h, archives >14d, audit >10K rows.'),
+  ]));
 }
 
 // --- Board Usage ---

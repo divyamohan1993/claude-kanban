@@ -1419,6 +1419,23 @@ kbd {
   .card { box-shadow: none; border: 1px solid #ccc; }
 }
 
+/* ----------------------------------------------------------------
+   View-Only Mode — hide write actions for unauthenticated users
+   ---------------------------------------------------------------- */
+body.view-only .write-action,
+body.view-only #add-btn,
+body.view-only .pipeline-controls,
+body.view-only .card-actions .btn-sm:not(.btn-info):not(.btn-log) {
+  display: none !important;
+}
+body.view-only .card {
+  cursor: default;
+}
+body.view-only .card-list.drag-over {
+  background: var(--bg);
+  border-color: var(--border);
+}
+
 /* --- Reduced motion --- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

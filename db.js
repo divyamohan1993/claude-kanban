@@ -32,6 +32,12 @@ db.exec(`
     started_at TEXT DEFAULT (datetime('now')),
     completed_at TEXT
   );
+  CREATE TABLE IF NOT EXISTS claude_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL,
+    card_id INTEGER,
+    started_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 // Schema migrations — safe to re-run
@@ -67,6 +73,10 @@ const stmts = {
   createSession: db.prepare('INSERT INTO sessions (card_id, type, pid) VALUES (?, ?, ?)'),
   updateSession: db.prepare("UPDATE sessions SET status = ?, output = ?, completed_at = datetime('now') WHERE id = ?"),
   getSessionsByCard: db.prepare('SELECT * FROM sessions WHERE card_id = ? ORDER BY started_at DESC'),
+  logUsage: db.prepare('INSERT INTO claude_usage (type, card_id) VALUES (?, ?)'),
+  hourlyUsage: db.prepare("SELECT COUNT(*) as cnt FROM claude_usage WHERE started_at > datetime('now', '-1 hour')"),
+  weeklyUsage: db.prepare("SELECT COUNT(*) as cnt FROM claude_usage WHERE started_at > datetime('now', '-7 days')"),
+  usageBreakdown: db.prepare("SELECT type, COUNT(*) as cnt FROM claude_usage WHERE started_at > datetime('now', ?) GROUP BY type"),
 };
 
 // Periodic DB maintenance: WAL checkpoint + optimize every 5 min
@@ -122,5 +132,11 @@ module.exports = {
     create: (cardId, type, pid) => stmts.createSession.run(cardId, type, pid),
     update: (id, status, output) => stmts.updateSession.run(status, output, id),
     getByCard: (cardId) => stmts.getSessionsByCard.all(cardId),
+  },
+  usage: {
+    log: (type, cardId) => stmts.logUsage.run(type, cardId || null),
+    hourly: () => stmts.hourlyUsage.get().cnt,
+    weekly: () => stmts.weeklyUsage.get().cnt,
+    breakdown: (interval) => stmts.usageBreakdown.all(interval),
   },
 };

@@ -2,7 +2,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { cards, sessions } = require('./db');
+const { cards, sessions, usage } = require('./db');
 const snapshot = require('./snapshot');
 
 const IS_WIN = process.platform === 'win32';
@@ -13,11 +13,17 @@ const DATA_DIR = path.join(KANBAN_DIR, '.data');
 const LOGS_DIR = path.join(DATA_DIR, 'logs');
 const RUNTIME_DIR = path.join(DATA_DIR, 'runtime');
 
-// --- Configurable Limits ---
-const MAX_CONCURRENT_BUILDS = Number(process.env.MAX_CONCURRENT_BUILDS) || 1;
-const BUILD_TIMEOUT_POLLS = Number(process.env.BUILD_TIMEOUT_MINS || 60) * 12; // 5s intervals — hard cap fallback
-const IDLE_TIMEOUT_MS = Number(process.env.IDLE_TIMEOUT_MINS || 15) * 60 * 1000; // no log activity = stalled
-const WEBHOOK_URL = process.env.WEBHOOK_URL || '';
+// --- Configurable Limits (mutable — runtime-editable via control panel) ---
+var MAX_CONCURRENT_BUILDS = Number(process.env.MAX_CONCURRENT_BUILDS) || 1;
+var BUILD_TIMEOUT_POLLS = Number(process.env.BUILD_TIMEOUT_MINS || 60) * 12; // 5s intervals — hard cap fallback
+var IDLE_TIMEOUT_MS = Number(process.env.IDLE_TIMEOUT_MINS || 15) * 60 * 1000; // no log activity = stalled
+var WEBHOOK_URL = process.env.WEBHOOK_URL || '';
+var MAX_HOURLY_SESSIONS = Number(process.env.MAX_HOURLY_SESSIONS) || 0;   // 0 = unlimited
+var MAX_WEEKLY_SESSIONS = Number(process.env.MAX_WEEKLY_SESSIONS) || 0;   // 0 = unlimited
+var USAGE_PAUSE_PCT = Number(process.env.USAGE_PAUSE_PCT) || 80;         // auto-pause pipeline at this %
+var CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-6';
+var CLAUDE_EFFORT = process.env.CLAUDE_EFFORT || 'high';
+var CUSTOM_PROMPTS_FILE = path.join(DATA_DIR, 'custom-prompts.json');
 
 // Active pollers for build completion
 const activePollers = new Map();
@@ -279,7 +285,7 @@ function analyzeProject(projectPath) {
 
 function runClaudeSilent(opts) {
   var scriptPath, lines;
-  var cliBase = 'claude --model claude-opus-4-6 --effort high --dangerously-skip-permissions';
+  var cliBase = 'claude --model ' + CLAUDE_MODEL + ' --effort ' + CLAUDE_EFFORT + ' --dangerously-skip-permissions';
 
   if (IS_WIN) {
     scriptPath = path.join(RUNTIME_DIR, '.run-' + opts.id + '.bat');
@@ -325,7 +331,199 @@ function runClaudeSilent(opts) {
   var pid = child.pid || 0;
   if (opts.cardId) buildPids.set(opts.cardId, pid);
 
+  // Track usage for limit enforcement
+  var usageType = (opts.id || '').replace(/-\d+.*$/, ''); // e.g. 'build', 'brainstorm', 'review'
+  usage.log(usageType, opts.cardId || null);
+
   return { pid: pid, scriptPath: scriptPath };
+}
+
+// --- Claude Max Usage (real plan limits from API) ---
+
+var _usageCache = { data: null, fetchedAt: 0 };
+var USAGE_CACHE_TTL = 55 * 60 * 1000; // ~1 hour (conservative — avoid spam)
+
+function fetchClaudeUsage(force) {
+  // Return cached if fresh
+  if (!force && _usageCache.data && (Date.now() - _usageCache.fetchedAt < USAGE_CACHE_TTL)) {
+    return Promise.resolve(_usageCache.data);
+  }
+
+  var credPath = path.join(os.homedir(), '.claude', '.credentials.json');
+  var creds;
+  try {
+    creds = JSON.parse(fs.readFileSync(credPath, 'utf-8'));
+  } catch (_) {
+    return Promise.resolve(null);
+  }
+
+  var token = creds && creds.claudeAiOauth && creds.claudeAiOauth.accessToken;
+  if (!token) return Promise.resolve(null);
+
+  return new Promise(function(resolve) {
+    var https = require('https');
+    var req = https.request({
+      hostname: 'api.anthropic.com',
+      path: '/api/oauth/usage',
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'anthropic-beta': 'oauth-2025-04-20',
+      },
+    }, function(res) {
+      var body = '';
+      res.on('data', function(chunk) { body += chunk; });
+      res.on('end', function() {
+        try {
+          var data = JSON.parse(body);
+          _usageCache.data = data;
+          _usageCache.fetchedAt = Date.now();
+          resolve(data);
+        } catch (_) { resolve(null); }
+      });
+    });
+    req.on('error', function() { resolve(null); });
+    req.setTimeout(10000, function() { req.destroy(); resolve(null); });
+    req.end();
+  });
+}
+
+function checkUsageLimits() {
+  // Self-imposed session limits
+  var hourly = usage.hourly();
+  var weekly = usage.weekly();
+  var hitHourly = MAX_HOURLY_SESSIONS > 0 && hourly >= MAX_HOURLY_SESSIONS;
+  var hitWeekly = MAX_WEEKLY_SESSIONS > 0 && weekly >= MAX_WEEKLY_SESSIONS;
+
+  if (hitHourly || hitWeekly) {
+    var reason = hitHourly
+      ? 'Session limit reached (' + hourly + '/' + MAX_HOURLY_SESSIONS + '/hr)'
+      : 'Weekly session limit reached (' + weekly + '/' + MAX_WEEKLY_SESSIONS + '/wk)';
+    if (!pipelinePaused) {
+      pipelinePaused = true;
+      _broadcast('pipeline-state', { paused: true });
+      _broadcast('toast', { message: 'Pipeline auto-paused: ' + reason, type: 'error' });
+      sendWebhook('usage-limit', { reason: reason, hourly: hourly, weekly: weekly });
+    }
+    return { allowed: false, reason: reason };
+  }
+
+  // Real plan limits (from cache — non-blocking)
+  var cached = _usageCache.data;
+  if (cached) {
+    var sessionPct = cached.five_hour ? cached.five_hour.utilization : 0;
+    var weeklyPct = cached.seven_day ? cached.seven_day.utilization : 0;
+    var overSession = sessionPct >= USAGE_PAUSE_PCT;
+    var overWeekly = weeklyPct >= USAGE_PAUSE_PCT;
+
+    if (overSession || overWeekly) {
+      var reason = overSession
+        ? 'Claude Max session at ' + sessionPct + '% (limit: ' + USAGE_PAUSE_PCT + '%)'
+        : 'Claude Max weekly at ' + weeklyPct + '% (limit: ' + USAGE_PAUSE_PCT + '%)';
+      if (!pipelinePaused) {
+        pipelinePaused = true;
+        _broadcast('pipeline-state', { paused: true });
+        _broadcast('toast', { message: 'Pipeline auto-paused: ' + reason, type: 'error' });
+        sendWebhook('usage-limit', { reason: reason, session: sessionPct, weekly: weeklyPct });
+      }
+      return { allowed: false, reason: reason };
+    }
+  }
+
+  return { allowed: true };
+}
+
+function getUsageStats() {
+  var planData = _usageCache.data;
+  return {
+    plan: planData ? {
+      session: { utilization: planData.five_hour ? planData.five_hour.utilization : null, resetsAt: planData.five_hour ? planData.five_hour.resets_at : null },
+      weekly: { utilization: planData.seven_day ? planData.seven_day.utilization : null, resetsAt: planData.seven_day ? planData.seven_day.resets_at : null },
+      sonnet: planData.seven_day_sonnet ? { utilization: planData.seven_day_sonnet.utilization, resetsAt: planData.seven_day_sonnet.resets_at } : null,
+      extraUsage: planData.extra_usage || null,
+      pauseThreshold: USAGE_PAUSE_PCT,
+      cachedAt: _usageCache.fetchedAt ? new Date(_usageCache.fetchedAt).toISOString() : null,
+    } : null,
+    board: {
+      hourly: { count: usage.hourly(), limit: MAX_HOURLY_SESSIONS || null },
+      weekly: { count: usage.weekly(), limit: MAX_WEEKLY_SESSIONS || null },
+      hourlyBreakdown: usage.breakdown('-1 hour'),
+      weeklyBreakdown: usage.breakdown('-7 days'),
+    },
+  };
+}
+
+// --- Runtime Configuration (control panel) ---
+
+function getConfig() {
+  return {
+    runtime: {
+      maxConcurrentBuilds: MAX_CONCURRENT_BUILDS,
+      buildTimeoutMins: Math.round(BUILD_TIMEOUT_POLLS / 12),
+      idleTimeoutMins: Math.round(IDLE_TIMEOUT_MS / 60000),
+      usagePausePct: USAGE_PAUSE_PCT,
+      maxHourlySessions: MAX_HOURLY_SESSIONS,
+      maxWeeklySessions: MAX_WEEKLY_SESSIONS,
+      maxReviewFixAttempts: MAX_REVIEW_FIX_ATTEMPTS,
+      maxFixAttempts: MAX_FIX_ATTEMPTS,
+      claudeModel: CLAUDE_MODEL,
+      claudeEffort: CLAUDE_EFFORT,
+      webhookUrl: WEBHOOK_URL,
+    },
+    env: {
+      port: process.env.PORT || 51777,
+      projectsRoot: PROJECTS_ROOT,
+      platform: process.platform,
+      nodeVersion: process.version,
+      pid: process.pid,
+      uptime: process.uptime(),
+      memoryMB: Math.round(process.memoryUsage().rss / 1048576),
+    },
+    status: {
+      pipelinePaused: pipelinePaused,
+      activeBuilds: activeBuilds.size,
+      queueLength: workQueue.length,
+      activeFixes: activeFixes.size,
+      activePollers: activePollers.size,
+    },
+  };
+}
+
+function setConfig(updates) {
+  var changed = {};
+  if (updates.maxConcurrentBuilds !== undefined) { MAX_CONCURRENT_BUILDS = Math.max(1, Number(updates.maxConcurrentBuilds)); changed.maxConcurrentBuilds = MAX_CONCURRENT_BUILDS; }
+  if (updates.buildTimeoutMins !== undefined) { BUILD_TIMEOUT_POLLS = Math.max(1, Number(updates.buildTimeoutMins)) * 12; changed.buildTimeoutMins = Math.round(BUILD_TIMEOUT_POLLS / 12); }
+  if (updates.idleTimeoutMins !== undefined) { IDLE_TIMEOUT_MS = Math.max(1, Number(updates.idleTimeoutMins)) * 60000; changed.idleTimeoutMins = Math.round(IDLE_TIMEOUT_MS / 60000); }
+  if (updates.usagePausePct !== undefined) { USAGE_PAUSE_PCT = Math.max(1, Math.min(100, Number(updates.usagePausePct))); changed.usagePausePct = USAGE_PAUSE_PCT; }
+  if (updates.maxHourlySessions !== undefined) { MAX_HOURLY_SESSIONS = Math.max(0, Number(updates.maxHourlySessions)); changed.maxHourlySessions = MAX_HOURLY_SESSIONS; }
+  if (updates.maxWeeklySessions !== undefined) { MAX_WEEKLY_SESSIONS = Math.max(0, Number(updates.maxWeeklySessions)); changed.maxWeeklySessions = MAX_WEEKLY_SESSIONS; }
+  if (updates.maxReviewFixAttempts !== undefined) { MAX_REVIEW_FIX_ATTEMPTS = Math.max(0, Number(updates.maxReviewFixAttempts)); changed.maxReviewFixAttempts = MAX_REVIEW_FIX_ATTEMPTS; }
+  if (updates.maxFixAttempts !== undefined) { MAX_FIX_ATTEMPTS = Math.max(0, Number(updates.maxFixAttempts)); changed.maxFixAttempts = MAX_FIX_ATTEMPTS; }
+  if (updates.claudeModel !== undefined) { CLAUDE_MODEL = String(updates.claudeModel); changed.claudeModel = CLAUDE_MODEL; }
+  if (updates.claudeEffort !== undefined) { CLAUDE_EFFORT = String(updates.claudeEffort); changed.claudeEffort = CLAUDE_EFFORT; }
+  if (updates.webhookUrl !== undefined) { WEBHOOK_URL = String(updates.webhookUrl); changed.webhookUrl = WEBHOOK_URL; }
+  _broadcast('config-updated', getConfig());
+  return changed;
+}
+
+// --- Custom Prompts ---
+
+function getCustomPrompts() {
+  try {
+    return JSON.parse(fs.readFileSync(CUSTOM_PROMPTS_FILE, 'utf-8'));
+  } catch (_) {
+    return { buildInstructions: '', reviewCriteria: '', brainstormInstructions: '', qualityGates: '' };
+  }
+}
+
+function setCustomPrompts(prompts) {
+  var data = getCustomPrompts();
+  if (prompts.buildInstructions !== undefined) data.buildInstructions = prompts.buildInstructions;
+  if (prompts.reviewCriteria !== undefined) data.reviewCriteria = prompts.reviewCriteria;
+  if (prompts.brainstormInstructions !== undefined) data.brainstormInstructions = prompts.brainstormInstructions;
+  if (prompts.qualityGates !== undefined) data.qualityGates = prompts.qualityGates;
+  fs.writeFileSync(CUSTOM_PROMPTS_FILE, JSON.stringify(data, null, 2));
+  return data;
 }
 
 function killProcess(pid) {
@@ -346,6 +544,24 @@ function init(broadcastFn) {
   _broadcast = broadcastFn;
   preflightChecks();
   resetStuckCards();
+
+  // Initial usage fetch + periodic refresh (every 5 min)
+  fetchClaudeUsage(true).then(function(data) {
+    if (data) {
+      console.log('  [usage] Claude Max: session ' + (data.five_hour ? data.five_hour.utilization : '?') + '%, weekly ' + (data.seven_day ? data.seven_day.utilization : '?') + '%');
+      _broadcast('usage-update', getUsageStats());
+    } else {
+      console.log('  [usage] Could not fetch Claude Max usage (check ~/.claude/.credentials.json)');
+    }
+  });
+  setInterval(function() {
+    fetchClaudeUsage(true).then(function(data) {
+      if (data) {
+        _broadcast('usage-update', getUsageStats());
+        checkUsageLimits();
+      }
+    });
+  }, USAGE_CACHE_TTL);
 }
 
 // --- Preflight: verify all permissions/tools upfront so nothing fails midway ---
@@ -520,7 +736,9 @@ function dequeue(cardId) {
         killProcess(pid);
         buildPids.delete(cardId);
       }
-      processQueue();
+      // Do NOT call processQueue() here — dequeue is always a manual action.
+      // Automatic queue processing is handled by releaseProjectLock() and
+      // pollForCompletion's needsQueueProcess flag in their respective flows.
       return { removed: true, wasBuilding: true };
     }
   }
@@ -651,6 +869,9 @@ function checkUnblock() {
 function processQueue() {
   // Pipeline paused — nothing starts until user resumes
   if (pipelinePaused) return;
+  // Usage limits — auto-pause if over threshold
+  var limits = checkUsageLimits();
+  if (!limits.allowed) return;
   // Global concurrency limit
   if (activeBuilds.size >= MAX_CONCURRENT_BUILDS) return;
 
@@ -792,6 +1013,19 @@ function executeWork(cardId, projectPath) {
   claudeParts.push('');
   claudeParts.push('**Testing**: Test behavior not implementation. Ensure the application runs without errors before marking complete.');
 
+  // Append custom prompts if configured
+  var cp = getCustomPrompts();
+  if (cp.buildInstructions) {
+    claudeParts.push('');
+    claudeParts.push('## Additional Build Instructions');
+    claudeParts.push(cp.buildInstructions);
+  }
+  if (cp.qualityGates) {
+    claudeParts.push('');
+    claudeParts.push('## Additional Quality Gates');
+    claudeParts.push(cp.qualityGates);
+  }
+
   fs.writeFileSync(path.join(projectPath, 'CLAUDE.md'), claudeParts.join('\n'));
   setActivity(cardId, 'build', 'CLAUDE.md written — launching Claude...');
 
@@ -883,6 +1117,20 @@ function buildBrainstormPrompt(card) {
   parts.push('');
   parts.push('You have full access to all tools — read files, search code, explore the project. Use them to understand the codebase deeply before writing the spec.');
   parts.push('Output the complete specification as your final response text.');
+
+  // Append custom prompts if configured
+  var cp = getCustomPrompts();
+  if (cp.brainstormInstructions) {
+    parts.push('');
+    parts.push('## Additional Brainstorm Instructions');
+    parts.push(cp.brainstormInstructions);
+  }
+  if (cp.qualityGates) {
+    parts.push('');
+    parts.push('## Additional Quality Gates');
+    parts.push(cp.qualityGates);
+  }
+
   return parts.join('\n');
 }
 
@@ -1479,6 +1727,14 @@ function autoReview(cardId) {
   promptParts.push('Set needsHumanApproval to true ONLY for genuinely dangerous operations: destructive file deletions affecting production data, mass database changes, rm -rf of important directories, removing security controls. Normal code issues, missing features, or low scores do NOT need human approval — those get auto-fixed.');
   promptParts.push('You have full access to all tools — read every file, search for patterns, run checks. Be thorough but fair. Focus your review ONLY on what this specific card was supposed to build — do not penalize for features belonging to other cards/phases.');
 
+  // Append custom prompts if configured
+  var cp = getCustomPrompts();
+  if (cp.reviewCriteria) {
+    promptParts.push('');
+    promptParts.push('## Additional Review Criteria');
+    promptParts.push(cp.reviewCriteria);
+  }
+
   var prompt = promptParts.join('\n');
 
   runClaudeSilent({
@@ -1993,4 +2249,10 @@ module.exports = {
   isPaused: isPaused,
   killAll: killAll,
   stopCard: stopCard,
+  fetchClaudeUsage: fetchClaudeUsage,
+  getUsageStats: getUsageStats,
+  getConfig: getConfig,
+  setConfig: setConfig,
+  getCustomPrompts: getCustomPrompts,
+  setCustomPrompts: setCustomPrompts,
 };

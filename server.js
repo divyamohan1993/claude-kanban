@@ -6,13 +6,94 @@ const orchestrator = require('./orchestrator');
 const snapshot = require('./snapshot');
 const { spawn } = require('child_process');
 
-const app = express();
-const PORT = process.env.PORT || 51777;
+const PORT = Number(process.env.PORT) || 51777;
+const ADMIN_PORT = Number(process.env.ADMIN_PORT) || PORT + 1;
+const ADMIN_PIN = process.env.ADMIN_PIN || '';
+const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
 const DATA_DIR = path.join(__dirname, '.data');
 const LOGS_DIR = path.join(DATA_DIR, 'logs');
 
+// =============================================================================
+// PUBLIC APP — listens on 0.0.0.0:PORT, serves board UI + board APIs
+// =============================================================================
+const app = express();
 app.use(express.json());
+
+// Serve public static files EXCEPT control-panel.html
+app.use((req, res, next) => {
+  if (req.path === '/control-panel.html') return res.status(404).end();
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
+
+// --- Auth: backend-driven role system ---
+// When AUTH_TOKEN is set, the board is view-only for guests.
+// Authenticated users get 'editor' role. Guests get 'guest' role.
+// SSO will replace getRole() internals later — frontend uses role from server.
+function getBearer(req) {
+  return (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+}
+
+function getRole(req) {
+  if (!AUTH_TOKEN) return 'editor'; // no auth configured — everyone is editor
+  if (getBearer(req) === AUTH_TOKEN) return 'editor';
+  return 'guest';
+}
+
+// Attach role to every /api request
+app.use('/api', (req, _res, next) => {
+  req.role = getRole(req);
+  next();
+});
+
+// Block writes for guests
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  if (req.path === '/auth/login') return next();
+  if (req.role === 'editor') return next();
+  res.status(401).json({ error: 'Authentication required', authRequired: true });
+});
+
+// Strip sensitive fields from card data for guests
+function sanitizeCard(card, role) {
+  if (!card) return card;
+  if (role === 'editor') return card;
+  return {
+    id: card.id,
+    title: card.title,
+    description: card.description,
+    column_name: card.column_name,
+    status: card.status,
+    labels: card.labels,
+    review_score: card.review_score,
+    approved_by: card.approved_by,
+    phase_durations: card.phase_durations,
+    depends_on: card.depends_on,
+    created_at: card.created_at,
+    updated_at: card.updated_at,
+    // Stripped for guests: project_path, session_log, spec, review_data
+  };
+}
+
+function sanitizeCards(cardList, role) {
+  if (role === 'editor') return cardList;
+  return cardList.map(c => sanitizeCard(c, role));
+}
+
+app.get('/api/auth/status', (req, res) => {
+  res.json({ authRequired: !!AUTH_TOKEN, role: req.role });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  if (!AUTH_TOKEN) return res.json({ ok: true, authRequired: false, role: 'editor' });
+  if (req.body.token === AUTH_TOKEN) return res.json({ ok: true, role: 'editor' });
+  res.status(401).json({ ok: false, error: 'Invalid token' });
+});
+
+// Tell frontend where admin panel lives (localhost only, but gear icon needs the port)
+app.get('/api/admin-info', (_req, res) => {
+  res.json({ port: ADMIN_PORT });
+});
 
 // --- SSE ---
 const clients = new Set();
@@ -31,11 +112,13 @@ app.get('/api/events', (req, res) => {
 function broadcast(event, data) {
   const msg = 'event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n';
   for (const c of clients) c.write(msg);
+  // Also broadcast to admin SSE clients
+  for (const c of adminClients) c.write(msg);
 }
 
 // --- Cards CRUD ---
-app.get('/api/cards', (_req, res) => {
-  res.json(cards.getAll());
+app.get('/api/cards', (req, res) => {
+  res.json(sanitizeCards(cards.getAll(), req.role));
 });
 
 app.post('/api/cards', (req, res) => {
@@ -72,7 +155,7 @@ app.post('/api/cards/:id/move', (req, res) => {
   const fromColumn = card.column_name;
   if (fromColumn === column) return res.json(card);
 
-  // Leaving working or todo (queued) → dequeue/cancel
+  // Leaving working or todo (queued) -> dequeue/cancel
   var dequeueResult = { removed: false };
   if (fromColumn === 'working' || (fromColumn === 'todo' && card.status === 'queued')) {
     dequeueResult = orchestrator.dequeue(id);
@@ -84,7 +167,7 @@ app.post('/api/cards/:id/move', (req, res) => {
   // Move the card
   cards.move(id, column);
 
-  // Entering working → enqueue build (if card has a spec)
+  // Entering working -> enqueue build (if card has a spec)
   if (column === 'working' && card.spec) {
     try {
       orchestrator.enqueue(id, source === 'human' ? 1 : 0);
@@ -94,11 +177,12 @@ app.post('/api/cards/:id/move', (req, res) => {
       orchestrator.dequeue(id);
       cards.setStatus(id, 'idle');
       broadcast('card-updated', cards.get(id));
-      return res.json(cards.get(id));
+      broadcast('toast', { message: err.message, type: 'error' });
+      return res.status(409).json({ error: err.message, card: cards.get(id) });
     }
   }
 
-  // Moving to done → approve + auto-commit + auto-archive overflow
+  // Moving to done -> approve + auto-commit + auto-archive overflow
   if (column === 'done') {
     cards.setStatus(id, 'complete');
     orchestrator.autoChangelog(id);
@@ -107,7 +191,6 @@ app.post('/api/cards/:id/move', (req, res) => {
     orchestrator.releaseProjectLock(id);
     orchestrator.checkUnblock();
   } else if (dequeueResult.wasBuilding) {
-    // Card was actively building — mark as interrupted
     cards.setStatus(id, 'interrupted');
   } else {
     cards.setStatus(id, 'idle');
@@ -187,13 +270,12 @@ app.post('/api/cards/:id/open-claude', (req, res) => {
 
 app.post('/api/cards/:id/approve', (req, res) => {
   const id = Number(req.params.id);
-  // If review score wasn't saved (e.g. manual approve), try reading .review-complete
   const card = cards.get(id);
   if (card && (!card.review_score || card.review_score === 0) && card.project_path) {
     try {
-      const rcPath = require('path').join(card.project_path, '.review-complete');
-      if (require('fs').existsSync(rcPath)) {
-        const rc = JSON.parse(require('fs').readFileSync(rcPath, 'utf-8'));
+      const rcPath = path.join(card.project_path, '.review-complete');
+      if (fs.existsSync(rcPath)) {
+        const rc = JSON.parse(fs.readFileSync(rcPath, 'utf-8'));
         if (rc.score) cards.setReviewData(id, rc.score, JSON.stringify(rc));
       }
     } catch (_) { /* best effort */ }
@@ -202,19 +284,16 @@ app.post('/api/cards/:id/approve', (req, res) => {
   cards.setStatus(id, 'complete');
   cards.setApprovedBy(id, 'human');
   broadcast('card-updated', cards.get(id));
-  // Auto-changelog
   const clResult = orchestrator.autoChangelog(id);
   if (clResult.success) {
     broadcast('toast', { message: 'Changelog: ' + clResult.type + ' entry added', type: 'success' });
   }
-  // Auto-commit to git (includes changelog update)
   const gitResult = orchestrator.autoCommit(id);
   if (gitResult.success && gitResult.action !== 'no-changes') {
     broadcast('toast', { message: 'Git: ' + gitResult.action, type: 'success' });
   }
   autoArchiveDone();
   orchestrator.releaseProjectLock(id);
-  // Check if any blocked cards can now be unblocked
   orchestrator.checkUnblock();
   res.json({ card: cards.get(id), git: gitResult, changelog: clResult });
 });
@@ -227,7 +306,6 @@ app.post('/api/cards/:id/reject', (req, res) => {
   cards.setSessionLog(id, 'REJECTED - Files rolled back. ' + (result.success ? (result.wasNew ? 'New project folder removed.' : 'All files restored to pre-work state.') : result.reason));
   broadcast('card-updated', cards.get(id));
   orchestrator.releaseProjectLock(id);
-  // Cascade: block any cards that depend on this one
   const cascaded = orchestrator.cascadeRevert(id);
   res.json({ card: cards.get(id), rollback: result, cascaded: cascaded });
 });
@@ -238,13 +316,12 @@ app.post('/api/cards/:id/edit-file', express.json({ limit: '5mb' }), (req, res) 
   if (!card || !card.project_path) return res.status(404).json({ error: 'Card or project not found' });
   const { filePath, content } = req.body;
   if (!filePath || content === undefined) return res.status(400).json({ error: 'filePath and content required' });
-  // Security: ensure file is within project directory
-  const fullPath = require('path').resolve(card.project_path, filePath);
-  if (!fullPath.startsWith(card.project_path + require('path').sep) && fullPath !== card.project_path) {
+  const fullPath = path.resolve(card.project_path, filePath);
+  if (!fullPath.startsWith(card.project_path + path.sep) && fullPath !== card.project_path) {
     return res.status(403).json({ error: 'Path traversal not allowed' });
   }
   try {
-    require('fs').writeFileSync(fullPath, content, 'utf-8');
+    fs.writeFileSync(fullPath, content, 'utf-8');
     broadcast('toast', { message: 'Saved: ' + filePath, type: 'success' });
     res.json({ success: true, file: filePath });
   } catch (err) {
@@ -260,62 +337,56 @@ app.post('/api/cards/:id/revert-files', (req, res) => {
   const result = snapshot.revert(id);
   if (result.success) {
     broadcast('toast', { message: 'Files reverted to pre-work state for: ' + card.title, type: 'success' });
-    // Cascade: block dependent cards since this card's code is now reverted
     orchestrator.cascadeRevert(id);
   }
   res.json(result);
 });
 
 app.get('/api/cards/:id/has-snapshot', (req, res) => {
+  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   res.json({ has: snapshot.has(Number(req.params.id)) });
 });
 
 app.get('/api/cards/:id/sessions', (req, res) => {
+  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   res.json(sessions.getByCard(Number(req.params.id)));
 });
 
 // --- Logs API ---
 app.get('/api/cards/:id/log/:type', (req, res) => {
+  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   const logPath = path.join(LOGS_DIR, 'card-' + req.params.id + '-' + req.params.type + '.log');
   if (!fs.existsSync(logPath)) return res.status(404).json({ error: 'No log found' });
   res.type('text/plain').send(fs.readFileSync(logPath, 'utf-8'));
 });
 
-// --- Self-Healing v2: auto-detect errors, auto-fix without human intervention ---
+// --- Self-Healing v2 ---
 function scanLogsForErrors() {
   if (!fs.existsSync(LOGS_DIR)) return;
   var files;
   try { files = fs.readdirSync(LOGS_DIR); } catch (_) { return; }
 
   var errorPatterns = [
-    /Error: (.+)/g,
-    /ENOENT: (.+)/g,
-    /EACCES: (.+)/g,
-    /Cannot find module '(.+)'/g,
-    /SyntaxError: (.+)/g,
-    /TIMEOUT after/g,
+    /Error: (.+)/g, /ENOENT: (.+)/g, /EACCES: (.+)/g,
+    /Cannot find module '(.+)'/g, /SyntaxError: (.+)/g, /TIMEOUT after/g,
   ];
 
   for (var i = 0; i < files.length; i++) {
     var file = files[i];
     if (!file.endsWith('.log')) continue;
-    // Skip fix logs and review logs to avoid recursive heal loops
     if (file.includes('-fix-') || file.includes('-review')) continue;
 
     var logFile = path.join(LOGS_DIR, file);
     var markerPath = logFile + '.scanned';
-
     if (fs.existsSync(markerPath)) continue;
 
     var content;
     try { content = fs.readFileSync(logFile, 'utf-8'); } catch (_) { continue; }
-
-    // Only scan completed/failed logs
     if (!content.includes('completed') && !content.includes('TIMEOUT') && !content.includes('Error')) continue;
 
     var errors = [];
     for (var p = 0; p < errorPatterns.length; p++) {
-      errorPatterns[p].lastIndex = 0; // reset regex state
+      errorPatterns[p].lastIndex = 0;
       var match;
       while ((match = errorPatterns[p].exec(content)) !== null) {
         errors.push(match[0]);
@@ -331,7 +402,6 @@ function scanLogsForErrors() {
 
       if (attempts.count < 2) {
         var healResult = orchestrator.selfHeal(sourceCardId, uniqueErrors, logFile);
-
         if (healResult.status === 'fixing') {
           fs.appendFileSync(logFile, '\n[SELF-HEAL] Auto-fix attempt ' + healResult.attempt + ' started\n');
         } else if (healResult.status === 'max-attempts') {
@@ -341,7 +411,6 @@ function scanLogsForErrors() {
         escalateToHuman(sourceCardId, uniqueErrors, file, logFile);
       }
     }
-
     fs.writeFileSync(markerPath, new Date().toISOString());
   }
 }
@@ -372,11 +441,10 @@ function escalateToHuman(sourceCardId, errors, file, logFile) {
 
 setInterval(scanLogsForErrors, 30000);
 
-// --- Auto-Archive: keep latest 5 in Done, move rest to archive ---
+// --- Auto-Archive ---
 function autoArchiveDone() {
   const doneCards = cards.getAll().filter(c => c.column_name === 'done');
   if (doneCards.length <= 5) return;
-  // Sort by updated_at descending — keep 5 newest
   doneCards.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
   const toArchive = doneCards.slice(5);
   for (const card of toArchive) {
@@ -386,7 +454,6 @@ function autoArchiveDone() {
   if (toArchive.length > 0) {
     broadcast('toast', { message: toArchive.length + ' card(s) auto-archived', type: 'info' });
   }
-  // Rotate archive — cap at 50, delete oldest beyond limit
   const deleted = cards.rotateArchive();
   for (const delId of deleted) {
     snapshot.clear(delId);
@@ -394,9 +461,7 @@ function autoArchiveDone() {
 }
 
 // --- Archive API ---
-app.get('/api/archive', (_req, res) => {
-  res.json(cards.getArchived());
-});
+app.get('/api/archive', (req, res) => { res.json(sanitizeCards(cards.getArchived(), req.role)); });
 
 app.post('/api/cards/:id/unarchive', (req, res) => {
   const id = Number(req.params.id);
@@ -408,59 +473,24 @@ app.post('/api/cards/:id/unarchive', (req, res) => {
   res.json(cards.get(id));
 });
 
-// --- Queue API ---
-app.get('/api/queue', (_req, res) => {
-  res.json(orchestrator.getQueueInfo());
-});
-
-// --- Pipeline Control ---
-app.get('/api/pipeline', (_req, res) => {
-  res.json({ paused: orchestrator.isPaused() });
-});
-
-app.post('/api/pipeline/pause', (_req, res) => {
-  orchestrator.setPaused(true);
-  res.json({ paused: true });
-});
-
-app.post('/api/pipeline/resume', (_req, res) => {
-  orchestrator.setPaused(false);
-  res.json({ paused: false });
-});
-
-app.post('/api/pipeline/kill-all', (_req, res) => {
-  const killed = orchestrator.killAll();
-  res.json({ killed });
-});
-
-app.post('/api/cards/:id/stop', (req, res) => {
-  try {
-    const result = orchestrator.stopCard(Number(req.params.id));
-    res.json(result);
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// --- Activities API (current pipeline activity per card) ---
-app.get('/api/activities', (_req, res) => {
-  res.json(orchestrator.getActivities());
-});
+// --- Queue / Activities / Pipeline (read-only, safe on public) ---
+app.get('/api/queue', (_req, res) => { res.json(orchestrator.getQueueInfo()); });
+app.get('/api/activities', (_req, res) => { res.json(orchestrator.getActivities()); });
+app.get('/api/pipeline', (_req, res) => { res.json({ paused: orchestrator.isPaused() }); });
 
 // --- Review Data API ---
 app.get('/api/cards/:id/review', (req, res) => {
+  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   const card = cards.get(Number(req.params.id));
   if (!card) return res.status(404).json({ error: 'Card not found' });
   if (!card.review_data) return res.json({ score: 0, findings: [] });
-  try {
-    res.json(JSON.parse(card.review_data));
-  } catch (_) {
-    res.json({ score: card.review_score || 0, findings: [] });
-  }
+  try { res.json(JSON.parse(card.review_data)); }
+  catch (_) { res.json({ score: card.review_score || 0, findings: [] }); }
 });
 
 // --- Live Log Stream (SSE) ---
 app.get('/api/cards/:id/log-stream', (req, res) => {
+  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   const id = req.params.id;
   const type = req.query.type || 'build';
   const logFile = path.join(LOGS_DIR, 'card-' + id + '-' + type + '.log');
@@ -470,8 +500,6 @@ app.get('/api/cards/:id/log-stream', (req, res) => {
     'Cache-Control': 'no-cache',
     'Connection': 'keep-alive',
   });
-
-  // Always send immediate connected message so frontend knows stream is alive
   res.write('data: ' + JSON.stringify({ type: 'connected' }) + '\n\n');
 
   let lastSize = 0;
@@ -488,7 +516,6 @@ app.get('/api/cards/:id/log-stream', (req, res) => {
     res.write('data: ' + JSON.stringify({ type: 'waiting', content: 'Waiting for log file...' }) + '\n\n');
   }
 
-  // Send heartbeat every 15s to keep connection alive
   const heartbeat = setInterval(() => {
     try { res.write(': heartbeat\n\n'); } catch (_) {}
   }, 15000);
@@ -498,7 +525,6 @@ app.get('/api/cards/:id/log-stream', (req, res) => {
       if (!fs.existsSync(logFile)) return;
       const stat = fs.statSync(logFile);
       if (!fileFound) {
-        // File just appeared — send full content
         fileFound = true;
         const content = fs.readFileSync(logFile, 'utf-8');
         res.write('data: ' + JSON.stringify({ type: 'initial', content: content }) + '\n\n');
@@ -519,14 +545,13 @@ app.get('/api/cards/:id/log-stream', (req, res) => {
   req.on('close', () => { clearInterval(interval); clearInterval(heartbeat); });
 });
 
-// --- Search ---
+// --- Search / Spec / Labels / Deps / Diff / Retry / Preview ---
 app.get('/api/search', (req, res) => {
   const q = req.query.q;
   if (!q) return res.json([]);
-  res.json(cards.search(q));
+  res.json(sanitizeCards(cards.search(q), req.role));
 });
 
-// --- Spec Editing ---
 app.put('/api/cards/:id/spec', (req, res) => {
   const id = Number(req.params.id);
   const { spec } = req.body;
@@ -537,7 +562,6 @@ app.put('/api/cards/:id/spec', (req, res) => {
   res.json(card);
 });
 
-// --- Labels ---
 app.put('/api/cards/:id/labels', (req, res) => {
   const id = Number(req.params.id);
   const { labels } = req.body;
@@ -548,7 +572,6 @@ app.put('/api/cards/:id/labels', (req, res) => {
   res.json(card);
 });
 
-// --- Dependencies ---
 app.put('/api/cards/:id/depends-on', (req, res) => {
   const id = Number(req.params.id);
   const { dependsOn } = req.body;
@@ -559,14 +582,13 @@ app.put('/api/cards/:id/depends-on', (req, res) => {
   res.json(card);
 });
 
-// --- Diff Viewer ---
 app.get('/api/cards/:id/diff', (req, res) => {
+  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   const result = orchestrator.getDiff(Number(req.params.id));
   if (result.error) return res.status(404).json(result);
   res.json(result);
 });
 
-// --- Retry with Feedback ---
 app.post('/api/cards/:id/retry', (req, res) => {
   const id = Number(req.params.id);
   const { feedback } = req.body;
@@ -579,7 +601,6 @@ app.post('/api/cards/:id/retry', (req, res) => {
   }
 });
 
-// --- Preview / Run ---
 app.post('/api/cards/:id/preview', (req, res) => {
   try {
     const result = orchestrator.previewProject(Number(req.params.id));
@@ -589,12 +610,12 @@ app.post('/api/cards/:id/preview', (req, res) => {
   }
 });
 
-// --- Export ---
-app.get('/api/export', (_req, res) => {
+// --- Export / Bulk Import / Metrics (on public for kanban board JS) ---
+app.get('/api/export', (req, res) => {
+  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   res.json(orchestrator.exportBoard());
 });
 
-// --- Bulk Import ---
 app.post('/api/bulk-create', (req, res) => {
   const { items } = req.body;
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items array required' });
@@ -610,12 +631,12 @@ app.post('/api/bulk-create', (req, res) => {
   res.json({ created: created.length, cards: created });
 });
 
-// --- Metrics ---
-app.get('/api/metrics', (_req, res) => {
+app.get('/api/metrics', (req, res) => {
+  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   res.json(orchestrator.getMetrics());
 });
 
-// --- Test-only endpoint (NODE_ENV=test) ---
+// --- Test-only (NODE_ENV=test) ---
 if (process.env.NODE_ENV === 'test') {
   app.put('/api/test/cards/:id/state', (req, res) => {
     const id = Number(req.params.id);
@@ -628,13 +649,135 @@ if (process.env.NODE_ENV === 'test') {
   });
 }
 
-// --- Start ---
+// =============================================================================
+// ADMIN APP — 127.0.0.1:ADMIN_PORT ONLY.
+// Kernel rejects TCP SYN from non-loopback. No spoofing possible.
+// =============================================================================
+const adminApp = express();
+adminApp.use(express.json());
+
+// --- Admin SSE (mirrors main broadcast for real-time control panel updates) ---
+const adminClients = new Set();
+
+adminApp.get('/api/events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  res.write('data: connected\n\n');
+  adminClients.add(res);
+  req.on('close', () => adminClients.delete(res));
+});
+
+// --- PIN auth (optional extra layer even on localhost) ---
+function pinCheck(req, res, next) {
+  if (!ADMIN_PIN) return next();
+  if (req.headers['x-admin-pin'] === ADMIN_PIN) return next();
+  res.status(401).json({ error: 'Invalid admin PIN' });
+}
+
+adminApp.post('/api/admin/verify', (req, res) => {
+  if (!ADMIN_PIN) return res.json({ ok: true, pinRequired: false });
+  if (req.body.pin === ADMIN_PIN) return res.json({ ok: true });
+  res.status(401).json({ ok: false, error: 'Invalid PIN' });
+});
+
+// --- Serve control panel at admin root ---
+adminApp.get('/', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'control-panel.html'));
+});
+
+// --- Read-only board data (so control panel avoids cross-origin to public server) ---
+adminApp.get('/api/cards', (_req, res) => { res.json(cards.getAll()); });
+adminApp.get('/api/queue', (_req, res) => { res.json(orchestrator.getQueueInfo()); });
+adminApp.get('/api/activities', (_req, res) => { res.json(orchestrator.getActivities()); });
+adminApp.get('/api/metrics', (_req, res) => { res.json(orchestrator.getMetrics()); });
+adminApp.get('/api/pipeline', (_req, res) => { res.json({ paused: orchestrator.isPaused() }); });
+adminApp.get('/api/export', (_req, res) => { res.json(orchestrator.exportBoard()); });
+adminApp.get('/api/archive', (_req, res) => { res.json(cards.getArchived()); });
+
+// --- Admin: usage ---
+adminApp.get('/api/usage', (_req, res) => { res.json(orchestrator.getUsageStats()); });
+
+adminApp.post('/api/usage/refresh', pinCheck, (_req, res) => {
+  orchestrator.fetchClaudeUsage(true).then(function() {
+    res.json(orchestrator.getUsageStats());
+  });
+});
+
+// --- Admin: config ---
+adminApp.get('/api/config', (_req, res) => { res.json(orchestrator.getConfig()); });
+
+adminApp.put('/api/config', pinCheck, (req, res) => {
+  const changed = orchestrator.setConfig(req.body);
+  broadcast('toast', { message: 'Config updated: ' + Object.keys(changed).join(', '), type: 'success' });
+  res.json({ changed, config: orchestrator.getConfig() });
+});
+
+// --- Admin: custom prompts ---
+adminApp.get('/api/custom-prompts', (_req, res) => { res.json(orchestrator.getCustomPrompts()); });
+
+adminApp.put('/api/custom-prompts', pinCheck, (req, res) => {
+  const data = orchestrator.setCustomPrompts(req.body);
+  broadcast('toast', { message: 'Custom prompts updated', type: 'success' });
+  res.json(data);
+});
+
+// --- Admin: pipeline control ---
+adminApp.post('/api/pipeline/pause', pinCheck, (_req, res) => {
+  orchestrator.setPaused(true);
+  res.json({ paused: true });
+});
+
+adminApp.post('/api/pipeline/resume', pinCheck, (_req, res) => {
+  orchestrator.setPaused(false);
+  res.json({ paused: false });
+});
+
+adminApp.post('/api/pipeline/kill-all', pinCheck, (_req, res) => {
+  const killed = orchestrator.killAll();
+  res.json({ killed });
+});
+
+adminApp.post('/api/cards/:id/stop', pinCheck, (req, res) => {
+  try {
+    const result = orchestrator.stopCard(Number(req.params.id));
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// --- Admin: bulk import (write op, protected by PIN) ---
+adminApp.post('/api/bulk-create', pinCheck, (req, res) => {
+  const { items } = req.body;
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items array required' });
+  const created = [];
+  for (const item of items.slice(0, 50)) {
+    if (!item.title) continue;
+    const result = cards.create(item.title, item.description || '', item.column || 'brainstorm');
+    const card = cards.get(Number(result.lastInsertRowid));
+    if (item.labels) cards.setLabels(card.id, item.labels);
+    broadcast('card-created', cards.get(card.id));
+    created.push(cards.get(card.id));
+  }
+  res.json({ created: created.length, cards: created });
+});
+
+// =============================================================================
+// START BOTH SERVERS
+// =============================================================================
 const PID_FILE = path.join(DATA_DIR, 'server.pid');
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   fs.writeFileSync(PID_FILE, String(process.pid));
   orchestrator.init(broadcast);
-  console.log('\n  Claude Kanban Board running at http://localhost:' + PORT + ' (PID ' + process.pid + ')\n');
+  console.log('\n  Claude Kanban Board  http://localhost:' + PORT + '  (public, PID ' + process.pid + ')');
+});
+
+adminApp.listen(ADMIN_PORT, '127.0.0.1', () => {
+  console.log('  Control Panel       http://localhost:' + ADMIN_PORT + '  (localhost-only' + (ADMIN_PIN ? ', PIN-protected' : '') + ')\n');
   var url = 'http://localhost:' + PORT;
   var openCmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
     : process.platform === 'darwin' ? ['open', [url]]

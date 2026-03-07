@@ -23,17 +23,16 @@
     </div>
     <div class="header-stats" id="header-stats"></div>
     <div class="pipeline-controls" id="pipeline-controls"></div>
-    <button class="btn btn-ghost btn-icon" id="metrics-btn" title="Metrics" aria-label="Metrics">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="8" width="3" height="7" rx="0.5" fill="currentColor" opacity="0.5"/><rect x="6" y="4" width="3" height="11" rx="0.5" fill="currentColor" opacity="0.7"/><rect x="11" y="1" width="3" height="14" rx="0.5" fill="currentColor"/></svg>
+    <button class="btn btn-ghost btn-icon" id="admin-btn" title="Control Panel" aria-label="Control Panel">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6.7 1.2a1.2 1.2 0 0 1 2.4 0l.2 1.1a.6.6 0 0 0 .8.4l1-.5a1.2 1.2 0 0 1 1.7 1.2l-.3 1.1a.6.6 0 0 0 .4.7l1 .4a1.2 1.2 0 0 1 0 2.3l-1 .4a.6.6 0 0 0-.4.7l.3 1.1a1.2 1.2 0 0 1-1.7 1.2l-1-.5a.6.6 0 0 0-.8.4l-.2 1.1a1.2 1.2 0 0 1-2.4 0l-.2-1.1a.6.6 0 0 0-.8-.4l-1 .5a1.2 1.2 0 0 1-1.7-1.2l.3-1.1a.6.6 0 0 0-.4-.7l-1-.4a1.2 1.2 0 0 1 0-2.3l1-.4a.6.6 0 0 0 .4-.7l-.3-1.1a1.2 1.2 0 0 1 1.7-1.2l1 .5a.6.6 0 0 0 .8-.4l.2-1.1zM8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/></svg>
     </button>
     <button class="btn btn-ghost btn-icon" id="theme-toggle" title="Toggle theme" aria-label="Toggle dark mode">
       <svg id="theme-icon-light" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
       <svg id="theme-icon-dark" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="display:none"><path d="M13.36 10.06A6 6 0 015.94 2.64 7 7 0 1013.36 10.06z"/></svg>
     </button>
-    <button class="btn btn-ghost" id="import-btn" style="font-size:12px" title="Bulk import multiple cards at once">Import</button>
-    <button class="btn btn-ghost" id="export-btn" style="font-size:12px" title="Export all cards as JSON backup">Export</button>
+    <button class="btn btn-ghost" id="auth-btn" style="font-size:12px" title="Login to edit cards">Login</button>
     <button class="btn btn-ghost" id="archive-btn" style="font-size:12px" title="View archived/completed cards">Archive</button>
-    <button class="btn btn-primary" id="add-btn" title="Create a new kanban card (keyboard: N)">+ New Card</button>
+    <button class="btn btn-primary write-action" id="add-btn" title="Create a new kanban card (keyboard: N)">+ New Card</button>
   </header>
 
   <!-- Search Results Dropdown -->

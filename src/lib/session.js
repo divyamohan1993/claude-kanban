@@ -164,6 +164,15 @@ function recordSuccessfulLogin(ip, req) {
 // MIDDLEWARE
 // =============================================================================
 
+// optionalAuth: sets req.user if session valid, but never rejects.
+// Used for read endpoints — anyone can view, server controls what data to include.
+function optionalAuth(req, _res, next) {
+  var sid = parseId(req.headers.cookie);
+  var s = get(sid, req);
+  if (s) req.user = s.user;
+  next();
+}
+
 function requireAuth(req, res, next) {
   var sid = parseId(req.headers.cookie);
   var s = get(sid, req); // fingerprint validated
@@ -246,6 +255,7 @@ module.exports = {
   parseId: parseId,
   setCookie: setCookie,
   clearCookie: clearCookie,
+  optionalAuth: optionalAuth,
   requireAuth: requireAuth,
   requireAdmin: requireAdmin,
   checkRateLimit: checkRateLimit,

@@ -39,8 +39,11 @@ app.use(function(req, res, next) {
 // Static files
 app.use(express.static(path.join(ROOT_DIR, 'public')));
 
-// Admin info (frontend needs admin port for gear icon)
-app.get('/api/admin-info', function(_req, res) {
+// Admin info — localhost-only, spoof-proof (checks socket address, not headers)
+app.get('/api/admin-info', function(req, res) {
+  var remote = req.socket.remoteAddress || '';
+  var isLocal = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+  if (!isLocal) return res.status(403).json({ error: 'Localhost only' });
   res.json({ port: ADMIN_PORT });
 });
 

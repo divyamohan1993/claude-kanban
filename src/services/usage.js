@@ -120,8 +120,11 @@ function getUsageStats() {
 
 // --- Runtime Configuration ---
 
-function getConfig(pipelineState) {
-  return {
+// H2 fix: getConfig returns only what the caller needs.
+// Public callers get runtime config only. Admin callers get full env/status.
+function getConfig(pipelineState, opts) {
+  var isAdmin = opts && opts.admin;
+  var result = {
     runtime: {
       maxConcurrentBuilds: runtime.maxConcurrentBuilds,
       buildTimeoutMins: Math.round(runtime.buildTimeoutPolls / 12),
@@ -136,9 +139,17 @@ function getConfig(pipelineState) {
       backupRetentionDays: backups.getRetentionDays(),
       claudeModel: runtime.claudeModel,
       claudeEffort: runtime.claudeEffort,
-      webhookUrl: runtime.webhookUrl,
+      webhookUrl: isAdmin ? runtime.webhookUrl : (runtime.webhookUrl ? '[configured]' : ''),
     },
-    env: {
+    status: pipelineState ? {
+      pipelinePaused: pipelineState.paused,
+      activeBuilds: pipelineState.activeCount,
+      queueLength: pipelineState.queueLength,
+    } : {},
+  };
+  // Admin-only: server internals (PID, memory, uptime, node version, full paths)
+  if (isAdmin) {
+    result.env = {
       port: process.env.PORT || 51777,
       projectsRoot: PROJECTS_ROOT,
       platform: process.platform,
@@ -146,15 +157,11 @@ function getConfig(pipelineState) {
       pid: process.pid,
       uptime: process.uptime(),
       memoryMB: Math.round(process.memoryUsage().rss / 1048576),
-    },
-    status: pipelineState ? {
-      pipelinePaused: pipelineState.paused,
-      activeBuilds: pipelineState.activeCount,
-      queueLength: pipelineState.queueLength,
-      activeFixes: pipelineState.fixCount,
-      activePollers: pipelineState.pollerCount,
-    } : {},
-  };
+    };
+    result.status.activeFixes = pipelineState ? pipelineState.fixCount : 0;
+    result.status.activePollers = pipelineState ? pipelineState.pollerCount : 0;
+  }
+  return result;
 }
 
 function setConfig(updates) {
@@ -170,11 +177,17 @@ function setConfig(updates) {
   if (updates.maxDoneVisible !== undefined) { runtime.maxDoneVisible = Math.max(0, Number(updates.maxDoneVisible)); changed.maxDoneVisible = runtime.maxDoneVisible; }
   if (updates.maxArchiveVisible !== undefined) { runtime.maxArchiveVisible = Math.max(0, Number(updates.maxArchiveVisible)); changed.maxArchiveVisible = runtime.maxArchiveVisible; }
   if (updates.backupRetentionDays !== undefined) { backups.setRetentionDays(updates.backupRetentionDays); changed.backupRetentionDays = backups.getRetentionDays(); }
-  if (updates.claudeModel !== undefined) { runtime.claudeModel = String(updates.claudeModel); changed.claudeModel = runtime.claudeModel; }
-  if (updates.claudeEffort !== undefined) { runtime.claudeEffort = String(updates.claudeEffort); changed.claudeEffort = runtime.claudeEffort; }
+  if (updates.claudeModel !== undefined) {
+    var model = String(updates.claudeModel);
+    if (/^[a-z0-9][a-z0-9._-]{0,63}$/.test(model)) { runtime.claudeModel = model; changed.claudeModel = model; }
+  }
+  if (updates.claudeEffort !== undefined) {
+    var effort = String(updates.claudeEffort);
+    if (['low', 'medium', 'high'].includes(effort)) { runtime.claudeEffort = effort; changed.claudeEffort = effort; }
+  }
   if (updates.webhookUrl !== undefined) {
     var newUrl = String(updates.webhookUrl);
-    if (newUrl && isBlockedWebhookUrl(newUrl)) { /* M5: reject SSRF targets silently */ }
+    if (newUrl && isBlockedWebhookUrl(newUrl)) { changed._webhookError = 'Webhook URL blocked: internal/private IP addresses not allowed'; }
     else { runtime.webhookUrl = newUrl; changed.webhookUrl = runtime.webhookUrl; }
   }
   broadcast('config-updated', getConfig());

@@ -21,8 +21,8 @@ router.get('/api/auth/session', createSessionHandler(authProvider));
 router.post('/api/auth/login', createLoginHandler(authProvider));
 router.post('/api/auth/logout', logoutHandler);
 
-// --- Admin SSE ---
-router.get('/api/events', function(req, res) {
+// --- Admin SSE (C2 fix: require auth) ---
+router.get('/api/events', requireAdmin, function(req, res) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -38,19 +38,19 @@ router.get('/', function(_req, res) {
   res.sendFile(path.join(ROOT_DIR, 'public', 'control-panel.html'));
 });
 
-// --- Read-only Board Data ---
-router.get('/api/cards', function(_req, res) { res.json(cards.getAll()); });
-router.get('/api/queue', function(_req, res) { res.json(pipeline.getQueueInfo()); });
-router.get('/api/activities', function(_req, res) { res.json(pipeline.getActivities()); });
-router.get('/api/metrics', function(_req, res) { res.json(support.getMetrics()); });
-router.get('/api/pipeline', function(_req, res) { res.json({ paused: pipeline.isPaused() }); });
-router.get('/api/export', function(_req, res) { res.json(support.exportBoard()); });
-router.get('/api/audit', function(_req, res) { res.json(audit.recent(500)); });
-router.get('/api/audit/card/:id', function(req, res) { res.json(audit.byResource('card', Number(req.params.id))); });
-router.get('/api/archive', function(_req, res) { res.json(cards.getArchived()); });
+// --- Read-only Board Data (C3 fix: require auth on all admin reads) ---
+router.get('/api/cards', requireAdmin, function(_req, res) { res.json(cards.getAll()); });
+router.get('/api/queue', requireAdmin, function(_req, res) { res.json(pipeline.getQueueInfo()); });
+router.get('/api/activities', requireAdmin, function(_req, res) { res.json(pipeline.getActivities()); });
+router.get('/api/metrics', requireAdmin, function(_req, res) { res.json(support.getMetrics()); });
+router.get('/api/pipeline', requireAdmin, function(_req, res) { res.json({ paused: pipeline.isPaused() }); });
+router.get('/api/export', requireAdmin, function(_req, res) { res.json(support.exportBoard({ full: true })); });
+router.get('/api/audit', requireAdmin, function(_req, res) { res.json(audit.recent(500)); });
+router.get('/api/audit/card/:id', requireAdmin, function(req, res) { res.json(audit.byResource('card', Number(req.params.id))); });
+router.get('/api/archive', requireAdmin, function(_req, res) { res.json(cards.getArchived()); });
 
 // --- Backups ---
-router.get('/api/backups', function(_req, res) {
+router.get('/api/backups', requireAdmin, function(_req, res) {
   res.json({ backups: backups.list(), retentionDays: backups.getRetentionDays() });
 });
 
@@ -71,7 +71,7 @@ router.post('/api/backups/restore', requireAdmin, function(req, res) {
 });
 
 // --- Usage ---
-router.get('/api/usage', function(_req, res) { res.json(usageSvc.getUsageStats()); });
+router.get('/api/usage', requireAdmin, function(_req, res) { res.json(usageSvc.getUsageStats()); });
 
 router.post('/api/usage/refresh', requireAdmin, function(_req, res) {
   usageSvc.fetchClaudeUsage(true).then(function() {
@@ -80,18 +80,18 @@ router.post('/api/usage/refresh', requireAdmin, function(_req, res) {
 });
 
 // --- Config ---
-router.get('/api/config', function(_req, res) { res.json(usageSvc.getConfig(pipeline.getPipelineState())); });
+router.get('/api/config', requireAdmin, function(_req, res) { res.json(usageSvc.getConfig(pipeline.getPipelineState(), { admin: true })); });
 
 router.put('/api/config', requireAdmin, function(req, res) {
-  var oldConfig = usageSvc.getConfig(pipeline.getPipelineState()).runtime;
+  var oldConfig = usageSvc.getConfig(pipeline.getPipelineState(), { admin: true }).runtime;
   var changed = usageSvc.setConfig(req.body);
   auditLog('config-change', 'config', null, req.user.id, oldConfig, changed, Object.keys(changed).join(', '));
   broadcast('toast', { message: 'Config updated: ' + Object.keys(changed).join(', '), type: 'success' });
-  res.json({ changed: changed, config: usageSvc.getConfig(pipeline.getPipelineState()) });
+  res.json({ changed: changed, config: usageSvc.getConfig(pipeline.getPipelineState(), { admin: true }) });
 });
 
 // --- Custom Prompts ---
-router.get('/api/custom-prompts', function(_req, res) { res.json(usageSvc.getCustomPrompts()); });
+router.get('/api/custom-prompts', requireAdmin, function(_req, res) { res.json(usageSvc.getCustomPrompts()); });
 
 router.put('/api/custom-prompts', requireAdmin, function(req, res) {
   var oldPrompts = usageSvc.getCustomPrompts();
@@ -270,7 +270,7 @@ function runHousekeeping(force) {
   return cleaned;
 }
 
-router.get('/api/housekeeping', function(_req, res) { res.json(getHousekeepingStats()); });
+router.get('/api/housekeeping', requireAdmin, function(_req, res) { res.json(getHousekeepingStats()); });
 
 router.post('/api/housekeeping/run', requireAdmin, function(_req, res) {
   res.json(runHousekeeping(true));

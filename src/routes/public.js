@@ -4,7 +4,7 @@ var path = require('path');
 var { cards, sessions, auditLog, VALID_COLUMNS } = require('../db');
 var { broadcast, sseClients } = require('../lib/broadcast');
 var { LOGS_DIR, ADMIN_PIN, PROJECTS_ROOT, runtime } = require('../config');
-var { requireAuth } = require('../lib/session');
+var { requireAuth, optionalAuth } = require('../lib/session');
 var { PinAuthProvider, createSessionHandler, createLoginHandler, logoutHandler } = require('../middleware/auth');
 var pipeline = require('../services/pipeline');
 var brainstormSvc = require('../services/brainstorm');
@@ -38,8 +38,8 @@ router.get('/api/auth/session', createSessionHandler(authProvider));
 router.post('/api/auth/login', createLoginHandler(authProvider));
 router.post('/api/auth/logout', logoutHandler);
 
-// --- SSE (H2 fix: require auth) ---
-router.get('/api/events', requireAuth, function(req, res) {
+// --- SSE — open for real-time viewing (rate-limited + SSE guard in server.js) ---
+router.get('/api/events', function(req, res) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -222,43 +222,49 @@ function computeDisplay(card, allCards) {
   return display;
 }
 
-function enrichCard(card, allCards) {
+// Server-driven UI: enrichCard includes actions ONLY when user is authenticated.
+// Anonymous viewers see cards + display state, but no action buttons.
+// This is the core of "UI is dumb, server is king" — server decides what controls to show.
+// isAuthed: true = include actions, false = strip actions, undefined = include (for broadcasts/internal)
+function enrichCard(card, allCards, isAuthed) {
   if (!card) return card;
-  card.actions = computeActions(card);
+  card.actions = (isAuthed === false) ? [] : computeActions(card);
   card.display = computeDisplay(card, allCards);
   return card;
 }
 
-function enrichCards(list) {
-  for (var i = 0; i < list.length; i++) enrichCard(list[i], list);
+function enrichCards(list, isAuthed) {
+  for (var i = 0; i < list.length; i++) enrichCard(list[i], list, isAuthed);
   return list;
 }
 
 // =============================================================================
-// READ ENDPOINTS — H1 fix: all require authentication
+// READ ENDPOINTS — open to all (optionalAuth sets req.user if session valid)
+// Server includes actions only for authenticated users.
 // =============================================================================
 
-router.get('/api/cards', requireAuth, function(_req, res) {
-  res.json(enrichCards(cards.getAll()));
+router.get('/api/cards', optionalAuth, function(req, res) {
+  var authed = !!req.user;
+  res.json(enrichCards(cards.getAll(), authed));
 });
 
-router.get('/api/queue', requireAuth, function(_req, res) { res.json(pipeline.getQueueInfo()); });
-router.get('/api/activities', requireAuth, function(_req, res) { res.json(pipeline.getActivities()); });
-router.get('/api/pipeline', requireAuth, function(_req, res) { res.json({ paused: pipeline.isPaused() }); });
-router.get('/api/search', requireAuth, function(req, res) {
+router.get('/api/queue', optionalAuth, function(_req, res) { res.json(pipeline.getQueueInfo()); });
+router.get('/api/activities', optionalAuth, function(_req, res) { res.json(pipeline.getActivities()); });
+router.get('/api/pipeline', optionalAuth, function(_req, res) { res.json({ paused: pipeline.isPaused() }); });
+router.get('/api/search', optionalAuth, function(req, res) {
   if (!req.query.q) return res.json([]);
-  res.json(enrichCards(cards.search(req.query.q)));
+  res.json(enrichCards(cards.search(req.query.q), !!req.user));
 });
-router.get('/api/metrics', requireAuth, function(_req, res) { res.json(support.getMetrics()); });
+router.get('/api/metrics', optionalAuth, function(_req, res) { res.json(support.getMetrics()); });
 router.get('/api/export', requireAuth, function(_req, res) { res.json(support.exportBoard()); });
 
-router.get('/api/archive', requireAuth, function(_req, res) {
+router.get('/api/archive', optionalAuth, function(req, res) {
   var archived = cards.getArchived();
   var limit = runtime.maxArchiveVisible;
-  res.json(enrichCards(limit > 0 ? archived.slice(0, limit) : archived));
+  res.json(enrichCards(limit > 0 ? archived.slice(0, limit) : archived, !!req.user));
 });
 
-router.get('/api/cards/:id/review', requireAuth, function(req, res) {
+router.get('/api/cards/:id/review', optionalAuth, function(req, res) {
   var card = cards.get(Number(req.params.id));
   if (!card) return res.status(404).json({ error: 'Card not found' });
   if (!card.review_data) return res.json({ score: 0, findings: [] });
@@ -266,21 +272,21 @@ router.get('/api/cards/:id/review', requireAuth, function(req, res) {
   catch (_) { res.json({ score: card.review_score || 0, findings: [] }); }
 });
 
-router.get('/api/cards/:id/sessions', requireAuth, function(req, res) {
+router.get('/api/cards/:id/sessions', optionalAuth, function(req, res) {
   res.json(sessions.getByCard(Number(req.params.id)));
 });
 
-router.get('/api/cards/:id/has-snapshot', requireAuth, function(req, res) {
+router.get('/api/cards/:id/has-snapshot', optionalAuth, function(req, res) {
   res.json({ has: snapshot.has(Number(req.params.id)) });
 });
 
-router.get('/api/cards/:id/diff', requireAuth, function(req, res) {
+router.get('/api/cards/:id/diff', optionalAuth, function(req, res) {
   var result = support.getDiff(Number(req.params.id));
   if (result.error) return res.status(404).json(result);
   res.json(result);
 });
 
-router.get('/api/cards/:id/log/:type', requireAuth, function(req, res) {
+router.get('/api/cards/:id/log/:type', optionalAuth, function(req, res) {
   if (!isAllowedLogType(req.params.type)) return res.status(400).json({ error: 'Invalid log type' });
   var logFile = path.join(LOGS_DIR, 'card-' + req.params.id + '-' + req.params.type + '.log');
   var resolved = path.resolve(logFile);
@@ -289,7 +295,7 @@ router.get('/api/cards/:id/log/:type', requireAuth, function(req, res) {
   res.type('text/plain').send(fs.readFileSync(logFile, 'utf-8'));
 });
 
-router.get('/api/cards/:id/log-stream', requireAuth, function(req, res) {
+router.get('/api/cards/:id/log-stream', optionalAuth, function(req, res) {
   var id = req.params.id;
   var type = req.query.type || 'build';
   if (!isAllowedLogType(type)) {
@@ -349,8 +355,8 @@ router.get('/api/cards/:id/log-stream', requireAuth, function(req, res) {
   req.on('close', function() { clearInterval(interval); clearInterval(heartbeat); });
 });
 
-// Config read-only on public — H1 fix: require auth
-router.get('/api/config', requireAuth, function(_req, res) { res.json(usageSvc.getConfig(pipeline.getPipelineState())); });
+// Config — public gets limited view (no server internals)
+router.get('/api/config', optionalAuth, function(_req, res) { res.json(usageSvc.getConfig(pipeline.getPipelineState())); });
 
 // =============================================================================
 // WRITE ENDPOINTS — ALL require authentication
@@ -506,7 +512,7 @@ router.post('/api/cards/:id/start-work', requireAuth, function(req, res) {
   try {
     res.json(pipeline.startWork(Number(req.params.id)));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message, code: 'START_WORK_FAILED' });
   }
 });
 

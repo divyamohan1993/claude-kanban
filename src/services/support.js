@@ -281,10 +281,11 @@ function previewProject(cardId) {
 
 // --- Export Board ---
 
-function exportBoard() {
+// H3 fix: export only card data by default. Sessions + audit only when opts.full (admin).
+function exportBoard(opts) {
   var all = cards.getAll();
   var archived = cards.getArchived();
-  return {
+  var result = {
     exportedAt: new Date().toISOString(),
     version: '1.8.1',
     cards: all.map(function(c) {
@@ -302,9 +303,12 @@ function exportBoard() {
         created_at: c.created_at, updated_at: c.updated_at,
       };
     }),
-    sessions: sessions.getAll(),
-    auditLog: audit.all(),
   };
+  if (opts && opts.full) {
+    result.sessions = sessions.getAll();
+    result.auditLog = audit.all();
+  }
+  return result;
 }
 
 // --- Metrics ---

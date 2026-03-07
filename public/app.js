@@ -105,19 +105,21 @@ function hideLogin() {
   if (overlay) overlay.classList.add('hidden');
 }
 
-// Check session on load — server auto-creates session if no PIN required
+// Check session on load — always init the board (reads are open).
+// Server controls what actions are available based on auth state.
+// If not authenticated, server returns cards without actions — UI shows no buttons.
 async function checkSession() {
   try {
     var res = await fetch('/api/auth/session');
     var data = await res.json();
     if (data.authenticated) {
       hideLogin();
-      init();
-    } else {
-      showLogin();
     }
+    // Always init — board is viewable by everyone
+    init();
   } catch (_) {
-    showLogin();
+    // Even on auth error, load the board (read-only view)
+    init();
   }
 }
 

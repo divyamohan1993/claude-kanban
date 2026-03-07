@@ -62,8 +62,9 @@ if (!ADMIN_PIN) {
     ADMIN_PIN = crypto.randomInt(100000, 999999).toString();
     try { fs.writeFileSync(pinFile, ADMIN_PIN); } catch (_) {}
   }
-  console.log('\n  *** ADMIN_PIN not set — auto-generated: ' + ADMIN_PIN + ' ***');
-  console.log('  Set ADMIN_PIN in .env to use your own. Saved to .data/.generated-pin\n');
+  // H1 fix: never print PIN to stdout — credentials leak to log aggregators in prod
+  console.log('\n  *** ADMIN_PIN auto-generated — see .data/.generated-pin ***');
+  console.log('  Set ADMIN_PIN in .env to use your own.\n');
 }
 
 var PORT = Number(process.env.PORT) || 51777;

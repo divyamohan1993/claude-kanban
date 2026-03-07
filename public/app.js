@@ -11,6 +11,12 @@ let dragCardId = null;
 let queueInfo = { queue: [], active: [] };
 let cardActivities = {}; // cardId → { step, detail, timestamp }
 
+// Track last visit for "new" badges
+var lastVisitTime = (function() {
+  var t = localStorage.getItem('claude-kanban-last-visit');
+  return t ? Number(t) : 0;
+})();
+
 // Pipeline steps definition
 var PIPELINE_STEPS = [
   { id: 'folder', label: 'Folder' },
@@ -46,6 +52,19 @@ function el(tag, attrs, children) {
 
 function btn(text, cls, handler) {
   return el('button', { className: 'btn ' + cls, onClick: handler, textContent: text });
+}
+
+// --- Helpers ---
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  var then = new Date(dateStr.replace(' ', 'T') + 'Z').getTime();
+  var diff = Math.floor((Date.now() - then) / 1000);
+  if (diff < 0) return 'just now';
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  if (diff < 2592000) return Math.floor(diff / 86400) + 'd ago';
+  return new Date(then).toLocaleDateString();
 }
 
 // --- API ---
@@ -188,8 +207,33 @@ function renderPipeline(card) {
   return container;
 }
 
+// --- Stats ---
+function renderStats() {
+  var container = document.getElementById('header-stats');
+  if (!container) return;
+  container.textContent = '';
+
+  var total = state.cards.length;
+  var active = queueInfo.active ? queueInfo.active.length : 0;
+  var queued = queueInfo.queue ? queueInfo.queue.length : 0;
+  var doneCount = state.cards.filter(function(c) { return c.column_name === 'done'; }).length;
+
+  function chip(label, value, cls) {
+    return el('div', { className: 'stat-chip' + (cls ? ' ' + cls : '') }, [
+      el('span', { className: 'stat-value', textContent: String(value) }),
+      el('span', { className: 'stat-label', textContent: label }),
+    ]);
+  }
+
+  container.appendChild(chip('Total', total));
+  if (active > 0) container.appendChild(chip('Active', active, 'stat-active'));
+  if (queued > 0) container.appendChild(chip('Queued', queued, 'stat-queued'));
+  container.appendChild(chip('Done', doneCount, 'stat-done'));
+}
+
 // --- Render ---
 function render() {
+  renderStats();
   const board = document.getElementById('board');
   board.textContent = '';
 
@@ -298,6 +342,17 @@ function renderCard(card, colId) {
   if (card.review_score > 0) {
     var scoreCls = card.review_score >= 8 ? 'review-score-high' : card.review_score >= 5 ? 'review-score-mid' : 'review-score-low';
     meta.appendChild(el('span', { className: 'review-score ' + scoreCls, textContent: card.review_score + '/10' }));
+  }
+  // "New since last visit" badge
+  if (lastVisitTime > 0 && card.created_at) {
+    var cardCreated = new Date(card.created_at.replace(' ', 'T') + 'Z').getTime();
+    if (cardCreated > lastVisitTime) {
+      meta.appendChild(el('span', { className: 'card-badge badge-new', textContent: 'NEW' }));
+    }
+  }
+  // Relative timestamp
+  if (card.updated_at) {
+    meta.appendChild(el('span', { className: 'card-timestamp', textContent: timeAgo(card.updated_at) }));
   }
   if (meta.children.length) cardEl.appendChild(meta);
 
@@ -719,5 +774,19 @@ async function init() {
   cardActivities = results[1];
   render();
   connectSSE();
+
+  // Notify about new cards since last visit
+  if (lastVisitTime > 0) {
+    var newCount = state.cards.filter(function(c) {
+      return c.created_at && new Date(c.created_at.replace(' ', 'T') + 'Z').getTime() > lastVisitTime;
+    }).length;
+    if (newCount > 0) {
+      toast(newCount + ' new card' + (newCount > 1 ? 's' : '') + ' since your last visit', 'info');
+    }
+  }
+  // Update last visit timestamp (delayed so user sees NEW badges first)
+  setTimeout(function() {
+    localStorage.setItem('claude-kanban-last-visit', String(Date.now()));
+  }, 5000);
 }
 init();

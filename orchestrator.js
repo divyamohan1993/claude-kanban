@@ -31,6 +31,87 @@ const workQueue = [];           // [{cardId, priority, projectPath, enqueuedAt}]
 const activeBuilds = new Map(); // projectPath -> cardId
 var _broadcast = function() {};
 
+// --- Pipeline Pause ---
+var pipelinePaused = false;
+
+function setPaused(paused) {
+  pipelinePaused = !!paused;
+  _broadcast('pipeline-state', { paused: pipelinePaused });
+  sendWebhook('pipeline-' + (pipelinePaused ? 'paused' : 'resumed'), {});
+  if (!pipelinePaused) processQueue(); // resume picks up queued work
+}
+
+function isPaused() { return pipelinePaused; }
+
+// Kill all active builds + pause pipeline
+function killAll() {
+  pipelinePaused = true;
+  var killed = [];
+
+  // Kill all active builds
+  for (var entry of activeBuilds) {
+    var projectPath = entry[0];
+    var cardId = entry[1];
+    var pid = buildPids.get(cardId);
+    if (pid) { killProcess(pid); buildPids.delete(cardId); }
+    var poller = activePollers.get(cardId);
+    if (poller) { clearInterval(poller); activePollers.delete(cardId); }
+    var card = cards.get(cardId);
+    cards.setStatus(cardId, 'interrupted');
+    cards.move(cardId, 'todo');
+    setActivity(cardId, 'queue', 'Killed by master kill switch');
+    _broadcast('card-updated', cards.get(cardId));
+    killed.push({ id: cardId, title: card ? card.title : '?' });
+  }
+  activeBuilds.clear();
+
+  // Queued cards stay queued — they won't move until user resumes or manually triggers
+  for (var qi = 0; qi < workQueue.length; qi++) {
+    setActivity(workQueue[qi].cardId, 'queue', 'Paused — waiting for resume');
+    _broadcast('card-updated', cards.get(workQueue[qi].cardId));
+  }
+
+  broadcastQueuePositions();
+  _broadcast('pipeline-state', { paused: true });
+  _broadcast('toast', { message: 'Kill switch activated — ' + killed.length + ' build(s) terminated, pipeline paused', type: 'error' });
+  sendWebhook('kill-all', { killed: killed });
+  return killed;
+}
+
+// Stop a single card's active work
+function stopCard(cardId) {
+  var card = cards.get(cardId);
+  if (!card) throw new Error('Card not found');
+
+  var result = dequeue(cardId);
+
+  // Also kill review/fix pollers
+  var poller = activePollers.get(cardId);
+  if (poller) { clearInterval(poller); activePollers.delete(cardId); }
+
+  if (result.wasBuilding || result.removed) {
+    cards.setStatus(cardId, 'interrupted');
+    if (card.column_name === 'working') cards.move(cardId, 'todo');
+    setActivity(cardId, 'queue', 'Manually stopped');
+    _broadcast('card-updated', cards.get(cardId));
+    _broadcast('toast', { message: 'Stopped: ' + card.title, type: 'warning' });
+    return { stopped: true, wasBuilding: result.wasBuilding };
+  }
+
+  // Card might be in reviewing/fixing state with a poller but not in activeBuilds queue
+  if (card.status === 'reviewing' || card.status === 'fixing') {
+    releaseProjectLock(cardId);
+    cards.setStatus(cardId, 'interrupted');
+    if (card.column_name === 'working') cards.move(cardId, 'todo');
+    setActivity(cardId, 'queue', 'Manually stopped');
+    _broadcast('card-updated', cards.get(cardId));
+    _broadcast('toast', { message: 'Stopped: ' + card.title, type: 'warning' });
+    return { stopped: true, wasReviewing: true };
+  }
+
+  return { stopped: false, reason: 'Card not actively building or queued' };
+}
+
 // --- Self-Healing State ---
 const fixAttempts = new Map();  // sourceCardId -> {count, lastAttempt}
 const activeFixes = new Set();  // sourceCardId set
@@ -409,9 +490,13 @@ function enqueue(cardId, priority) {
   broadcastQueuePositions();
   sendWebhook('card-queued', { cardId: cardId, title: card.title });
 
-  processQueue();
+  if (pipelinePaused) {
+    setActivity(cardId, 'queue', 'Paused — waiting for resume');
+  } else {
+    processQueue();
+  }
 
-  return { status: 'queued', position: getQueuePosition(cardId) };
+  return { status: 'queued', position: getQueuePosition(cardId), paused: pipelinePaused };
 }
 
 function dequeue(cardId) {
@@ -564,6 +649,8 @@ function checkUnblock() {
 }
 
 function processQueue() {
+  // Pipeline paused — nothing starts until user resumes
+  if (pipelinePaused) return;
   // Global concurrency limit
   if (activeBuilds.size >= MAX_CONCURRENT_BUILDS) return;
 
@@ -1902,4 +1989,8 @@ module.exports = {
   releaseProjectLock: releaseProjectLock,
   cascadeRevert: cascadeRevert,
   checkUnblock: checkUnblock,
+  setPaused: setPaused,
+  isPaused: isPaused,
+  killAll: killAll,
+  stopCard: stopCard,
 };

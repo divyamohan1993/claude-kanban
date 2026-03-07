@@ -11,6 +11,7 @@ var dragCardId = null;
 var queueInfo = { queue: [], active: [] };
 var cardActivities = {};
 var selectedCardId = null;
+var pipelinePaused = false;
 
 var lastVisitTime = (function() {
   var t = localStorage.getItem('claude-kanban-last-visit');
@@ -147,6 +148,13 @@ function connectSSE() {
     render();
   });
 
+  es.addEventListener('pipeline-state', function(e) {
+    var data = JSON.parse(e.data);
+    pipelinePaused = data.paused;
+    updatePipelineControls();
+    render();
+  });
+
   es.addEventListener('toast', function(e) {
     try { var d = JSON.parse(e.data); toast(d.message, d.type || 'info'); } catch (_) {}
   });
@@ -265,6 +273,7 @@ function renderStats() {
     ]);
   }
   container.appendChild(chip('Total', total));
+  if (pipelinePaused) container.appendChild(chip('Paused', '', 'stat-paused'));
   if (active > 0) container.appendChild(chip('Active', active, 'stat-active'));
   if (queued > 0) container.appendChild(chip('Queued', queued, 'stat-queued'));
   container.appendChild(chip('Done', doneCount, 'stat-done'));
@@ -468,6 +477,7 @@ function renderCard(card, colId) {
     actions.appendChild(btn('Re-brainstorm', 'btn-sm btn-ghost', function() { doBrainstorm(id); }, 'Regenerate the spec'));
     actions.appendChild(btn('Edit', 'btn-sm btn-ghost', function() { editCard(id); }, 'Edit card title and description'));
   } else if (colId === 'working') {
+    actions.appendChild(btn('Stop', 'btn-sm btn-danger', function() { doStopCard(id); }, 'Stop this build immediately'));
     actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'));
     actions.appendChild(btn('Terminal', 'btn-sm btn-ghost', function() { doOpenTerminal(id); }, 'Open terminal in project folder'));
     actions.appendChild(btn('Claude', 'btn-sm btn-ghost', function() { doOpenClaude(id); }, 'Open Claude CLI in project folder'));
@@ -589,6 +599,14 @@ async function doCancelQueue(id) {
 function doOpenVSCode(id) { api('/cards/' + id + '/open-vscode', { method: 'POST' }).then(function() { toast('Opening VS Code...', 'success'); }).catch(function(e) { toast('VSCode: ' + e.message, 'error'); }); }
 function doOpenTerminal(id) { api('/cards/' + id + '/open-terminal', { method: 'POST' }).then(function() { toast('Opening terminal...', 'success'); }).catch(function(e) { toast('Terminal: ' + e.message, 'error'); }); }
 function doOpenClaude(id) { api('/cards/' + id + '/open-claude', { method: 'POST' }).then(function() { toast('Opening Claude...', 'success'); }).catch(function(e) { toast('Claude: ' + e.message, 'error'); }); }
+
+async function doStopCard(id) {
+  if (!confirm('Stop this build immediately?')) return;
+  try {
+    var result = await api('/cards/' + id + '/stop', { method: 'POST' });
+    toast(result.stopped ? 'Build stopped.' : 'Not active: ' + (result.reason || ''), result.stopped ? 'warning' : 'info');
+  } catch (e) { toast(e.message, 'error'); }
+}
 
 async function doApprove(id) {
   await api('/cards/' + id + '/approve', { method: 'POST' });
@@ -1382,6 +1400,64 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
+// --- Pipeline Controls ---
+function initPipelineControls() {
+  var container = document.getElementById('pipeline-controls');
+  if (!container) return;
+  container.textContent = '';
+
+  var pauseBtn = el('button', {
+    className: 'btn pipeline-toggle',
+    id: 'pause-btn',
+    title: 'Pause/Resume pipeline',
+    'aria-label': 'Pause or resume the build pipeline',
+  });
+  updatePauseBtnContent(pauseBtn);
+  pauseBtn.addEventListener('click', async function() {
+    try {
+      if (pipelinePaused) {
+        await api('/pipeline/resume', { method: 'POST' });
+      } else {
+        await api('/pipeline/pause', { method: 'POST' });
+      }
+    } catch (e) { toast(e.message, 'error'); }
+  });
+  container.appendChild(pauseBtn);
+
+  var killBtn = el('button', {
+    className: 'btn btn-danger btn-sm kill-switch',
+    id: 'kill-btn',
+    title: 'Kill all active builds and pause pipeline',
+    'aria-label': 'Emergency kill switch — stop all builds',
+    textContent: 'Kill All',
+  });
+  killBtn.addEventListener('click', async function() {
+    if (!confirm('KILL ALL active builds and pause pipeline?')) return;
+    try {
+      var result = await api('/pipeline/kill-all', { method: 'POST' });
+      toast('Killed ' + result.killed.length + ' build(s)', 'error');
+    } catch (e) { toast(e.message, 'error'); }
+  });
+  container.appendChild(killBtn);
+  updatePipelineControls();
+}
+
+function updatePipelineControls() {
+  var pauseBtn = document.getElementById('pause-btn');
+  if (pauseBtn) updatePauseBtnContent(pauseBtn);
+}
+
+function updatePauseBtnContent(pauseBtn) {
+  pauseBtn.textContent = '';
+  if (pipelinePaused) {
+    pauseBtn.appendChild(el('span', { textContent: 'Resume', className: 'pause-label' }));
+    pauseBtn.classList.add('paused');
+  } else {
+    pauseBtn.appendChild(el('span', { textContent: 'Pause', className: 'pause-label' }));
+    pauseBtn.classList.remove('paused');
+  }
+}
+
 // --- Init ---
 async function init() {
   initTheme();
@@ -1389,9 +1465,12 @@ async function init() {
 
   var cardsP = api('/cards');
   var activitiesP = fetch('/api/activities').then(function(r) { return r.json(); }).catch(function() { return {}; });
-  var results = await Promise.all([cardsP, activitiesP]);
+  var pipelineP = fetch('/api/pipeline').then(function(r) { return r.json(); }).catch(function() { return { paused: false }; });
+  var results = await Promise.all([cardsP, activitiesP, pipelineP]);
   state.cards = results[0];
   cardActivities = results[1];
+  pipelinePaused = results[2].paused;
+  initPipelineControls();
   render();
   connectSSE();
 

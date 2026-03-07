@@ -413,6 +413,35 @@ app.get('/api/queue', (_req, res) => {
   res.json(orchestrator.getQueueInfo());
 });
 
+// --- Pipeline Control ---
+app.get('/api/pipeline', (_req, res) => {
+  res.json({ paused: orchestrator.isPaused() });
+});
+
+app.post('/api/pipeline/pause', (_req, res) => {
+  orchestrator.setPaused(true);
+  res.json({ paused: true });
+});
+
+app.post('/api/pipeline/resume', (_req, res) => {
+  orchestrator.setPaused(false);
+  res.json({ paused: false });
+});
+
+app.post('/api/pipeline/kill-all', (_req, res) => {
+  const killed = orchestrator.killAll();
+  res.json({ killed });
+});
+
+app.post('/api/cards/:id/stop', (req, res) => {
+  try {
+    const result = orchestrator.stopCard(Number(req.params.id));
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // --- Activities API (current pipeline activity per card) ---
 app.get('/api/activities', (_req, res) => {
   res.json(orchestrator.getActivities());

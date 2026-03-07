@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.0] - 2026-03-07
+
+### Added
+- **Pipeline pause/resume**: Pause button in header stops new builds from starting. Queued cards stay queued until resume. Resume triggers queue processing
+- **Master kill switch**: "Kill All" button terminates all active builds and pauses pipeline. Confirm dialog prevents accidents
+- **Stop card**: Red "Stop" button on working cards kills active build immediately, sets status to interrupted
+- **Paused indicator**: Blinking red "Paused" chip in stats when pipeline is paused. Resume button pulses green
+- **Pipeline control API**: `GET /api/pipeline`, `POST .../pause`, `.../resume`, `.../kill-all`, `POST /api/cards/:id/stop`
+
 ## [1.6.0] - 2026-03-07
 
 ### Added

@@ -44,7 +44,16 @@ function setPaused(paused) {
   pipelinePaused = !!paused;
   _broadcast('pipeline-state', { paused: pipelinePaused });
   sendWebhook('pipeline-' + (pipelinePaused ? 'paused' : 'resumed'), {});
-  if (!pipelinePaused) processQueue(); // resume picks up queued work
+  if (!pipelinePaused) {
+    // Restart frozen brainstorm cards
+    var allCards = cards.getAll();
+    for (var i = 0; i < allCards.length; i++) {
+      if (allCards[i].status === 'frozen' && allCards[i].column_name === 'brainstorm') {
+        try { brainstorm(allCards[i].id); } catch (_) {}
+      }
+    }
+    processQueue(); // resume picks up queued builds
+  }
 }
 
 function isPaused() { return pipelinePaused; }
@@ -71,16 +80,15 @@ function killAll() {
   }
   activeBuilds.clear();
 
-  // 2. Kill all brainstorming cards
+  // 2. Freeze brainstorming cards — stay in brainstorm column, process killed
   var allCards = cards.getAll();
   for (var ci = 0; ci < allCards.length; ci++) {
     var c = allCards[ci];
     if (c.status === 'brainstorming') {
       var bPid = buildPids.get(c.id);
       if (bPid) { killProcess(bPid); buildPids.delete(c.id); }
-      cards.setStatus(c.id, 'idle');
-      cards.move(c.id, 'todo');
-      setActivity(c.id, 'queue', 'Killed by master kill switch');
+      cards.setStatus(c.id, 'frozen');
+      setActivity(c.id, 'spec', 'Frozen — will restart on resume');
       _broadcast('card-updated', cards.get(c.id));
       killed.push({ id: c.id, title: c.title, phase: 'brainstorm' });
     }

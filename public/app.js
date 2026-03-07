@@ -360,7 +360,9 @@ function renderCard(card, colId) {
 
   // Badges
   var meta = el('div', { className: 'card-meta' });
-  if (card.status === 'brainstorming') {
+  if (card.status === 'frozen') {
+    meta.appendChild(el('span', { className: 'card-badge badge-blocked', textContent: 'Frozen' }));
+  } else if (card.status === 'brainstorming') {
     meta.appendChild(el('span', { className: 'spinner' }));
     meta.appendChild(el('span', { className: 'card-badge badge-brainstorming', textContent: 'Brainstorming' }));
   } else if (card.status === 'queued') {

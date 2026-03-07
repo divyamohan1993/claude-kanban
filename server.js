@@ -1,7 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { cards, sessions } = require('./db');
+const { cards, sessions, audit, auditLog, VALID_COLUMNS } = require('./db');
 const orchestrator = require('./orchestrator');
 const snapshot = require('./snapshot');
 const { spawn } = require('child_process');
@@ -61,34 +61,39 @@ app.post('/api/cards', (req, res) => {
   if (!title) return res.status(400).json({ error: 'Title required' });
   const result = cards.create(title, description, column);
   const card = cards.get(Number(result.lastInsertRowid));
+  auditLog('create', 'card', card.id, 'user', '', card.title, '');
   broadcast('card-created', card);
   res.json(card);
 });
 
 app.put('/api/cards/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const old = cards.get(id);
   const { title, description } = req.body;
-  cards.update(Number(req.params.id), title, description);
-  const card = cards.get(Number(req.params.id));
+  cards.update(id, title, description);
+  const card = cards.get(id);
+  auditLog('update', 'card', id, 'user', old ? old.title : '', title, 'edited');
   broadcast('card-updated', card);
   res.json(card);
 });
 
 app.delete('/api/cards/:id', (req, res) => {
   const id = Number(req.params.id);
-  snapshot.clear(id);
-  cards.delete(id);
+  cards.delete(id); // soft delete + audit logged inside db.js
   broadcast('card-deleted', { id });
   res.json({ success: true });
 });
 
 app.post('/api/cards/:id/move', (req, res) => {
   const { column, source } = req.body;
+  if (!VALID_COLUMNS.includes(column)) return res.status(400).json({ error: 'Invalid column: ' + column });
   const id = Number(req.params.id);
   const card = cards.get(id);
   if (!card) return res.status(404).json({ error: 'Card not found' });
 
   const fromColumn = card.column_name;
   if (fromColumn === column) return res.json(card);
+  auditLog('move', 'card', id, source || 'user', fromColumn, column, card.title);
 
   // Leaving working or todo (queued) -> dequeue/cancel
   var dequeueResult = { removed: false };
@@ -218,6 +223,7 @@ app.post('/api/cards/:id/approve', (req, res) => {
   cards.move(id, 'done');
   cards.setStatus(id, 'complete');
   cards.setApprovedBy(id, 'human');
+  auditLog('approve', 'card', id, 'human', card ? card.status : '', 'complete', card ? card.title : '');
   broadcast('card-updated', cards.get(id));
   const clResult = orchestrator.autoChangelog(id);
   if (clResult.success) {
@@ -235,10 +241,12 @@ app.post('/api/cards/:id/approve', (req, res) => {
 
 app.post('/api/cards/:id/reject', (req, res) => {
   const id = Number(req.params.id);
+  const card = cards.get(id);
   const result = snapshot.rollback(id);
   cards.move(id, 'todo');
   cards.setStatus(id, 'idle');
   cards.setSessionLog(id, 'REJECTED - Files rolled back. ' + (result.success ? (result.wasNew ? 'New project folder removed.' : 'All files restored to pre-work state.') : result.reason));
+  auditLog('reject', 'card', id, 'human', card ? card.column_name : '', 'todo', card ? card.title : '');
   broadcast('card-updated', cards.get(id));
   orchestrator.releaseProjectLock(id);
   const cascaded = orchestrator.cascadeRevert(id);
@@ -381,14 +389,17 @@ function autoArchiveDone() {
   const toArchive = doneCards.slice(5);
   for (const card of toArchive) {
     cards.move(card.id, 'archive');
+    auditLog('auto-archive', 'card', card.id, 'system', 'done', 'archive', card.title);
     broadcast('card-deleted', { id: card.id });
   }
   if (toArchive.length > 0) {
     broadcast('toast', { message: toArchive.length + ' card(s) auto-archived', type: 'info' });
   }
-  const deleted = cards.rotateArchive();
-  for (const delId of deleted) {
-    snapshot.clear(delId);
+  // rotateArchive soft-deletes excess cards (audit logged inside db.js)
+  // snapshots are archived, not destroyed
+  const rotated = cards.rotateArchive();
+  for (const rotId of rotated) {
+    snapshot.clear(rotId); // clear() now archives to .data/archive/snapshots/
   }
 }
 
@@ -508,9 +519,11 @@ app.get('/api/search', (req, res) => {
 
 app.put('/api/cards/:id/spec', (req, res) => {
   const id = Number(req.params.id);
+  const old = cards.get(id);
   const { spec } = req.body;
   if (typeof spec !== 'string') return res.status(400).json({ error: 'spec required' });
   cards.setSpec(id, spec);
+  auditLog('edit-spec', 'card', id, 'user', (old && old.spec) ? old.spec.slice(0, 200) : '', spec.slice(0, 200), '');
   const card = cards.get(id);
   broadcast('card-updated', card);
   res.json(card);
@@ -518,9 +531,11 @@ app.put('/api/cards/:id/spec', (req, res) => {
 
 app.put('/api/cards/:id/labels', (req, res) => {
   const id = Number(req.params.id);
+  const old = cards.get(id);
   const { labels } = req.body;
   if (typeof labels !== 'string') return res.status(400).json({ error: 'labels required' });
   cards.setLabels(id, labels);
+  auditLog('edit-labels', 'card', id, 'user', old ? old.labels : '', labels, '');
   const card = cards.get(id);
   broadcast('card-updated', card);
   res.json(card);
@@ -528,9 +543,11 @@ app.put('/api/cards/:id/labels', (req, res) => {
 
 app.put('/api/cards/:id/depends-on', (req, res) => {
   const id = Number(req.params.id);
+  const old = cards.get(id);
   const { dependsOn } = req.body;
   if (typeof dependsOn !== 'string') return res.status(400).json({ error: 'dependsOn required' });
   cards.setDependsOn(id, dependsOn);
+  auditLog('edit-deps', 'card', id, 'user', old ? old.depends_on : '', dependsOn, '');
   const card = cards.get(id);
   broadcast('card-updated', card);
   res.json(card);
@@ -642,6 +659,8 @@ adminApp.get('/api/activities', (_req, res) => { res.json(orchestrator.getActivi
 adminApp.get('/api/metrics', (_req, res) => { res.json(orchestrator.getMetrics()); });
 adminApp.get('/api/pipeline', (_req, res) => { res.json({ paused: orchestrator.isPaused() }); });
 adminApp.get('/api/export', (_req, res) => { res.json(orchestrator.exportBoard()); });
+adminApp.get('/api/audit', (_req, res) => { res.json(audit.recent(500)); });
+adminApp.get('/api/audit/card/:id', (req, res) => { res.json(audit.byResource('card', Number(req.params.id))); });
 adminApp.get('/api/archive', (_req, res) => { res.json(cards.getArchived()); });
 
 // --- Admin: usage ---
@@ -657,7 +676,9 @@ adminApp.post('/api/usage/refresh', pinCheck, (_req, res) => {
 adminApp.get('/api/config', (_req, res) => { res.json(orchestrator.getConfig()); });
 
 adminApp.put('/api/config', pinCheck, (req, res) => {
+  const oldConfig = orchestrator.getConfig().runtime;
   const changed = orchestrator.setConfig(req.body);
+  auditLog('config-change', 'config', null, 'admin', oldConfig, changed, Object.keys(changed).join(', '));
   broadcast('toast', { message: 'Config updated: ' + Object.keys(changed).join(', '), type: 'success' });
   res.json({ changed, config: orchestrator.getConfig() });
 });
@@ -666,7 +687,9 @@ adminApp.put('/api/config', pinCheck, (req, res) => {
 adminApp.get('/api/custom-prompts', (_req, res) => { res.json(orchestrator.getCustomPrompts()); });
 
 adminApp.put('/api/custom-prompts', pinCheck, (req, res) => {
+  const oldPrompts = orchestrator.getCustomPrompts();
   const data = orchestrator.setCustomPrompts(req.body);
+  auditLog('prompts-change', 'config', null, 'admin', oldPrompts, data, 'custom prompts updated');
   broadcast('toast', { message: 'Custom prompts updated', type: 'success' });
   res.json(data);
 });

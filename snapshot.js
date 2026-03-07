@@ -2,8 +2,19 @@ const fs = require('fs');
 const path = require('path');
 
 const SNAPSHOT_ROOT = path.join(__dirname, '.data', 'snapshots');
+const SNAPSHOT_ARCHIVE = path.join(__dirname, '.data', 'archive', 'snapshots');
 const SKIP_DIRS = new Set(['node_modules', '.git', '.data', '.pnpm-store']);
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+// Archive a snapshot directory instead of deleting it
+function archiveSnapshot(snapDir) {
+  if (!fs.existsSync(snapDir)) return;
+  const name = path.basename(snapDir);
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const archiveDest = path.join(SNAPSHOT_ARCHIVE, name + '-' + ts);
+  fs.mkdirSync(SNAPSHOT_ARCHIVE, { recursive: true });
+  fs.renameSync(snapDir, archiveDest);
+}
 
 function walkDir(dir, base) {
   base = base || dir;
@@ -32,7 +43,7 @@ function snapshotDir(cardId) {
 
 function take(cardId, projectPath) {
   const snapDir = snapshotDir(cardId);
-  if (fs.existsSync(snapDir)) fs.rmSync(snapDir, { recursive: true });
+  archiveSnapshot(snapDir);
   fs.mkdirSync(snapDir, { recursive: true });
 
   const isNew = !fs.existsSync(projectPath);
@@ -87,7 +98,7 @@ function rollback(cardId) {
     }
   }
 
-  fs.rmSync(snapDir, { recursive: true });
+  archiveSnapshot(snapDir);
   return { success: true, wasNew: manifest.isNew };
 }
 
@@ -126,8 +137,7 @@ function revert(cardId) {
 }
 
 function clear(cardId) {
-  const snapDir = snapshotDir(cardId);
-  if (fs.existsSync(snapDir)) fs.rmSync(snapDir, { recursive: true });
+  archiveSnapshot(snapshotDir(cardId));
 }
 
 function cleanEmptyDirs(dir) {

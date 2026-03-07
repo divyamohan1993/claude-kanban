@@ -2251,6 +2251,8 @@ function exportBoard() {
         created_at: c.created_at, updated_at: c.updated_at,
       };
     }),
+    sessions: sessions.getAll(),
+    auditLog: require('./db').audit.all(),
   };
 }
 

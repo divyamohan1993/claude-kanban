@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.1] - 2026-03-07
+
+### Fixed
+- **Housekeeping guards pipeline**: Periodic cleanup now skips when any card is in working/building/brainstorming/reviewing/fixing state — prevents deleting logs or runtime files that active Claude sessions need. Manual cleanup from control panel still runs unconditionally
+
+## [1.8.0] - 2026-03-07
+
+### Added
+- **Timestamped rolling backups**: Hot (every 5min), hourly (keep 24), daily (configurable retention). Replaces single-file backup with tiered strategy
+- **Timeline-based DR UI**: Visual backup timeline in control panel — color-coded dots (hot/hourly/daily/manual), click to inspect, 2-click restore with safety backup
+- **Manual backup creation**: Create labeled backups on demand from control panel
+- **Backup retention config**: Configurable daily backup retention days via control panel
+- **Factory reset**: Double-confirmation reset (confirm dialog + type "RESET") wipes all data and restarts fresh
+- **Periodic housekeeping**: Auto-runs every 30min — prunes old logs (>7d), stale runtime scripts (>24h), snapshot archives (>14d), orphaned markers, excess audit rows (>10K)
+- **Housekeeping dashboard**: Disk usage stats grid in control panel System section with "Run Cleanup Now" button
+- **Control panel**: Standalone enterprise dashboard — usage, pipeline, build/review config, custom instructions, active processes, system info
+- **Real Claude Max usage tracking**: Reads OAuth token, calls Anthropic usage API, auto-pauses pipeline at configurable threshold (default 80%)
+- **Runtime config**: Live-editable limits via control panel with SSE broadcast on changes
+- **Custom prompts**: Configurable brainstorm/build/review instructions and quality gates injected into all Claude sessions
+- **Board-level usage tracking**: Logs every CLI invocation with hourly/weekly session limits
+- **Two-server architecture**: Public app on `0.0.0.0:PORT`, admin panel on `127.0.0.1:PORT+1` — admin physically unreachable from external IPs
+
+### Changed
+- Import/Export/Metrics buttons moved from kanban header to control panel
+- Backup system migrated from single `.bak` file to tiered hot/hourly/daily directories
+
 ## [1.7.0] - 2026-03-07
 
 ### Added

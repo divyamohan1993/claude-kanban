@@ -779,7 +779,7 @@ adminApp.get('/api/housekeeping', (_req, res) => {
 });
 
 adminApp.post('/api/housekeeping/run', pinCheck, (_req, res) => {
-  const result = runHousekeeping();
+  const result = runHousekeeping(true);
   res.json(result);
 });
 
@@ -830,7 +830,18 @@ function countFiles(dir) {
   } catch (_) { return 0; }
 }
 
-function runHousekeeping() {
+function isPipelineIdle() {
+  try {
+    const all = cards.getAll();
+    return !all.some(c =>
+      c.column_name === 'working' ||
+      ['building', 'brainstorming', 'reviewing', 'fixing'].includes(c.status)
+    );
+  } catch (_) { return true; }
+}
+
+function runHousekeeping(force = false) {
+  if (!force && !isPipelineIdle()) return { skipped: true, reason: 'pipeline active' };
   const now = Date.now();
   let cleaned = { logs: 0, markers: 0, runtime: 0, snapshotArchive: 0, audit: 0 };
 

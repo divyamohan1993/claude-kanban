@@ -183,6 +183,45 @@ select.cfg-input { cursor: pointer; }
 .sec-label { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
 .sec-label-mt { margin-top: 12px; }
 
+/* Timeline DR */
+.tl-wrap { margin: 16px 0 8px; }
+.tl-track { position: relative; height: 40px; margin: 0 16px; }
+.tl-rail { position: absolute; top: 18px; left: 0; right: 0; height: 4px; background: var(--border); border-radius: 2px; }
+.tl-now { position: absolute; top: 10px; right: -2px; width: 4px; height: 20px; background: var(--primary); border-radius: 2px; z-index: 2; }
+.tl-dot {
+  position: absolute; top: 13px; width: 14px; height: 14px; border-radius: 50%;
+  cursor: pointer; transform: translateX(-7px); z-index: 3;
+  border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.tl-dot:hover { transform: translateX(-7px) scale(1.3); box-shadow: 0 0 0 2px var(--primary); }
+.tl-dot.selected { transform: translateX(-7px) scale(1.4); box-shadow: 0 0 0 3px var(--primary); z-index: 4; }
+.tl-dot.hot { background: var(--error); }
+.tl-dot.hourly { background: var(--warning); }
+.tl-dot.daily { background: var(--success); }
+.tl-dot.manual { background: #8B5CF6; }
+.tl-labels { display: flex; justify-content: space-between; padding: 0 12px; margin-top: 2px; }
+.tl-label { font-size: 9px; color: var(--text-tertiary); font-weight: 500; font-variant-numeric: tabular-nums; }
+.tl-legend { display: flex; gap: 14px; margin: 10px 0 4px 16px; flex-wrap: wrap; }
+.tl-legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-tertiary); }
+.tl-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+.tl-detail {
+  margin: 12px 0 0; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); display: flex; align-items: center; gap: 12px;
+  animation: toastIn 0.15s ease;
+}
+.tl-detail-info { flex: 1; }
+.tl-detail-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+.tl-detail-meta { font-size: 11px; color: var(--text-tertiary); }
+.tl-detail-time { font-size: 18px; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; min-width: 90px; text-align: center; }
+.tl-tip {
+  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+  background: var(--text); color: var(--bg); font-size: 10px; font-weight: 500;
+  padding: 3px 8px; border-radius: 3px; white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity 0.15s;
+}
+.tl-dot:hover .tl-tip { opacity: 1; }
+
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -707,12 +746,31 @@ function loadBoardUsage() {
   });
 }
 
-// --- Database Backups ---
+// --- Database Backups — Timeline DR ---
 function fmtSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / 1048576).toFixed(1) + ' MB';
 }
+
+function fmtDate(iso) {
+  var d = new Date(iso);
+  var day = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+  var mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  return day + ' ' + mon + ' ' + d.getDate() + ', ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+
+function fmtAgo(ms) {
+  var mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return mins + 'm ago';
+  var hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ' + (mins % 60) + 'm ago';
+  var days = Math.floor(hrs / 24);
+  return days + 'd ' + (hrs % 24) + 'h ago';
+}
+
+var _selectedBackup = null;
 
 function renderBackups(data) {
   var body = document.getElementById('backups-body');
@@ -722,41 +780,122 @@ function renderBackups(data) {
   if (badge) badge.textContent = String(list.length);
 
   // Controls row
-  var controls = el('div', { style: 'display:flex;gap:8px;margin-bottom:14px;align-items:center' }, [
+  var controls = el('div', { style: 'display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap' }, [
     el('button', { class: 'cp-btn cp-btn-primary', onclick: function() {
-      api('POST', '/api/backups/create', { label: '' }).then(function() { loadBackups(); });
+      api('POST', '/api/backups/create', { label: '' }).then(function() { _selectedBackup = null; loadBackups(); });
     } }, 'Create Backup Now'),
-    el('span', 'cfg-help', 'Auto: every 5min (hot), hourly (keep 24), daily (keep ' + (data.retentionDays || 7) + 'd)'),
+    el('span', 'cfg-help', 'Auto: hot every 5min \u00B7 hourly (24) \u00B7 daily (' + (data.retentionDays || 7) + 'd). Click a point to restore.'),
   ]);
   body.appendChild(controls);
 
-  if (!list.length) { body.appendChild(el('div', 'queue-empty', 'No backups yet. First backup runs within 5 minutes of server start.')); return; }
+  if (!list.length) {
+    body.appendChild(el('div', 'queue-empty', 'No backups yet. First auto-backup runs within 5 minutes of server start.'));
+    return;
+  }
 
-  // Group by tier
-  var tiers = { hot: [], hourly: [], daily: [] };
-  list.forEach(function(b) { if (tiers[b.tier]) tiers[b.tier].push(b); });
+  // --- Timeline ---
+  var now = Date.now();
+  var retDays = data.retentionDays || 7;
+  var rangeMs = retDays * 86400000;
+  var oldest = now - rangeMs;
 
-  [['hot', 'Hot (Latest)', 'var(--error)'], ['hourly', 'Hourly (Last 24)', 'var(--warning)'], ['daily', 'Daily (' + (data.retentionDays || 7) + ' days)', 'var(--success)']].forEach(function(t) {
-    var items = tiers[t[0]];
-    if (!items.length) return;
-    body.appendChild(el('div', 'sec-label sec-label-mt', t[1]));
-    items.forEach(function(b) {
-      var restoreBtn = el('button', { class: 'cp-btn', style: 'font-size:10px;padding:3px 8px', onclick: function() {
-        if (confirm('Restore from ' + b.file + '?\n\nThis will overwrite the current database.\nA safety backup will be created first.\nServer restart required after restore.')) {
-          api('POST', '/api/backups/restore', { backupPath: b.path }).then(function(r) {
-            if (r.success) toast('Restored! Restart server to apply.', 'success');
-            else toast('Restore failed: ' + r.reason, 'error');
-          });
-        }
-      } }, 'Restore');
-      body.appendChild(el('div', 'queue-item', [
-        el('span', { style: 'width:8px;height:8px;border-radius:50%;background:' + t[2] + ';flex-shrink:0' }),
-        el('span', 'queue-title', b.file),
-        el('span', 'queue-meta', fmtSize(b.size) + ' \u00B7 ' + timeAgo(b.modified)),
-        restoreBtn,
-      ]));
+  // Filter to visible range + sort oldest first
+  var visible = list.filter(function(b) { return b.mtime >= oldest; });
+  visible.sort(function(a, b) { return a.mtime - b.mtime; });
+
+  // If all backups are newer than range (e.g. first day), expand range to cover them
+  if (visible.length > 0 && visible[0].mtime > oldest) {
+    oldest = Math.min(oldest, visible[0].mtime - 3600000); // 1h padding
+  }
+
+  var track = el('div', 'tl-track');
+  track.appendChild(el('div', 'tl-rail'));
+  track.appendChild(el('div', 'tl-now'));
+
+  // Detail container (below timeline)
+  var detailBox = el('div', { id: 'tl-detail-box' });
+
+  // Place dots
+  visible.forEach(function(b) {
+    var pct = Math.max(0, Math.min(100, ((b.mtime - oldest) / (now - oldest)) * 100));
+    var tierClass = b.file.includes('manual') ? 'manual' : b.tier;
+    var dot = el('div', { class: 'tl-dot ' + tierClass + ((_selectedBackup && _selectedBackup.path === b.path) ? ' selected' : ''), style: 'left:' + pct + '%' });
+    dot.appendChild(el('div', 'tl-tip', fmtDate(b.modified)));
+    dot.addEventListener('click', function(e) {
+      e.stopPropagation();
+      _selectedBackup = b;
+      // Update selection visuals
+      var allDots = track.querySelectorAll('.tl-dot');
+      for (var i = 0; i < allDots.length; i++) allDots[i].classList.remove('selected');
+      dot.classList.add('selected');
+      renderDetail(b, detailBox);
     });
+    track.appendChild(dot);
   });
+
+  var wrap = el('div', 'tl-wrap');
+  wrap.appendChild(track);
+
+  // Day labels under timeline
+  var labels = el('div', 'tl-labels');
+  for (var d = retDays; d >= 0; d--) {
+    var lbl = d === 0 ? 'Now' : d + 'd';
+    labels.appendChild(el('span', 'tl-label', lbl));
+  }
+  wrap.appendChild(labels);
+  body.appendChild(wrap);
+
+  // Legend
+  var legend = el('div', 'tl-legend', [
+    el('div', 'tl-legend-item', [el('div', { class: 'tl-legend-dot', style: 'background:var(--error)' }), 'Hot (5min)']),
+    el('div', 'tl-legend-item', [el('div', { class: 'tl-legend-dot', style: 'background:var(--warning)' }), 'Hourly']),
+    el('div', 'tl-legend-item', [el('div', { class: 'tl-legend-dot', style: 'background:var(--success)' }), 'Daily']),
+    el('div', 'tl-legend-item', [el('div', { class: 'tl-legend-dot', style: 'background:#8B5CF6' }), 'Manual']),
+  ]);
+  body.appendChild(legend);
+
+  // Show detail if we have a selection
+  if (_selectedBackup) {
+    var match = visible.find(function(b) { return b.path === _selectedBackup.path; });
+    if (match) renderDetail(match, detailBox);
+  }
+  body.appendChild(detailBox);
+
+  // Summary stats
+  var tiers = { hot: 0, hourly: 0, daily: 0 };
+  list.forEach(function(b) { tiers[b.tier] = (tiers[b.tier] || 0) + 1; });
+  var totalSize = list.reduce(function(s, b) { return s + b.size; }, 0);
+  var statsRow = el('div', { class: 'stats-row', style: 'margin-top:14px' });
+  [[list.length, 'Total Backups'], [fmtSize(totalSize), 'Disk Usage'], [tiers.hourly, 'Hourly'], [tiers.daily, 'Daily']].forEach(function(s) {
+    statsRow.appendChild(el('div', 'stat-card', [el('div', 'stat-card-value', String(s[0])), el('div', 'stat-card-label', s[1])]));
+  });
+  body.appendChild(statsRow);
+}
+
+function renderDetail(b, container) {
+  clear(container);
+  var ageMs = Date.now() - b.mtime;
+  var tierLabel = b.file.includes('manual') ? 'Manual' : b.tier.charAt(0).toUpperCase() + b.tier.slice(1);
+  var tierColor = b.tier === 'hot' ? 'var(--error)' : b.tier === 'hourly' ? 'var(--warning)' : 'var(--success)';
+  if (b.file.includes('manual')) tierColor = '#8B5CF6';
+
+  var detail = el('div', 'tl-detail', [
+    el('div', 'tl-detail-time', fmtAgo(ageMs)),
+    el('div', { style: 'width:4px;height:32px;border-radius:2px;background:' + tierColor }),
+    el('div', 'tl-detail-info', [
+      el('div', 'tl-detail-title', b.file),
+      el('div', 'tl-detail-meta', tierLabel + ' \u00B7 ' + fmtSize(b.size) + ' \u00B7 ' + fmtDate(b.modified)),
+    ]),
+    el('button', { class: 'cp-btn cp-btn-danger', style: 'font-size:12px;padding:8px 18px;white-space:nowrap', onclick: function() {
+      if (confirm('Restore database to this point?\n\n' + b.file + '\n' + fmtDate(b.modified) + '\n\nCurrent DB will be safety-backed up first.\nServer restart required after restore.')) {
+        api('POST', '/api/backups/restore', { backupPath: b.path }).then(function(r) {
+          if (r.success) toast('Restored! Restart server to apply.', 'success');
+          else toast('Restore failed: ' + r.reason, 'error');
+        });
+      }
+    } }, 'Restore'),
+  ]);
+  container.appendChild(detail);
 }
 
 function loadBackups() {

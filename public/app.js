@@ -1437,21 +1437,6 @@ function initPipelineControls() {
   });
   container.appendChild(pauseBtn);
 
-  var killBtn = el('button', {
-    className: 'btn btn-danger btn-sm kill-switch',
-    id: 'kill-btn',
-    title: 'Kill all active builds and pause pipeline',
-    'aria-label': 'Emergency kill switch — stop all builds',
-    textContent: 'Kill All',
-  });
-  killBtn.addEventListener('click', async function() {
-    if (!confirm('KILL ALL active builds and pause pipeline?')) return;
-    try {
-      var result = await api('/pipeline/kill-all', { method: 'POST' });
-      toast('Killed ' + result.killed.length + ' build(s)', 'error');
-    } catch (e) { toast(e.message, 'error'); }
-  });
-  container.appendChild(killBtn);
   updatePipelineControls();
 }
 

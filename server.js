@@ -419,10 +419,6 @@ app.post('/api/pipeline/resume', (_req, res) => {
   orchestrator.setPaused(false);
   res.json({ paused: false });
 });
-app.post('/api/pipeline/kill-all', (_req, res) => {
-  const killed = orchestrator.killAll();
-  res.json({ killed });
-});
 app.post('/api/cards/:id/stop', (req, res) => {
   try {
     const result = orchestrator.stopCard(Number(req.params.id));

@@ -9,7 +9,6 @@ const { spawn } = require('child_process');
 const PORT = Number(process.env.PORT) || 51777;
 const ADMIN_PORT = Number(process.env.ADMIN_PORT) || PORT + 1;
 const ADMIN_PIN = process.env.ADMIN_PIN || '';
-const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
 const DATA_DIR = path.join(__dirname, '.data');
 const LOGS_DIR = path.join(DATA_DIR, 'logs');
 
@@ -25,70 +24,6 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.static(path.join(__dirname, 'public')));
-
-// --- Auth: backend-driven role system ---
-// When AUTH_TOKEN is set, the board is view-only for guests.
-// Authenticated users get 'editor' role. Guests get 'guest' role.
-// SSO will replace getRole() internals later — frontend uses role from server.
-function getBearer(req) {
-  return (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-}
-
-function getRole(req) {
-  if (!AUTH_TOKEN) return 'editor'; // no auth configured — everyone is editor
-  if (getBearer(req) === AUTH_TOKEN) return 'editor';
-  return 'guest';
-}
-
-// Attach role to every /api request
-app.use('/api', (req, _res, next) => {
-  req.role = getRole(req);
-  next();
-});
-
-// Block writes for guests
-app.use('/api', (req, res, next) => {
-  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
-  if (req.path === '/auth/login') return next();
-  if (req.role === 'editor') return next();
-  res.status(401).json({ error: 'Authentication required', authRequired: true });
-});
-
-// Strip sensitive fields from card data for guests
-function sanitizeCard(card, role) {
-  if (!card) return card;
-  if (role === 'editor') return card;
-  return {
-    id: card.id,
-    title: card.title,
-    description: card.description,
-    column_name: card.column_name,
-    status: card.status,
-    labels: card.labels,
-    review_score: card.review_score,
-    approved_by: card.approved_by,
-    phase_durations: card.phase_durations,
-    depends_on: card.depends_on,
-    created_at: card.created_at,
-    updated_at: card.updated_at,
-    // Stripped for guests: project_path, session_log, spec, review_data
-  };
-}
-
-function sanitizeCards(cardList, role) {
-  if (role === 'editor') return cardList;
-  return cardList.map(c => sanitizeCard(c, role));
-}
-
-app.get('/api/auth/status', (req, res) => {
-  res.json({ authRequired: !!AUTH_TOKEN, role: req.role });
-});
-
-app.post('/api/auth/login', (req, res) => {
-  if (!AUTH_TOKEN) return res.json({ ok: true, authRequired: false, role: 'editor' });
-  if (req.body.token === AUTH_TOKEN) return res.json({ ok: true, role: 'editor' });
-  res.status(401).json({ ok: false, error: 'Invalid token' });
-});
 
 // Tell frontend where admin panel lives (localhost only, but gear icon needs the port)
 app.get('/api/admin-info', (_req, res) => {
@@ -117,8 +52,8 @@ function broadcast(event, data) {
 }
 
 // --- Cards CRUD ---
-app.get('/api/cards', (req, res) => {
-  res.json(sanitizeCards(cards.getAll(), req.role));
+app.get('/api/cards', (_req, res) => {
+  res.json(cards.getAll());
 });
 
 app.post('/api/cards', (req, res) => {
@@ -343,18 +278,15 @@ app.post('/api/cards/:id/revert-files', (req, res) => {
 });
 
 app.get('/api/cards/:id/has-snapshot', (req, res) => {
-  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   res.json({ has: snapshot.has(Number(req.params.id)) });
 });
 
 app.get('/api/cards/:id/sessions', (req, res) => {
-  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   res.json(sessions.getByCard(Number(req.params.id)));
 });
 
 // --- Logs API ---
 app.get('/api/cards/:id/log/:type', (req, res) => {
-  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   const logPath = path.join(LOGS_DIR, 'card-' + req.params.id + '-' + req.params.type + '.log');
   if (!fs.existsSync(logPath)) return res.status(404).json({ error: 'No log found' });
   res.type('text/plain').send(fs.readFileSync(logPath, 'utf-8'));
@@ -461,7 +393,7 @@ function autoArchiveDone() {
 }
 
 // --- Archive API ---
-app.get('/api/archive', (req, res) => { res.json(sanitizeCards(cards.getArchived(), req.role)); });
+app.get('/api/archive', (_req, res) => { res.json(cards.getArchived()); });
 
 app.post('/api/cards/:id/unarchive', (req, res) => {
   const id = Number(req.params.id);
@@ -480,7 +412,6 @@ app.get('/api/pipeline', (_req, res) => { res.json({ paused: orchestrator.isPaus
 
 // --- Review Data API ---
 app.get('/api/cards/:id/review', (req, res) => {
-  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   const card = cards.get(Number(req.params.id));
   if (!card) return res.status(404).json({ error: 'Card not found' });
   if (!card.review_data) return res.json({ score: 0, findings: [] });
@@ -490,7 +421,6 @@ app.get('/api/cards/:id/review', (req, res) => {
 
 // --- Live Log Stream (SSE) ---
 app.get('/api/cards/:id/log-stream', (req, res) => {
-  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   const id = req.params.id;
   const type = req.query.type || 'build';
   const logFile = path.join(LOGS_DIR, 'card-' + id + '-' + type + '.log');
@@ -549,7 +479,7 @@ app.get('/api/cards/:id/log-stream', (req, res) => {
 app.get('/api/search', (req, res) => {
   const q = req.query.q;
   if (!q) return res.json([]);
-  res.json(sanitizeCards(cards.search(q), req.role));
+  res.json(cards.search(q));
 });
 
 app.put('/api/cards/:id/spec', (req, res) => {
@@ -583,7 +513,6 @@ app.put('/api/cards/:id/depends-on', (req, res) => {
 });
 
 app.get('/api/cards/:id/diff', (req, res) => {
-  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
   const result = orchestrator.getDiff(Number(req.params.id));
   if (result.error) return res.status(404).json(result);
   res.json(result);
@@ -611,10 +540,7 @@ app.post('/api/cards/:id/preview', (req, res) => {
 });
 
 // --- Export / Bulk Import / Metrics (on public for kanban board JS) ---
-app.get('/api/export', (req, res) => {
-  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
-  res.json(orchestrator.exportBoard());
-});
+app.get('/api/export', (_req, res) => { res.json(orchestrator.exportBoard()); });
 
 app.post('/api/bulk-create', (req, res) => {
   const { items } = req.body;
@@ -631,10 +557,7 @@ app.post('/api/bulk-create', (req, res) => {
   res.json({ created: created.length, cards: created });
 });
 
-app.get('/api/metrics', (req, res) => {
-  if (req.role !== 'editor') return res.status(401).json({ error: 'Authentication required' });
-  res.json(orchestrator.getMetrics());
-});
+app.get('/api/metrics', (_req, res) => { res.json(orchestrator.getMetrics()); });
 
 // --- Test-only (NODE_ENV=test) ---
 if (process.env.NODE_ENV === 'test') {

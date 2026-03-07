@@ -7,9 +7,6 @@ var COLUMNS = [
 ];
 
 var state = { cards: [] };
-var _authToken = sessionStorage.getItem('auth-token') || '';
-var _authRequired = false;
-var _isAuthenticated = false;
 var dragCardId = null;
 var queueInfo = { queue: [], active: [] };
 var cardActivities = {};
@@ -97,21 +94,11 @@ function labelClass(label) {
 
 // --- API ---
 async function api(path, opts) {
-  var headers = { 'Content-Type': 'application/json' };
-  if (_authToken) headers['Authorization'] = 'Bearer ' + _authToken;
   var res = await fetch('/api' + path, {
-    headers: headers,
+    headers: { 'Content-Type': 'application/json' },
     ...opts,
     body: opts && opts.body ? JSON.stringify(opts.body) : undefined,
   });
-  if (res.status === 401) {
-    var body = await res.json().catch(function() { return {}; });
-    if (body.authRequired) {
-      toast('Login required to perform this action', 'error');
-      showLoginModal();
-    }
-    throw new Error(body.error || 'Authentication required');
-  }
   if (!res.ok) {
     var err = await res.json().catch(function() { return { error: 'Request failed' }; });
     throw new Error(err.error || 'Request failed');
@@ -339,9 +326,8 @@ function renderColumn(col, colCards) {
 }
 
 function renderCard(card, colId) {
-  var isViewOnly = document.body.classList.contains('view-only');
-  var cardEl = el('div', { className: 'card' + (card.id === selectedCardId ? ' card-selected' : ''), draggable: isViewOnly ? 'false' : 'true', 'data-id': card.id });
-  cardEl.addEventListener('dragstart', function(e) { if (isViewOnly) { e.preventDefault(); return; } dragCardId = card.id; cardEl.classList.add('dragging'); });
+  var cardEl = el('div', { className: 'card' + (card.id === selectedCardId ? ' card-selected' : ''), draggable: 'true', 'data-id': card.id });
+  cardEl.addEventListener('dragstart', function() { dragCardId = card.id; cardEl.classList.add('dragging'); });
   cardEl.addEventListener('dragend', function() { cardEl.classList.remove('dragging'); dragCardId = null; });
 
   cardEl.appendChild(el('div', { className: 'card-accent' }));
@@ -739,77 +725,62 @@ function showDetail(card) {
 
   addSection('Description', card.description);
 
-  if (_isAuthenticated) {
-    // Editable spec — editors only
-    if (card.spec) {
-      var specSec = el('div', { className: 'detail-section' });
-      specSec.appendChild(el('h3', { textContent: 'Specification' }));
-      var specArea = el('textarea', { className: 'spec-editor', value: card.spec });
-      specArea.value = card.spec;
-      specSec.appendChild(specArea);
-      var specActions = el('div', { style: 'display:flex;gap:6px;margin-top:6px' });
-      specActions.appendChild(btn('Save Spec', 'btn-sm btn-primary', async function() {
-        try {
-          await api('/cards/' + card.id + '/spec', { method: 'PUT', body: { spec: specArea.value } });
-          toast('Spec saved', 'success');
-          card.spec = specArea.value;
-        } catch (err) { toast(err.message, 'error'); }
-      }));
-      specActions.appendChild(btn('Build with this Spec', 'btn-sm btn-ghost', async function() {
-        try {
-          await api('/cards/' + card.id + '/spec', { method: 'PUT', body: { spec: specArea.value } });
-          await api('/cards/' + card.id + '/start-work', { method: 'POST' });
-          toast('Build started with updated spec', 'success');
-          detailModal.classList.remove('active');
-        } catch (err) { toast(err.message, 'error'); }
-      }));
-      specSec.appendChild(specActions);
-      body.appendChild(specSec);
-    }
-
-    addSection('Session Log', card.session_log);
-
-    // Labels editor — editors only
-    var labelSec = el('div', { className: 'detail-section' });
-    labelSec.appendChild(el('h3', { textContent: 'Labels' }));
-    var labelInput = el('input', { type: 'text', value: card.labels || '', placeholder: 'bug, feature, design...' });
-    labelInput.value = card.labels || '';
-    labelInput.addEventListener('change', async function() {
+  // Editable spec
+  if (card.spec) {
+    var specSec = el('div', { className: 'detail-section' });
+    specSec.appendChild(el('h3', { textContent: 'Specification' }));
+    var specArea = el('textarea', { className: 'spec-editor', value: card.spec });
+    specArea.value = card.spec;
+    specSec.appendChild(specArea);
+    var specActions = el('div', { style: 'display:flex;gap:6px;margin-top:6px' });
+    specActions.appendChild(btn('Save Spec', 'btn-sm btn-primary', async function() {
       try {
-        await api('/cards/' + card.id + '/labels', { method: 'PUT', body: { labels: labelInput.value } });
-        toast('Labels updated', 'success');
+        await api('/cards/' + card.id + '/spec', { method: 'PUT', body: { spec: specArea.value } });
+        toast('Spec saved', 'success');
+        card.spec = specArea.value;
       } catch (err) { toast(err.message, 'error'); }
-    });
-    labelSec.appendChild(labelInput);
-    body.appendChild(labelSec);
-
-    // Dependencies editor — editors only
-    var depSec = el('div', { className: 'detail-section' });
-    depSec.appendChild(el('h3', { textContent: 'Dependencies (comma-separated card IDs)' }));
-    var depInput = el('input', { type: 'text', value: card.depends_on || '', placeholder: '1, 5, 12...' });
-    depInput.value = card.depends_on || '';
-    depInput.addEventListener('change', async function() {
+    }));
+    specActions.appendChild(btn('Build with this Spec', 'btn-sm btn-ghost', async function() {
       try {
-        await api('/cards/' + card.id + '/depends-on', { method: 'PUT', body: { dependsOn: depInput.value } });
-        toast('Dependencies updated', 'success');
+        await api('/cards/' + card.id + '/spec', { method: 'PUT', body: { spec: specArea.value } });
+        await api('/cards/' + card.id + '/start-work', { method: 'POST' });
+        toast('Build started with updated spec', 'success');
+        detailModal.classList.remove('active');
       } catch (err) { toast(err.message, 'error'); }
-    });
-    depSec.appendChild(depInput);
-    body.appendChild(depSec);
-  } else {
-    // Guest view — read-only labels display
-    if (card.labels) {
-      var labelSec = el('div', { className: 'detail-section' });
-      labelSec.appendChild(el('h3', { textContent: 'Labels' }));
-      var labelsDiv = el('div', { className: 'card-labels', style: 'margin-top:4px' });
-      card.labels.split(',').forEach(function(l) {
-        l = l.trim();
-        if (l) labelsDiv.appendChild(el('span', { className: 'label-chip ' + labelClass(l), textContent: l }));
-      });
-      labelSec.appendChild(labelsDiv);
-      body.appendChild(labelSec);
-    }
+    }));
+    specSec.appendChild(specActions);
+    body.appendChild(specSec);
   }
+
+  addSection('Session Log', card.session_log);
+
+  // Labels editor
+  var labelSec = el('div', { className: 'detail-section' });
+  labelSec.appendChild(el('h3', { textContent: 'Labels' }));
+  var labelInput = el('input', { type: 'text', value: card.labels || '', placeholder: 'bug, feature, design...' });
+  labelInput.value = card.labels || '';
+  labelInput.addEventListener('change', async function() {
+    try {
+      await api('/cards/' + card.id + '/labels', { method: 'PUT', body: { labels: labelInput.value } });
+      toast('Labels updated', 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  labelSec.appendChild(labelInput);
+  body.appendChild(labelSec);
+
+  // Dependencies editor
+  var depSec = el('div', { className: 'detail-section' });
+  depSec.appendChild(el('h3', { textContent: 'Dependencies (comma-separated card IDs)' }));
+  var depInput = el('input', { type: 'text', value: card.depends_on || '', placeholder: '1, 5, 12...' });
+  depInput.value = card.depends_on || '';
+  depInput.addEventListener('change', async function() {
+    try {
+      await api('/cards/' + card.id + '/depends-on', { method: 'PUT', body: { dependsOn: depInput.value } });
+      toast('Dependencies updated', 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  depSec.appendChild(depInput);
+  body.appendChild(depSec);
 
   // Info
   var info = 'Status: ' + card.status + '\nColumn: ' + card.column_name + '\nCreated: ' + card.created_at + '\nUpdated: ' + card.updated_at;
@@ -1192,19 +1163,6 @@ document.getElementById('admin-btn').addEventListener('click', async function() 
   }
 });
 
-// --- Auth button ---
-document.getElementById('auth-btn').addEventListener('click', function() {
-  if (!_isAuthenticated) {
-    showLoginModal();
-  } else {
-    _authToken = '';
-    sessionStorage.removeItem('auth-token');
-    setAuthenticated(false);
-    render();
-    toast('Logged out', 'info');
-  }
-});
-
 // --- Archive ---
 var archiveModal = document.getElementById('archive-modal');
 document.getElementById('archive-close').addEventListener('click', function() { archiveModal.classList.remove('active'); });
@@ -1513,99 +1471,10 @@ function updatePauseBtnContent(pauseBtn) {
   }
 }
 
-// --- Auth / Login ---
-function showLoginModal() {
-  var existing = document.getElementById('login-modal');
-  if (existing) { existing.classList.add('active'); return; }
-
-  var modal = el('div', { className: 'modal-overlay active', id: 'login-modal' });
-  var box = el('div', { className: 'modal', style: 'max-width:360px' });
-  var header = el('div', { className: 'modal-header' }, [
-    el('h2', { textContent: 'Login' }),
-    el('button', { className: 'modal-close', textContent: '\u00d7', onclick: function() { modal.classList.remove('active'); } }),
-  ]);
-  var errDiv = el('div', { style: 'color:var(--error);font-size:12px;min-height:18px;margin-bottom:8px', id: 'login-err' });
-  var input = el('input', { type: 'password', className: 'form-input', placeholder: 'Access token', id: 'login-token', style: 'width:100%;margin-bottom:8px' });
-  var submitBtn = el('button', { className: 'btn btn-primary', textContent: 'Login', style: 'width:100%' });
-
-  submitBtn.addEventListener('click', async function() {
-    errDiv.textContent = '';
-    submitBtn.disabled = true;
-    try {
-      var r = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: input.value }),
-      });
-      var d = await r.json();
-      if (d.ok) {
-        _authToken = input.value;
-        sessionStorage.setItem('auth-token', _authToken);
-        modal.classList.remove('active');
-        setAuthenticated(true);
-        // Re-fetch cards with full data now that we're authenticated
-        api('/cards').then(function(c) { state.cards = c; render(); });
-        toast('Logged in', 'success');
-      } else {
-        errDiv.textContent = d.error || 'Invalid token';
-      }
-    } catch (e) {
-      errDiv.textContent = 'Connection failed';
-    }
-    submitBtn.disabled = false;
-  });
-
-  input.addEventListener('keydown', function(e) { if (e.key === 'Enter') submitBtn.click(); });
-
-  var body = el('div', { className: 'modal-body' }, [errDiv, input, submitBtn]);
-  box.appendChild(header);
-  box.appendChild(body);
-  modal.appendChild(box);
-  modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.remove('active'); });
-  document.body.appendChild(modal);
-  input.focus();
-}
-
-function setAuthenticated(authenticated) {
-  _isAuthenticated = authenticated;
-  // Update auth button
-  var authBtn = document.getElementById('auth-btn');
-  if (authBtn) {
-    authBtn.textContent = authenticated ? 'Logout' : 'Login';
-    authBtn.title = authenticated ? 'Logout to view-only mode' : 'Login to edit cards';
-  }
-  // Update admin gear visibility
-  var adminBtn = document.getElementById('admin-btn');
-  if (adminBtn) adminBtn.style.display = authenticated ? '' : 'none';
-}
-
-async function checkAuth() {
-  try {
-    var headers = {};
-    if (_authToken) headers['Authorization'] = 'Bearer ' + _authToken;
-    var r = await fetch('/api/auth/status', { headers: headers });
-    var d = await r.json();
-    _authRequired = d.authRequired;
-    if (d.role === 'editor') {
-      setAuthenticated(true);
-    } else {
-      // Token was invalid or missing
-      if (_authToken) {
-        _authToken = '';
-        sessionStorage.removeItem('auth-token');
-      }
-      setAuthenticated(false);
-    }
-  } catch (_) {
-    setAuthenticated(false);
-  }
-}
-
 // --- Init ---
 async function init() {
   initTheme();
   requestNotifPermission();
-  await checkAuth();
 
   var cardsP = api('/cards');
   var activitiesP = fetch('/api/activities').then(function(r) { return r.json(); }).catch(function() { return {}; });

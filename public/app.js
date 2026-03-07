@@ -155,6 +155,11 @@ function connectSSE() {
     render();
   });
 
+  es.addEventListener('config-updated', function(e) {
+    state.config = JSON.parse(e.data);
+    render();
+  });
+
   es.addEventListener('toast', function(e) {
     try { var d = JSON.parse(e.data); toast(d.message, d.type || 'info'); } catch (_) {}
   });
@@ -287,6 +292,12 @@ function render() {
   for (var ci = 0; ci < COLUMNS.length; ci++) {
     var col = COLUMNS[ci];
     var colCards = state.cards.filter(function(c) { return c.column_name === col.id; });
+    if (col.id === 'done') {
+      colCards.sort(function(a, b) { return (b.updated_at || '').localeCompare(a.updated_at || ''); });
+      if (state.config && state.config.runtime && state.config.runtime.maxDoneVisible > 0) {
+        colCards = colCards.slice(0, state.config.runtime.maxDoneVisible);
+      }
+    }
     board.appendChild(renderColumn(col, colCards));
   }
 }
@@ -1466,10 +1477,12 @@ async function init() {
   var cardsP = api('/cards');
   var activitiesP = fetch('/api/activities').then(function(r) { return r.json(); }).catch(function() { return {}; });
   var pipelineP = fetch('/api/pipeline').then(function(r) { return r.json(); }).catch(function() { return { paused: false }; });
-  var results = await Promise.all([cardsP, activitiesP, pipelineP]);
+  var configP = fetch('/api/config').then(function(r) { return r.json(); }).catch(function() { return null; });
+  var results = await Promise.all([cardsP, activitiesP, pipelineP, configP]);
   state.cards = results[0];
   cardActivities = results[1];
   pipelinePaused = results[2].paused;
+  state.config = results[3];
   initPipelineControls();
   render();
   connectSSE();

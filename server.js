@@ -409,6 +409,7 @@ app.post('/api/cards/:id/unarchive', (req, res) => {
 app.get('/api/queue', (_req, res) => { res.json(orchestrator.getQueueInfo()); });
 app.get('/api/activities', (_req, res) => { res.json(orchestrator.getActivities()); });
 app.get('/api/pipeline', (_req, res) => { res.json({ paused: orchestrator.isPaused() }); });
+app.get('/api/config', (_req, res) => { res.json(orchestrator.getConfig()); });
 
 // --- Pipeline controls (needed by frontend on public port) ---
 app.post('/api/pipeline/pause', (_req, res) => {

@@ -21,6 +21,7 @@ var WEBHOOK_URL = process.env.WEBHOOK_URL || '';
 var MAX_HOURLY_SESSIONS = Number(process.env.MAX_HOURLY_SESSIONS) || 0;   // 0 = unlimited
 var MAX_WEEKLY_SESSIONS = Number(process.env.MAX_WEEKLY_SESSIONS) || 0;   // 0 = unlimited
 var USAGE_PAUSE_PCT = Number(process.env.USAGE_PAUSE_PCT) || 80;         // auto-pause pipeline at this %
+var MAX_DONE_VISIBLE = Number(process.env.MAX_DONE_VISIBLE) || 10;       // 0 = show all
 var CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-6';
 var CLAUDE_EFFORT = process.env.CLAUDE_EFFORT || 'high';
 var CUSTOM_PROMPTS_FILE = path.join(DATA_DIR, 'custom-prompts.json');
@@ -520,6 +521,7 @@ function getConfig() {
       maxWeeklySessions: MAX_WEEKLY_SESSIONS,
       maxReviewFixAttempts: MAX_REVIEW_FIX_ATTEMPTS,
       maxFixAttempts: MAX_FIX_ATTEMPTS,
+      maxDoneVisible: MAX_DONE_VISIBLE,
       claudeModel: CLAUDE_MODEL,
       claudeEffort: CLAUDE_EFFORT,
       webhookUrl: WEBHOOK_URL,
@@ -553,6 +555,7 @@ function setConfig(updates) {
   if (updates.maxWeeklySessions !== undefined) { MAX_WEEKLY_SESSIONS = Math.max(0, Number(updates.maxWeeklySessions)); changed.maxWeeklySessions = MAX_WEEKLY_SESSIONS; }
   if (updates.maxReviewFixAttempts !== undefined) { MAX_REVIEW_FIX_ATTEMPTS = Math.max(0, Number(updates.maxReviewFixAttempts)); changed.maxReviewFixAttempts = MAX_REVIEW_FIX_ATTEMPTS; }
   if (updates.maxFixAttempts !== undefined) { MAX_FIX_ATTEMPTS = Math.max(0, Number(updates.maxFixAttempts)); changed.maxFixAttempts = MAX_FIX_ATTEMPTS; }
+  if (updates.maxDoneVisible !== undefined) { MAX_DONE_VISIBLE = Math.max(0, Number(updates.maxDoneVisible)); changed.maxDoneVisible = MAX_DONE_VISIBLE; }
   if (updates.claudeModel !== undefined) { CLAUDE_MODEL = String(updates.claudeModel); changed.claudeModel = CLAUDE_MODEL; }
   if (updates.claudeEffort !== undefined) { CLAUDE_EFFORT = String(updates.claudeEffort); changed.claudeEffort = CLAUDE_EFFORT; }
   if (updates.webhookUrl !== undefined) { WEBHOOK_URL = String(updates.webhookUrl); changed.webhookUrl = WEBHOOK_URL; }

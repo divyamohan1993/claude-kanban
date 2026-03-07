@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Kanban</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1>Claude Kanban</h1>
+      <span class="subtitle">Autonomous AI Workflow Board</span>
+    </div>
+    <button class="btn btn-primary" id="add-btn">+ New Card</button>
+  </header>
+
+  <main class="board" id="board"></main>
+
+  <!-- Add/Edit Modal -->
+  <div class="modal-overlay" id="card-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modal-title">New Card</h2>
+        <button class="modal-close" id="modal-close">&times;</button>
+      </div>
+      <form id="card-form">
+        <input type="hidden" id="card-id">
+        <label>Title</label>
+        <input type="text" id="card-title" required placeholder="Project idea..." autofocus>
+        <label>Description</label>
+        <textarea id="card-desc" rows="4" placeholder="Details, goals, context..."></textarea>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Detail Modal -->
+  <div class="modal-overlay" id="detail-modal">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2 id="detail-title">Card Details</h2>
+        <button class="modal-close" id="detail-close">&times;</button>
+      </div>
+      <div id="detail-body"></div>
+    </div>
+  </div>
+
+  <!-- Folder Picker Modal -->
+  <div class="modal-overlay" id="folder-modal">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2 id="folder-modal-title">Select Project Folder</h2>
+        <button class="modal-close" id="folder-close">&times;</button>
+      </div>
+      <p id="folder-desc" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px;"></p>
+      <div id="folder-matches"></div>
+      <div id="folder-new" style="margin-top:12px;"></div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toasts"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

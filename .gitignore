@@ -3,7 +3,6 @@ node_modules/
 
 # All runtime data (db, logs, snapshots, pid, server.log)
 .data/
-kanban.db*
 
 # Environment
 .env

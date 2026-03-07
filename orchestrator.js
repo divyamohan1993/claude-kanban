@@ -54,7 +54,7 @@ function killAll() {
   pipelinePaused = true;
   var killed = [];
 
-  // Kill all active builds
+  // 1. Kill all active builds (working column)
   for (var entry of activeBuilds) {
     var projectPath = entry[0];
     var cardId = entry[1];
@@ -67,19 +67,65 @@ function killAll() {
     cards.move(cardId, 'todo');
     setActivity(cardId, 'queue', 'Killed by master kill switch');
     _broadcast('card-updated', cards.get(cardId));
-    killed.push({ id: cardId, title: card ? card.title : '?' });
+    killed.push({ id: cardId, title: card ? card.title : '?', phase: 'build' });
   }
   activeBuilds.clear();
 
-  // Queued cards stay queued — they won't move until user resumes or manually triggers
-  for (var qi = 0; qi < workQueue.length; qi++) {
-    setActivity(workQueue[qi].cardId, 'queue', 'Paused — waiting for resume');
-    _broadcast('card-updated', cards.get(workQueue[qi].cardId));
+  // 2. Kill all brainstorming cards
+  var allCards = cards.getAll();
+  for (var ci = 0; ci < allCards.length; ci++) {
+    var c = allCards[ci];
+    if (c.status === 'brainstorming') {
+      var bPid = buildPids.get(c.id);
+      if (bPid) { killProcess(bPid); buildPids.delete(c.id); }
+      cards.setStatus(c.id, 'idle');
+      cards.move(c.id, 'todo');
+      setActivity(c.id, 'queue', 'Killed by master kill switch');
+      _broadcast('card-updated', cards.get(c.id));
+      killed.push({ id: c.id, title: c.title, phase: 'brainstorm' });
+    }
+  }
+
+  // 3. Kill all review processes (review column)
+  for (var ri = 0; ri < allCards.length; ri++) {
+    var rc = allCards[ri];
+    if (rc.column_name === 'review') {
+      var rPid = buildPids.get(rc.id);
+      if (rPid) { killProcess(rPid); buildPids.delete(rc.id); }
+      var rPoller = activePollers.get(rc.id);
+      if (rPoller) { clearInterval(rPoller); activePollers.delete(rc.id); }
+      cards.setStatus(rc.id, 'interrupted');
+      cards.move(rc.id, 'todo');
+      setActivity(rc.id, 'queue', 'Killed by master kill switch');
+      _broadcast('card-updated', cards.get(rc.id));
+      killed.push({ id: rc.id, title: rc.title, phase: 'review' });
+    }
+  }
+
+  // 4. Kill all active fix processes
+  activeFixes.clear();
+
+  // 5. Clear remaining orphan pollers/pids
+  for (var pollerEntry of activePollers) {
+    clearInterval(pollerEntry[1]);
+  }
+  activePollers.clear();
+  for (var pidEntry of buildPids) {
+    killProcess(pidEntry[1]);
+  }
+  buildPids.clear();
+
+  // 6. Drain the queue — move queued cards back to idle in todo
+  while (workQueue.length > 0) {
+    var qi = workQueue.pop();
+    cards.setStatus(qi.cardId, 'idle');
+    clearActivity(qi.cardId);
+    _broadcast('card-updated', cards.get(qi.cardId));
   }
 
   broadcastQueuePositions();
   _broadcast('pipeline-state', { paused: true });
-  _broadcast('toast', { message: 'Kill switch activated — ' + killed.length + ' build(s) terminated, pipeline paused', type: 'error' });
+  _broadcast('toast', { message: 'Kill switch activated — ' + killed.length + ' process(es) terminated, pipeline paused', type: 'error' });
   sendWebhook('kill-all', { killed: killed });
   return killed;
 }

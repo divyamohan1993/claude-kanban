@@ -458,12 +458,21 @@ if (process.env.NODE_ENV === 'test') {
 }
 
 // --- Start ---
+const PID_FILE = path.join(__dirname, '.server.pid');
+
 app.listen(PORT, () => {
+  fs.writeFileSync(PID_FILE, String(process.pid));
   orchestrator.init(broadcast);
-  console.log('\n  Claude Kanban Board running at http://localhost:' + PORT + '\n');
+  console.log('\n  Claude Kanban Board running at http://localhost:' + PORT + ' (PID ' + process.pid + ')\n');
   var url = 'http://localhost:' + PORT;
   var openCmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
     : process.platform === 'darwin' ? ['open', [url]]
     : ['xdg-open', [url]];
   spawn(openCmd[0], openCmd[1], { stdio: 'ignore', windowsHide: true }).unref();
 });
+
+// Clean up PID file on exit
+function removePidFile() { try { fs.unlinkSync(PID_FILE); } catch (_) {} }
+process.on('exit', removePidFile);
+process.on('SIGTERM', () => { removePidFile(); process.exit(0); });
+process.on('SIGINT', () => { removePidFile(); process.exit(0); });

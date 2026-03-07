@@ -43,9 +43,32 @@ Card created
 | Database | SQLite (better-sqlite3, WAL mode) |
 | Frontend | Vanilla JS, no framework, no build step |
 | AI | Claude CLI (`claude-opus-4-6`, `--effort high`) |
-| Process | `.bat` wrappers, `windowsHide: true` |
+| Process | `.bat`/`.sh` wrappers, `windowsHide: true` |
 
 ## Quick Start
+
+**Fresh machine (auto-installs Node, pnpm, dependencies):**
+
+```bash
+# macOS / Linux
+chmod +x start.sh stop.sh
+./start.sh
+
+# Windows
+start.bat
+```
+
+**Stop:**
+
+```bash
+# macOS / Linux
+./stop.sh
+
+# Windows
+stop.bat
+```
+
+**Manual (if you already have Node 18+ and pnpm):**
 
 ```bash
 pnpm install
@@ -54,17 +77,32 @@ pnpm start
 
 Opens `http://localhost:51777` automatically. Requires [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated.
 
+### What the start scripts do
+
+1. Check if the server is already running (skip if so)
+2. Install Node.js if missing (brew/apt/dnf/pacman/zypper/apk/winget)
+3. Install pnpm if missing
+4. Run `pnpm install` to fetch/update dependencies
+5. Start the server in the background
+6. Open the browser automatically
+
+The scripts are idempotent -- safe to re-run at any time.
+
 ## Project Structure
 
 ```
 server.js        Express API + SSE + self-healing log scanner
 orchestrator.js  Claude CLI spawning, brainstorm/build/review, work queue
 db.js            SQLite schema + prepared statements
-snapshot.js      File snapshot/rollback for reject flow
+snapshot.js      File snapshot/rollback for reject + revert
+start.sh         Start script (macOS/Linux, auto-installs deps)
+start.bat        Start script (Windows, auto-installs deps)
+stop.sh          Stop script (macOS/Linux)
+stop.bat         Stop script (Windows)
 public/
   index.html     Shell + modals
   app.js         Frontend logic, SSE, drag-and-drop, pipeline rendering
-  style.css      Dark theme, column colors, animations
+  style.css      Google enterprise light theme
 ```
 
 ## API
@@ -80,6 +118,10 @@ public/
 | POST | `/api/cards/:id/start-work` | Queue build |
 | POST | `/api/cards/:id/approve` | Approve + commit |
 | POST | `/api/cards/:id/reject` | Reject + rollback |
+| POST | `/api/cards/:id/revert-files` | Revert files to pre-work state |
+| GET | `/api/cards/:id/has-snapshot` | Check if snapshot exists |
+| GET | `/api/archive` | List archived cards |
+| POST | `/api/cards/:id/unarchive` | Restore from archive |
 | GET | `/api/cards/:id/log/:type` | Read log file |
 | GET | `/api/cards/:id/log-stream` | SSE live log |
 | GET | `/api/cards/:id/review` | Review findings |

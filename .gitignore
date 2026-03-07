@@ -20,5 +20,9 @@ kanban.db-wal
 # Test artifacts
 test-workflow.js
 
+# Server runtime
+.server.pid
+server.log
+
 # Environment
 .env

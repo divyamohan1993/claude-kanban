@@ -13,20 +13,25 @@ const DATA_DIR = path.join(KANBAN_DIR, '.data');
 const LOGS_DIR = path.join(DATA_DIR, 'logs');
 const RUNTIME_DIR = path.join(DATA_DIR, 'runtime');
 
+// --- Configurable Limits ---
+const MAX_CONCURRENT_BUILDS = Number(process.env.MAX_CONCURRENT_BUILDS) || 3;
+const BUILD_TIMEOUT_POLLS = Number(process.env.BUILD_TIMEOUT_MINS || 60) * 12; // 5s intervals
+const WEBHOOK_URL = process.env.WEBHOOK_URL || '';
+
 // Active pollers for build completion
 const activePollers = new Map();
 // Track spawned process PIDs so we can kill them on dequeue
-const buildPids = new Map(); // cardId → pid
+const buildPids = new Map(); // cardId -> pid
 
 // --- Work Queue ---
 // Per-project locking: only one build at a time per project_path.
 // Cards targeting the same project wait in queue.
 const workQueue = [];           // [{cardId, priority, projectPath, enqueuedAt}]
-const activeBuilds = new Map(); // projectPath → cardId
+const activeBuilds = new Map(); // projectPath -> cardId
 var _broadcast = function() {};
 
 // --- Self-Healing State ---
-const fixAttempts = new Map();  // sourceCardId → {count, lastAttempt}
+const fixAttempts = new Map();  // sourceCardId -> {count, lastAttempt}
 const activeFixes = new Set();  // sourceCardId set
 var MAX_FIX_ATTEMPTS = 2;
 
@@ -34,7 +39,7 @@ var MAX_FIX_ATTEMPTS = 2;
 const reviewFixAttempted = new Set();  // cardIds that already had one auto-fix cycle
 
 // --- Live Activity Tracking ---
-const cardActivity = new Map();  // cardId → { detail, step, timestamp }
+const cardActivity = new Map();  // cardId -> { detail, step, timestamp }
 
 function setActivity(cardId, step, detail) {
   var entry = { cardId: cardId, step: step, detail: detail, timestamp: Date.now() };
@@ -53,6 +58,39 @@ function getActivities() {
     result[entry[0]] = entry[1];
   }
   return result;
+}
+
+// --- Duration Tracking ---
+function trackPhase(cardId, phase, action) {
+  var card = cards.get(cardId);
+  if (!card) return;
+  var durations = {};
+  try { durations = JSON.parse(card.phase_durations || '{}'); } catch (_) {}
+  if (action === 'start') {
+    durations[phase] = { start: Date.now() };
+  } else if (action === 'end' && durations[phase]) {
+    durations[phase].end = Date.now();
+    durations[phase].duration = durations[phase].end - durations[phase].start;
+  }
+  cards.setPhaseDurations(cardId, JSON.stringify(durations));
+}
+
+// --- Webhook ---
+function sendWebhook(event, data) {
+  if (!WEBHOOK_URL) return;
+  try {
+    var mod = WEBHOOK_URL.startsWith('https') ? require('https') : require('http');
+    var url = new URL(WEBHOOK_URL);
+    var payload = JSON.stringify({ event: event, data: data, timestamp: new Date().toISOString() });
+    var req = mod.request({
+      hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: url.pathname + url.search, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+    }, function() {});
+    req.on('error', function() {});
+    req.write(payload);
+    req.end();
+  } catch (_) {}
 }
 
 if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
@@ -301,8 +339,8 @@ function resetStuckCards() {
         cards.move(c.id, 'todo');
       }
       _broadcast('card-updated', cards.get(c.id));
-    } else if (c.status === 'reviewing') {
-      // Review was interrupted by restart — leave in review column for human
+    } else if (c.status === 'reviewing' || c.status === 'fixing') {
+      // Review/fix was interrupted by restart — leave in review column for human
       cards.setStatus(c.id, 'idle');
       _broadcast('card-updated', cards.get(c.id));
     }
@@ -313,6 +351,17 @@ function enqueue(cardId, priority) {
   var card = cards.get(cardId);
   if (!card) throw new Error('Card not found');
   if (!card.spec) throw new Error('No spec — run brainstorm first');
+
+  // Check dependencies
+  if (card.depends_on) {
+    var deps = card.depends_on.split(',').map(function(d) { return Number(d.trim()); }).filter(Boolean);
+    for (var di = 0; di < deps.length; di++) {
+      var depCard = cards.get(deps[di]);
+      if (depCard && depCard.column_name !== 'done' && depCard.column_name !== 'archive') {
+        throw new Error('Blocked by card #' + deps[di] + ' (' + depCard.title + ')');
+      }
+    }
+  }
 
   var projectPath = card.project_path;
   if (!projectPath) {
@@ -353,6 +402,7 @@ function enqueue(cardId, priority) {
 
   _broadcast('card-updated', cards.get(cardId));
   broadcastQueuePositions();
+  sendWebhook('card-queued', { cardId: cardId, title: card.title });
 
   processQueue();
 
@@ -418,10 +468,28 @@ function broadcastQueuePositions() {
 }
 
 function processQueue() {
+  // Global concurrency limit
+  if (activeBuilds.size >= MAX_CONCURRENT_BUILDS) return;
+
   for (var i = 0; i < workQueue.length; i++) {
     var item = workQueue[i];
     // Skip if this project already has an active build
     if (activeBuilds.has(item.projectPath)) continue;
+
+    // Check dependency satisfaction
+    var card = cards.get(item.cardId);
+    if (card && card.depends_on) {
+      var deps = card.depends_on.split(',').map(function(d) { return Number(d.trim()); }).filter(Boolean);
+      var blocked = false;
+      for (var di = 0; di < deps.length; di++) {
+        var depCard = cards.get(deps[di]);
+        if (depCard && depCard.column_name !== 'done' && depCard.column_name !== 'archive') {
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) continue;
+    }
 
     // Start this build
     workQueue.splice(i, 1);
@@ -434,7 +502,9 @@ function processQueue() {
       _broadcast('card-updated', cards.get(item.cardId));
     }
     broadcastQueuePositions();
-    return;
+    // Check if we can start more (up to concurrency limit)
+    if (activeBuilds.size >= MAX_CONCURRENT_BUILDS) return;
+    i--; // Re-check from same index since we spliced
   }
 }
 
@@ -448,6 +518,7 @@ function executeWork(cardId, projectPath) {
 
   activeBuilds.set(projectPath, cardId);
   setActivity(cardId, 'snapshot', 'Taking file snapshot...');
+  trackPhase(cardId, 'build', 'start');
 
   // Clean up stale completion marker from previous builds
   var completionFile = path.join(projectPath, '.task-complete');
@@ -556,6 +627,7 @@ function executeWork(cardId, projectPath) {
   cards.setStatus(cardId, 'building');
   _broadcast('card-updated', cards.get(cardId));
   setActivity(cardId, 'build', 'Claude is coding...');
+  sendWebhook('build-started', { cardId: cardId, title: card.title, projectPath: projectPath });
 
   pollForCompletion(cardId, projectPath);
 
@@ -633,6 +705,7 @@ function brainstorm(cardId) {
   cards.setStatus(cardId, 'brainstorming');
   _broadcast('card-updated', cards.get(cardId));
   setActivity(cardId, 'spec', 'Generating specification...');
+  trackPhase(cardId, 'brainstorm', 'start');
 
   var workDir = (card.project_path && fs.existsSync(card.project_path)) ? card.project_path : KANBAN_DIR;
   var prompt = buildBrainstormPrompt(card);
@@ -674,12 +747,14 @@ function brainstorm(cardId) {
           var content = fs.readFileSync(outputFile, 'utf-8').trim();
           if (content.length > 50) {
             clearInterval(interval);
+            trackPhase(cardId, 'brainstorm', 'end');
             sessions.update(sessionId, 'completed', content);
             cards.setSpec(cardId, content);
             cards.setStatus(cardId, 'idle');
             cards.move(cardId, 'todo');
             setActivity(cardId, 'spec', 'Spec ready (' + Math.round(content.length / 1024) + ' KB)');
             _broadcast('card-updated', cards.get(cardId));
+            sendWebhook('brainstorm-complete', { cardId: cardId, title: card.title, specLength: content.length });
             try { fs.appendFileSync(log, '\n---\n[' + new Date().toISOString() + '] Brainstorm completed (' + content.length + ' chars)\n'); } catch (_) {}
             try { fs.unlinkSync(outputFile); } catch (_) {}
             try { fs.unlinkSync(run.scriptPath); } catch (_) {}
@@ -700,6 +775,7 @@ function brainstorm(cardId) {
 
         if (attempts >= maxAttempts) {
           clearInterval(interval);
+          trackPhase(cardId, 'brainstorm', 'end');
           sessions.update(sessionId, 'failed', 'Timeout');
           cards.setStatus(cardId, 'idle');
           cards.setSessionLog(cardId, 'Brainstorm timed out after 30 minutes');
@@ -718,8 +794,10 @@ function brainstorm(cardId) {
 function pollForCompletion(cardId, projectPath) {
   var completionFile = path.join(projectPath, '.task-complete');
   var log = logPath(cardId, 'build');
+  var pollCount = 0;
 
   var interval = setInterval(function() {
+    pollCount++;
     var needsQueueProcess = false;
     try {
       var card = cards.get(cardId);
@@ -731,11 +809,32 @@ function pollForCompletion(cardId, projectPath) {
         needsQueueProcess = true;
         return;
       }
+
+      // Build timeout
+      if (pollCount >= BUILD_TIMEOUT_POLLS) {
+        clearInterval(interval);
+        activePollers.delete(cardId);
+        activeBuilds.delete(projectPath);
+        trackPhase(cardId, 'build', 'end');
+        // Kill the process
+        var pid = buildPids.get(cardId);
+        if (pid) { killProcess(pid); buildPids.delete(cardId); }
+        cards.setStatus(cardId, 'interrupted');
+        _broadcast('card-updated', cards.get(cardId));
+        setActivity(cardId, 'build', 'TIMEOUT after ' + Math.round(BUILD_TIMEOUT_POLLS * 5 / 60) + ' minutes');
+        try { fs.appendFileSync(log, '\n---\n[' + new Date().toISOString() + '] TIMEOUT after ' + Math.round(pollCount * 5 / 60) + ' minutes\n'); } catch (_) {}
+        _broadcast('toast', { message: 'Build timed out: ' + card.title, type: 'error' });
+        sendWebhook('build-timeout', { cardId: cardId, title: card.title });
+        needsQueueProcess = true;
+        return;
+      }
+
       if (fs.existsSync(completionFile)) {
         clearInterval(interval);
         activePollers.delete(cardId);
         activeBuilds.delete(projectPath);
         buildPids.delete(cardId);
+        trackPhase(cardId, 'build', 'end');
         needsQueueProcess = true;
 
         var content = fs.readFileSync(completionFile, 'utf-8');
@@ -744,6 +843,7 @@ function pollForCompletion(cardId, projectPath) {
         cards.move(cardId, 'review');
         setActivity(cardId, 'review', 'Build complete — starting AI review...');
         _broadcast('card-updated', cards.get(cardId));
+        sendWebhook('build-complete', { cardId: cardId, title: card.title });
 
         // Log append may fail on Windows if bat process still holds file handle
         try {
@@ -902,11 +1002,12 @@ function autoChangelog(cardId) {
 
   if (!summary) summary = card.description ? card.description.split('\n')[0] : title;
 
-  // Determine change type from title prefix
+  // Determine change type from title prefix or labels
   var changeType = 'Changed';
   var lowerTitle = title.toLowerCase();
-  if (lowerTitle.startsWith('fix') || lowerTitle.includes('bug')) changeType = 'Fixed';
-  else if (lowerTitle.startsWith('add') || lowerTitle.startsWith('new') || lowerTitle.startsWith('create')) changeType = 'Added';
+  var labels = (card.labels || '').toLowerCase();
+  if (labels.includes('bug') || lowerTitle.startsWith('fix') || lowerTitle.includes('bug')) changeType = 'Fixed';
+  else if (labels.includes('feature') || lowerTitle.startsWith('add') || lowerTitle.startsWith('new') || lowerTitle.startsWith('create')) changeType = 'Added';
   else if (lowerTitle.startsWith('remove') || lowerTitle.startsWith('delete')) changeType = 'Removed';
 
   var entry = '- ' + title + (summary !== title ? ' — ' + summary : '');
@@ -1052,6 +1153,7 @@ function selfHeal(sourceCardId, errors, sourceLogFile) {
           if (data.status === 'fixed') {
             fs.appendFileSync(fixLog, '[SELF-HEAL] Fixed: ' + (data.summary || 'No summary') + '\n');
             _broadcast('toast', { message: 'Self-healed: ' + card.title + ' — ' + (data.summary || 'Fixed'), type: 'success' });
+            sendWebhook('self-heal-success', { cardId: sourceCardId, summary: data.summary });
             // Reset attempt counter on success
             fixAttempts.delete(sourceCardId);
           } else {
@@ -1105,13 +1207,23 @@ function autoReview(cardId) {
   cards.setStatus(cardId, 'reviewing');
   _broadcast('card-updated', cards.get(cardId));
   setActivity(cardId, 'review', 'AI reviewer analyzing code...');
+  trackPhase(cardId, 'review', 'start');
 
   var header = '[' + new Date().toISOString() + '] AI Review started\n'
     + 'Card: ' + card.title + '\nProject: ' + projectPath + '\n---\n';
   fs.writeFileSync(reviewLog, header);
   console.log('autoReview: started for card', cardId, '(' + card.title + ')');
 
-  var prompt = [
+  // Check for project-specific review criteria
+  var customCriteria = '';
+  var customReviewPath = path.join(projectPath, '.kanban-review.md');
+  try {
+    if (fs.existsSync(customReviewPath)) {
+      customCriteria = fs.readFileSync(customReviewPath, 'utf-8').trim();
+    }
+  } catch (_) {}
+
+  var promptParts = [
     'You are a senior code reviewer. Review ALL code in this project thoroughly.',
     '',
     '## Check For',
@@ -1121,20 +1233,29 @@ function autoReview(cardId) {
     '4. Accessibility: WCAG 2.2 AA, semantic HTML, ARIA labels, keyboard nav, color contrast',
     '5. Completeness: all features working, no TODO stubs, no placeholder content',
     '6. Error handling: proper boundaries, user-friendly messages, no swallowed errors',
-    '',
-    '## Scoring (1-10)',
-    '- 9-10: Production ready, exemplary',
-    '- 7-8: Good quality, minor improvements possible',
-    '- 5-6: Acceptable, some issues need attention',
-    '- 3-4: Significant problems',
-    '- 1-2: Major rewrites needed',
-    '',
-    'Create .review-complete in the project root with this EXACT JSON format:',
-    '{"score":NUMBER,"summary":"Brief overall assessment","findings":[{"severity":"critical|warning|info","category":"security|quality|performance|accessibility|completeness","message":"Description","file":"path/to/file"}],"autoApprove":BOOLEAN}',
-    '',
-    'Set autoApprove to true ONLY if score >= 8 AND zero critical findings.',
-    'You have full access to all tools — read every file, search for patterns, run checks. Be thorough but fair.',
-  ].join('\n');
+  ];
+
+  if (customCriteria) {
+    promptParts.push('');
+    promptParts.push('## Project-Specific Review Criteria');
+    promptParts.push(customCriteria);
+  }
+
+  promptParts.push('');
+  promptParts.push('## Scoring (1-10)');
+  promptParts.push('- 9-10: Production ready, exemplary');
+  promptParts.push('- 7-8: Good quality, minor improvements possible');
+  promptParts.push('- 5-6: Acceptable, some issues need attention');
+  promptParts.push('- 3-4: Significant problems');
+  promptParts.push('- 1-2: Major rewrites needed');
+  promptParts.push('');
+  promptParts.push('Create .review-complete in the project root with this EXACT JSON format:');
+  promptParts.push('{"score":NUMBER,"summary":"Brief overall assessment","findings":[{"severity":"critical|warning|info","category":"security|quality|performance|accessibility|completeness","message":"Description","file":"path/to/file"}],"autoApprove":BOOLEAN}');
+  promptParts.push('');
+  promptParts.push('Set autoApprove to true ONLY if score >= 8 AND zero critical findings.');
+  promptParts.push('You have full access to all tools — read every file, search for patterns, run checks. Be thorough but fair.');
+
+  var prompt = promptParts.join('\n');
 
   runClaudeSilent({
     id: 'review-' + cardId,
@@ -1164,6 +1285,7 @@ function autoReview(cardId) {
 
       if (fs.existsSync(reviewFile)) {
         clearInterval(reviewInterval);
+        trackPhase(cardId, 'review', 'end');
         var content = fs.readFileSync(reviewFile, 'utf-8').trim();
 
         // Log append may fail on Windows if bat process still holds file handle
@@ -1189,6 +1311,7 @@ function autoReview(cardId) {
             snapshot.clear(cardId);
             _broadcast('card-updated', cards.get(cardId));
             _broadcast('toast', { message: 'AI Review: ' + score + '/10 — Auto-approved!', type: 'success' });
+            sendWebhook('auto-approved', { cardId: cardId, title: card.title, score: score });
 
             setActivity(cardId, 'changelog', 'Updating changelog...');
             autoChangelog(cardId);
@@ -1216,6 +1339,7 @@ function autoReview(cardId) {
               message: 'AI Review: ' + score + '/10 — ' + criticals + ' critical. Human review needed.',
               type: score >= 5 ? 'info' : 'error',
             });
+            sendWebhook('review-needs-human', { cardId: cardId, title: card.title, score: score, criticals: criticals });
           }
         } catch (parseErr) {
           console.error('Review parse error:', parseErr.message);
@@ -1229,6 +1353,7 @@ function autoReview(cardId) {
 
       if (pollCount >= maxPoll) {
         clearInterval(reviewInterval);
+        trackPhase(cardId, 'review', 'end');
         cards.setStatus(cardId, 'idle');
         _broadcast('card-updated', cards.get(cardId));
         fs.appendFileSync(reviewLog, '\n[REVIEW] Timed out after 15 minutes\n');
@@ -1328,6 +1453,255 @@ function autoFixFindings(cardId, findings) {
   }, 5000);
 }
 
+// --- Retry with Feedback ---
+
+function retryWithFeedback(cardId, feedback) {
+  var card = cards.get(cardId);
+  if (!card || !card.project_path) throw new Error('No project path');
+
+  var projectPath = card.project_path;
+
+  // Take new snapshot (current state as new baseline)
+  snapshot.take(cardId, projectPath);
+
+  // Move to working
+  cards.move(cardId, 'working');
+  cards.setStatus(cardId, 'building');
+  cards.setReviewData(cardId, 0, '');
+  reviewFixAttempted.delete(cardId);
+
+  var log = logPath(cardId, 'build');
+  var header = '\n\n[' + new Date().toISOString() + '] Retry with feedback\nFeedback: ' + feedback + '\n---\n';
+  try { fs.appendFileSync(log, header); } catch (_) { fs.writeFileSync(log, header); }
+
+  var completionFile = path.join(projectPath, '.task-complete');
+  try { fs.unlinkSync(completionFile); } catch (_) {}
+
+  var prompt = 'The previous work on this project has been reviewed and needs specific changes. '
+    + 'Keep ALL existing work — do NOT start from scratch or undo anything unless specifically requested. '
+    + 'Apply ONLY these changes:\n\n'
+    + feedback + '\n\n'
+    + 'Read the existing code first to understand what was built. Then make the requested changes. '
+    + 'When fully done, create .task-complete with: {"status":"complete","summary":"What was changed","files_changed":["list"]}';
+
+  activeBuilds.set(projectPath, cardId);
+  trackPhase(cardId, 'retry', 'start');
+
+  runClaudeSilent({
+    id: 'retry-' + cardId + '-' + Date.now(),
+    cardId: cardId,
+    cwd: projectPath,
+    prompt: prompt,
+    logFile: log,
+  });
+
+  _broadcast('card-updated', cards.get(cardId));
+  setActivity(cardId, 'build', 'Retrying with feedback...');
+  sendWebhook('retry-started', { cardId: cardId, title: card.title, feedback: feedback });
+
+  pollForCompletion(cardId, projectPath);
+
+  return { success: true };
+}
+
+// --- Diff Viewer ---
+
+function getDiff(cardId) {
+  var snapDir = path.join(DATA_DIR, 'snapshots', 'card-' + cardId);
+  var manifestPath = path.join(snapDir, '_manifest.json');
+  if (!fs.existsSync(manifestPath)) return { error: 'No snapshot available' };
+
+  var manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+  var projectPath = manifest.projectPath;
+
+  if (!fs.existsSync(projectPath)) return { error: 'Project directory not found' };
+
+  var originalFiles = new Set(manifest.files);
+  var currentFiles;
+  try { currentFiles = new Set(snapshot.walkDir(projectPath)); } catch (_) { currentFiles = new Set(); }
+
+  var diff = { added: [], removed: [], modified: [], unchanged: 0, projectPath: projectPath };
+
+  // Added files (in current but not in original)
+  for (var f of currentFiles) {
+    if (!originalFiles.has(f)) {
+      diff.added.push(f);
+    }
+  }
+
+  // Removed files (in original but not in current)
+  for (var f of originalFiles) {
+    if (!currentFiles.has(f)) {
+      diff.removed.push(f);
+    }
+  }
+
+  // Modified/unchanged files
+  for (var f of originalFiles) {
+    if (!currentFiles.has(f)) continue;
+    var origPath = path.join(snapDir, 'files', f);
+    var currPath = path.join(projectPath, f);
+    try {
+      var origBuf = fs.readFileSync(origPath);
+      var currBuf = fs.readFileSync(currPath);
+      if (!origBuf.equals(currBuf)) {
+        // Check if it's a text file (simple heuristic)
+        var isText = !origBuf.includes(0) && !currBuf.includes(0);
+        if (isText) {
+          var origText = origBuf.toString('utf-8');
+          var currText = currBuf.toString('utf-8');
+          diff.modified.push({
+            file: f,
+            original: origText.slice(0, 50000),
+            current: currText.slice(0, 50000),
+            origLines: origText.split('\n').length,
+            currLines: currText.split('\n').length,
+          });
+        } else {
+          diff.modified.push({ file: f, binary: true, origSize: origBuf.length, currSize: currBuf.length });
+        }
+      } else {
+        diff.unchanged++;
+      }
+    } catch (_) {
+      diff.modified.push({ file: f, error: 'Could not read' });
+    }
+  }
+
+  return diff;
+}
+
+// --- Preview / Run ---
+
+function previewProject(cardId) {
+  var card = cards.get(cardId);
+  if (!card || !card.project_path) throw new Error('No project path');
+
+  var projectPath = card.project_path;
+  var completionFile = path.join(projectPath, '.task-complete');
+  var runCommand = null;
+
+  try {
+    if (fs.existsSync(completionFile)) {
+      var data = JSON.parse(fs.readFileSync(completionFile, 'utf-8'));
+      runCommand = data.run_command;
+    }
+  } catch (_) {}
+
+  if (!runCommand) {
+    // Try to detect from package.json
+    var pkgPath = path.join(projectPath, 'package.json');
+    try {
+      if (fs.existsSync(pkgPath)) {
+        var pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        if (pkg.scripts) {
+          if (pkg.scripts.dev) runCommand = 'pnpm dev';
+          else if (pkg.scripts.start) runCommand = 'pnpm start';
+          else if (pkg.scripts.preview) runCommand = 'pnpm preview';
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (!runCommand) throw new Error('No run command found in .task-complete or package.json');
+
+  // Open terminal with the run command
+  if (IS_WIN) {
+    spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + projectPath + '" && ' + runCommand], { shell: true, detached: true, stdio: 'ignore' }).unref();
+  } else if (IS_MAC) {
+    spawn('osascript', ['-e', 'tell app "Terminal" to do script "cd \'' + projectPath + '\' && ' + runCommand + '"'], { detached: true, stdio: 'ignore' }).unref();
+  } else {
+    spawn('gnome-terminal', ['--', 'bash', '-c', 'cd "' + projectPath + '" && ' + runCommand + '; exec bash'], { detached: true, stdio: 'ignore' }).unref();
+  }
+
+  return { success: true, command: runCommand };
+}
+
+// --- Export Board ---
+
+function exportBoard() {
+  var all = cards.getAll();
+  var archived = cards.getArchived();
+  return {
+    exportedAt: new Date().toISOString(),
+    version: '1.3.0',
+    cards: all.map(function(c) {
+      return {
+        id: c.id, title: c.title, description: c.description, spec: c.spec,
+        column: c.column_name, status: c.status, labels: c.labels, depends_on: c.depends_on,
+        project_path: c.project_path, review_score: c.review_score,
+        phase_durations: c.phase_durations, created_at: c.created_at, updated_at: c.updated_at,
+      };
+    }),
+    archived: archived.map(function(c) {
+      return {
+        id: c.id, title: c.title, description: c.description, column: c.column_name,
+        labels: c.labels, review_score: c.review_score, project_path: c.project_path,
+        created_at: c.created_at, updated_at: c.updated_at,
+      };
+    }),
+  };
+}
+
+// --- Metrics ---
+
+function getMetrics() {
+  var all = cards.getAll().concat(cards.getArchived());
+  var scores = [];
+  var durations = { brainstorm: [], build: [], review: [] };
+  var projectCounts = {};
+  var completedByDay = {};
+  var labelCounts = {};
+
+  for (var i = 0; i < all.length; i++) {
+    var card = all[i];
+
+    if (card.project_path) {
+      var proj = path.basename(card.project_path);
+      projectCounts[proj] = (projectCounts[proj] || 0) + 1;
+    }
+
+    if (card.review_score > 0) scores.push(card.review_score);
+
+    if (card.phase_durations) {
+      try {
+        var pd = JSON.parse(card.phase_durations);
+        ['brainstorm', 'build', 'review'].forEach(function(phase) {
+          if (pd[phase] && pd[phase].duration) durations[phase].push(pd[phase].duration);
+        });
+      } catch (_) {}
+    }
+
+    if (card.column_name === 'done' || card.column_name === 'archive') {
+      var day = (card.updated_at || '').slice(0, 10);
+      if (day) completedByDay[day] = (completedByDay[day] || 0) + 1;
+    }
+
+    if (card.labels) {
+      card.labels.split(',').forEach(function(l) {
+        l = l.trim();
+        if (l) labelCounts[l] = (labelCounts[l] || 0) + 1;
+      });
+    }
+  }
+
+  function avg(arr) { return arr.length > 0 ? Math.round(arr.reduce(function(a, b) { return a + b; }, 0) / arr.length) : 0; }
+
+  return {
+    totalCards: all.length,
+    avgReviewScore: scores.length > 0 ? Math.round(avg(scores) * 10) / 10 : 0,
+    avgDurations: {
+      brainstorm: Math.round(avg(durations.brainstorm) / 1000),
+      build: Math.round(avg(durations.build) / 1000),
+      review: Math.round(avg(durations.review) / 1000),
+    },
+    completedByDay: completedByDay,
+    topProjects: Object.entries(projectCounts).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 10),
+    labelDistribution: labelCounts,
+    scoreDistribution: scores,
+  };
+}
+
 module.exports = {
   init: init,
   detectProject: detectProject,
@@ -1346,4 +1720,10 @@ module.exports = {
   openTerminal: openTerminal,
   openClaude: openClaude,
   activePollers: activePollers,
+  retryWithFeedback: retryWithFeedback,
+  getDiff: getDiff,
+  previewProject: previewProject,
+  exportBoard: exportBoard,
+  getMetrics: getMetrics,
+  sendWebhook: sendWebhook,
 };

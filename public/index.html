@@ -12,29 +12,49 @@
 <body>
   <header>
     <div class="header-left">
-      <h1>Claude Kanban</h1>
-      <span class="subtitle">Autonomous AI Workflow Board</span>
+      <div class="logo-mark" aria-hidden="true">&#9670;</div>
+      <div>
+        <h1>Claude Kanban</h1>
+        <span class="subtitle">Autonomous AI Orchestrator &middot; by Claude &times; Divya Mohan</span>
+      </div>
+    </div>
+    <div class="header-search">
+      <input type="text" id="search-input" placeholder="Search cards..." aria-label="Search cards" autocomplete="off">
     </div>
     <div class="header-stats" id="header-stats"></div>
+    <button class="btn btn-ghost btn-icon" id="metrics-btn" title="Metrics" aria-label="Metrics">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="8" width="3" height="7" rx="0.5" fill="currentColor" opacity="0.5"/><rect x="6" y="4" width="3" height="11" rx="0.5" fill="currentColor" opacity="0.7"/><rect x="11" y="1" width="3" height="14" rx="0.5" fill="currentColor"/></svg>
+    </button>
+    <button class="btn btn-ghost btn-icon" id="theme-toggle" title="Toggle theme" aria-label="Toggle dark mode">
+      <svg id="theme-icon-light" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <svg id="theme-icon-dark" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="display:none"><path d="M13.36 10.06A6 6 0 015.94 2.64 7 7 0 1013.36 10.06z"/></svg>
+    </button>
+    <button class="btn btn-ghost" id="import-btn" style="font-size:12px">Import</button>
+    <button class="btn btn-ghost" id="export-btn" style="font-size:12px">Export</button>
     <button class="btn btn-ghost" id="archive-btn" style="font-size:12px">Archive</button>
     <button class="btn btn-primary" id="add-btn">+ New Card</button>
   </header>
 
+  <!-- Search Results Dropdown -->
+  <div class="search-results" id="search-results" role="listbox" aria-label="Search results"></div>
+
   <main class="board" id="board"></main>
 
   <!-- Add/Edit Modal -->
-  <div class="modal-overlay" id="card-modal">
+  <div class="modal-overlay" id="card-modal" role="dialog" aria-labelledby="modal-title">
     <div class="modal">
       <div class="modal-header">
         <h2 id="modal-title">New Card</h2>
-        <button class="modal-close" id="modal-close">&times;</button>
+        <button class="modal-close" id="modal-close" aria-label="Close">&times;</button>
       </div>
       <form id="card-form">
         <input type="hidden" id="card-id">
-        <label>Title</label>
+        <label for="card-title">Title</label>
         <input type="text" id="card-title" required placeholder="Project idea..." autofocus>
-        <label>Description</label>
+        <label for="card-desc">Description</label>
         <textarea id="card-desc" rows="4" placeholder="Details, goals, context..."></textarea>
+        <label for="card-labels">Labels <span style="font-weight:400;color:var(--text-tertiary)">(comma-separated)</span></label>
+        <input type="text" id="card-labels" placeholder="feature, security, design...">
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" id="modal-cancel">Cancel</button>
           <button type="submit" class="btn btn-primary">Save</button>
@@ -44,22 +64,22 @@
   </div>
 
   <!-- Detail Modal -->
-  <div class="modal-overlay" id="detail-modal">
+  <div class="modal-overlay" id="detail-modal" role="dialog" aria-labelledby="detail-title">
     <div class="modal modal-wide">
       <div class="modal-header">
         <h2 id="detail-title">Card Details</h2>
-        <button class="modal-close" id="detail-close">&times;</button>
+        <button class="modal-close" id="detail-close" aria-label="Close">&times;</button>
       </div>
       <div id="detail-body"></div>
     </div>
   </div>
 
   <!-- Folder Picker Modal -->
-  <div class="modal-overlay" id="folder-modal">
+  <div class="modal-overlay" id="folder-modal" role="dialog" aria-labelledby="folder-modal-title">
     <div class="modal modal-wide">
       <div class="modal-header">
         <h2 id="folder-modal-title">Select Project Folder</h2>
-        <button class="modal-close" id="folder-close">&times;</button>
+        <button class="modal-close" id="folder-close" aria-label="Close">&times;</button>
       </div>
       <p id="folder-desc" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px;"></p>
       <div id="folder-matches"></div>
@@ -68,18 +88,50 @@
   </div>
 
   <!-- Archive Modal -->
-  <div class="modal-overlay" id="archive-modal">
+  <div class="modal-overlay" id="archive-modal" role="dialog" aria-label="Archived cards">
     <div class="modal modal-wide">
       <div class="modal-header">
         <h2>Archived Cards</h2>
-        <button class="modal-close" id="archive-close">&times;</button>
+        <button class="modal-close" id="archive-close" aria-label="Close">&times;</button>
       </div>
       <div id="archive-body"></div>
     </div>
   </div>
 
+  <!-- Metrics Modal -->
+  <div class="modal-overlay" id="metrics-modal" role="dialog" aria-label="Metrics dashboard">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>Metrics Dashboard</h2>
+        <button class="modal-close" id="metrics-close" aria-label="Close">&times;</button>
+      </div>
+      <div id="metrics-body"></div>
+    </div>
+  </div>
+
+  <!-- Import Modal -->
+  <div class="modal-overlay" id="import-modal" role="dialog" aria-label="Bulk import">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>Bulk Import Cards</h2>
+        <button class="modal-close" id="import-close" aria-label="Close">&times;</button>
+      </div>
+      <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:12px;">One card per line. Use <code style="background:var(--bg);padding:2px 4px;border-radius:3px;font-size:0.8rem;">|</code> to separate title from description.</p>
+      <textarea id="import-text" rows="10" placeholder="Fix login bug | Users can't log in on mobile&#10;Add dark mode | Support system preference&#10;Refactor auth module"></textarea>
+      <div class="modal-actions" style="margin-top:12px;">
+        <button class="btn btn-ghost" id="import-cancel">Cancel</button>
+        <button class="btn btn-primary" id="import-submit">Import</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast container -->
-  <div id="toasts"></div>
+  <div id="toasts" aria-live="polite"></div>
+
+  <!-- Keyboard shortcut hint -->
+  <div class="kbd-hint" id="kbd-hint">
+    Press <kbd>?</kbd> for shortcuts
+  </div>
 
   <script src="app.js"></script>
 </body>

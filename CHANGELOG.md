@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-03-07
+
+### Added
+- **Build timeout**: Configurable timeout (default 60min) prevents runaway builds from blocking queue forever
+- **Global concurrency limit**: `MAX_CONCURRENT_BUILDS` (default 3) prevents resource exhaustion
+- **Duration tracking**: Phase timing (brainstorm, build, review) recorded per card and displayed on cards
+- **Diff viewer**: Side-by-side file change viewer using snapshot comparison (added/modified/removed/unchanged)
+- **Spec editing**: Edit spec in detail modal before build; "Build with this Spec" button for quick iteration
+- **Retry with feedback**: Keep existing work, send specific instructions to Claude for targeted fixes
+- **Card labels/tags**: Comma-separated labels with auto-colored chips (bug, feature, refactor, design, etc.)
+- **Card dependencies**: `depends_on` field blocks builds until dependencies complete; queue respects ordering
+- **Search**: Real-time search across card titles, descriptions, and labels
+- **Dark mode**: System-preference-aware toggle with warm charcoal theme; persisted in localStorage
+- **Desktop notifications**: Browser Notification API alerts when cards complete, fail, or need review (off-tab)
+- **Metrics dashboard**: Total cards, avg review score, avg durations, completions by day, top projects, label distribution
+- **Keyboard shortcuts**: N (new), / (search), D (dark mode), M (metrics), A (archive), ? (help)
+- **Preview/run button**: Reads `.task-complete` run_command or package.json scripts to launch dev server
+- **Bulk import**: One card per line with `|` separator for title, description, labels
+- **Board export**: Full JSON export of all cards + archive with timestamps
+- **Webhook support**: `WEBHOOK_URL` env var for outbound notifications on card state changes
+- **Configurable review criteria**: `.kanban-review.md` in project root augments AI review prompt
+- **Anthropic/Claude branding**: Warm amber palette, diamond logo mark, "by Claude x Divya Mohan" credit
+
+### Changed
+- UI redesigned with Anthropic warm amber color palette (light and dark modes)
+- `processQueue()` now starts multiple builds up to concurrency limit (was single-dispatch)
+- Review prompt reads project-specific `.kanban-review.md` if present
+- Changelog type inference now also checks card labels
+
+### Fixed
+- Build polling had no timeout (could poll forever) — now enforced at `BUILD_TIMEOUT_MINS`
+- Stuck cards with `fixing` status now reset on server restart
+
 ## [1.2.0] - 2026-03-07
 
 ### Added

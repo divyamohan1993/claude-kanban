@@ -37,6 +37,9 @@ db.exec(`
 // Schema migrations — safe to re-run
 try { db.exec('ALTER TABLE cards ADD COLUMN review_score INTEGER DEFAULT 0'); } catch (_) {}
 try { db.exec('ALTER TABLE cards ADD COLUMN review_data TEXT DEFAULT ""'); } catch (_) {}
+try { db.exec('ALTER TABLE cards ADD COLUMN labels TEXT DEFAULT ""'); } catch (_) {}
+try { db.exec('ALTER TABLE cards ADD COLUMN depends_on TEXT DEFAULT ""'); } catch (_) {}
+try { db.exec('ALTER TABLE cards ADD COLUMN phase_durations TEXT DEFAULT ""'); } catch (_) {}
 
 const MAX_ARCHIVED = 50;
 
@@ -54,6 +57,10 @@ const stmts = {
   setProjectPath: db.prepare("UPDATE cards SET project_path = ?, updated_at = datetime('now') WHERE id = ?"),
   setSessionLog: db.prepare("UPDATE cards SET session_log = ?, updated_at = datetime('now') WHERE id = ?"),
   setReviewData: db.prepare("UPDATE cards SET review_score = ?, review_data = ?, updated_at = datetime('now') WHERE id = ?"),
+  setLabels: db.prepare("UPDATE cards SET labels = ?, updated_at = datetime('now') WHERE id = ?"),
+  setDependsOn: db.prepare("UPDATE cards SET depends_on = ?, updated_at = datetime('now') WHERE id = ?"),
+  setPhaseDurations: db.prepare("UPDATE cards SET phase_durations = ?, updated_at = datetime('now') WHERE id = ?"),
+  search: db.prepare("SELECT * FROM cards WHERE (title LIKE ? OR description LIKE ? OR labels LIKE ?) ORDER BY updated_at DESC LIMIT 50"),
   del: db.prepare('DELETE FROM cards WHERE id = ?'),
   createSession: db.prepare('INSERT INTO sessions (card_id, type, pid) VALUES (?, ?, ?)'),
   updateSession: db.prepare("UPDATE sessions SET status = ?, output = ?, completed_at = datetime('now') WHERE id = ?"),
@@ -90,9 +97,13 @@ module.exports = {
     setProjectPath: (id, p) => stmts.setProjectPath.run(p, id),
     setSessionLog: (id, log) => stmts.setSessionLog.run(log, id),
     setReviewData: (id, score, data) => stmts.setReviewData.run(score, data, id),
+    setLabels: (id, labels) => stmts.setLabels.run(labels, id),
+    setDependsOn: (id, deps) => stmts.setDependsOn.run(deps, id),
+    setPhaseDurations: (id, durations) => stmts.setPhaseDurations.run(durations, id),
+    search: (query) => { const q = '%' + query + '%'; return stmts.search.all(q, q, q); },
     delete: (id) => stmts.del.run(id),
     updateState: (id, updates) => {
-      const allowed = ['status', 'column_name', 'spec', 'review_score', 'review_data', 'project_path'];
+      const allowed = ['status', 'column_name', 'spec', 'review_score', 'review_data', 'project_path', 'labels', 'depends_on', 'phase_durations'];
       const filtered = {};
       for (const k of Object.keys(updates)) {
         if (allowed.includes(k)) filtered[k] = updates[k];

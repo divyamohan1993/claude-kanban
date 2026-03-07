@@ -445,6 +445,102 @@ app.get('/api/cards/:id/log-stream', (req, res) => {
   req.on('close', () => { clearInterval(interval); clearInterval(heartbeat); });
 });
 
+// --- Search ---
+app.get('/api/search', (req, res) => {
+  const q = req.query.q;
+  if (!q) return res.json([]);
+  res.json(cards.search(q));
+});
+
+// --- Spec Editing ---
+app.put('/api/cards/:id/spec', (req, res) => {
+  const id = Number(req.params.id);
+  const { spec } = req.body;
+  if (typeof spec !== 'string') return res.status(400).json({ error: 'spec required' });
+  cards.setSpec(id, spec);
+  const card = cards.get(id);
+  broadcast('card-updated', card);
+  res.json(card);
+});
+
+// --- Labels ---
+app.put('/api/cards/:id/labels', (req, res) => {
+  const id = Number(req.params.id);
+  const { labels } = req.body;
+  if (typeof labels !== 'string') return res.status(400).json({ error: 'labels required' });
+  cards.setLabels(id, labels);
+  const card = cards.get(id);
+  broadcast('card-updated', card);
+  res.json(card);
+});
+
+// --- Dependencies ---
+app.put('/api/cards/:id/depends-on', (req, res) => {
+  const id = Number(req.params.id);
+  const { dependsOn } = req.body;
+  if (typeof dependsOn !== 'string') return res.status(400).json({ error: 'dependsOn required' });
+  cards.setDependsOn(id, dependsOn);
+  const card = cards.get(id);
+  broadcast('card-updated', card);
+  res.json(card);
+});
+
+// --- Diff Viewer ---
+app.get('/api/cards/:id/diff', (req, res) => {
+  const result = orchestrator.getDiff(Number(req.params.id));
+  if (result.error) return res.status(404).json(result);
+  res.json(result);
+});
+
+// --- Retry with Feedback ---
+app.post('/api/cards/:id/retry', (req, res) => {
+  const id = Number(req.params.id);
+  const { feedback } = req.body;
+  if (!feedback) return res.status(400).json({ error: 'feedback required' });
+  try {
+    const result = orchestrator.retryWithFeedback(id, feedback);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Preview / Run ---
+app.post('/api/cards/:id/preview', (req, res) => {
+  try {
+    const result = orchestrator.previewProject(Number(req.params.id));
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Export ---
+app.get('/api/export', (_req, res) => {
+  res.json(orchestrator.exportBoard());
+});
+
+// --- Bulk Import ---
+app.post('/api/bulk-create', (req, res) => {
+  const { items } = req.body;
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items array required' });
+  const created = [];
+  for (const item of items.slice(0, 50)) {
+    if (!item.title) continue;
+    const result = cards.create(item.title, item.description || '', item.column || 'brainstorm');
+    const card = cards.get(Number(result.lastInsertRowid));
+    if (item.labels) cards.setLabels(card.id, item.labels);
+    broadcast('card-created', cards.get(card.id));
+    created.push(cards.get(card.id));
+  }
+  res.json({ created: created.length, cards: created });
+});
+
+// --- Metrics ---
+app.get('/api/metrics', (_req, res) => {
+  res.json(orchestrator.getMetrics());
+});
+
 // --- Test-only endpoint (NODE_ENV=test) ---
 if (process.env.NODE_ENV === 'test') {
   app.put('/api/test/cards/:id/state', (req, res) => {

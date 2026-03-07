@@ -3,6 +3,7 @@ const path = require('path');
 
 const db = new Database(path.join(__dirname, 'kanban.db'));
 db.pragma('journal_mode = WAL');
+db.pragma('optimize');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS cards (
@@ -33,9 +34,13 @@ db.exec(`
 try { db.exec('ALTER TABLE cards ADD COLUMN review_score INTEGER DEFAULT 0'); } catch (_) {}
 try { db.exec('ALTER TABLE cards ADD COLUMN review_data TEXT DEFAULT ""'); } catch (_) {}
 
+const MAX_ARCHIVED = 50;
+
 const stmts = {
   getAll: db.prepare("SELECT * FROM cards WHERE column_name != 'archive' ORDER BY created_at ASC"),
   getArchived: db.prepare("SELECT * FROM cards WHERE column_name = 'archive' ORDER BY updated_at DESC"),
+  countArchived: db.prepare("SELECT COUNT(*) as cnt FROM cards WHERE column_name = 'archive'"),
+  oldestArchived: db.prepare("SELECT id FROM cards WHERE column_name = 'archive' ORDER BY updated_at ASC LIMIT ?"),
   get: db.prepare('SELECT * FROM cards WHERE id = ?'),
   create: db.prepare('INSERT INTO cards (title, description, column_name) VALUES (?, ?, ?)'),
   update: db.prepare("UPDATE cards SET title = ?, description = ?, updated_at = datetime('now') WHERE id = ?"),
@@ -51,11 +56,27 @@ const stmts = {
   getSessionsByCard: db.prepare('SELECT * FROM sessions WHERE card_id = ? ORDER BY started_at DESC'),
 };
 
+// Periodic DB maintenance: WAL checkpoint + optimize every 5 min
+setInterval(() => {
+  try {
+    db.pragma('wal_checkpoint(PASSIVE)');
+    db.pragma('optimize');
+  } catch (_) {}
+}, 5 * 60 * 1000);
+
 module.exports = {
   db,
   cards: {
     getAll: () => stmts.getAll.all(),
     getArchived: () => stmts.getArchived.all(),
+    rotateArchive: () => {
+      const { cnt } = stmts.countArchived.get();
+      if (cnt <= MAX_ARCHIVED) return [];
+      const excess = stmts.oldestArchived.all(cnt - MAX_ARCHIVED);
+      const ids = excess.map(r => r.id);
+      for (const id of ids) stmts.del.run(id);
+      return ids;
+    },
     get: (id) => stmts.get.get(id),
     create: (title, desc, col) => stmts.create.run(title, desc || '', col || 'brainstorm'),
     update: (id, title, desc) => stmts.update.run(title, desc, id),

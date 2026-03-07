@@ -56,6 +56,7 @@ app.put('/api/cards/:id', (req, res) => {
 
 app.delete('/api/cards/:id', (req, res) => {
   const id = Number(req.params.id);
+  snapshot.clear(id);
   cards.delete(id);
   broadcast('card-deleted', { id });
   res.json({ success: true });
@@ -95,7 +96,6 @@ app.post('/api/cards/:id/move', (req, res) => {
 
   // Moving to done → approve + auto-commit + auto-archive overflow
   if (column === 'done') {
-    if (fromColumn === 'review') snapshot.clear(id);
     cards.setStatus(id, 'complete');
     orchestrator.autoChangelog(id);
     orchestrator.autoCommit(id);
@@ -181,7 +181,6 @@ app.post('/api/cards/:id/open-claude', (req, res) => {
 
 app.post('/api/cards/:id/approve', (req, res) => {
   const id = Number(req.params.id);
-  snapshot.clear(id);
   cards.move(id, 'done');
   cards.setStatus(id, 'complete');
   broadcast('card-updated', cards.get(id));
@@ -207,6 +206,22 @@ app.post('/api/cards/:id/reject', (req, res) => {
   cards.setSessionLog(id, 'REJECTED - Files rolled back. ' + (result.success ? (result.wasNew ? 'New project folder removed.' : 'All files restored to pre-work state.') : result.reason));
   broadcast('card-updated', cards.get(id));
   res.json({ card: cards.get(id), rollback: result });
+});
+
+app.post('/api/cards/:id/revert-files', (req, res) => {
+  const id = Number(req.params.id);
+  const card = cards.get(id);
+  if (!card) return res.status(404).json({ error: 'Card not found' });
+  if (!snapshot.has(id)) return res.status(404).json({ error: 'No snapshot available for this card' });
+  const result = snapshot.revert(id);
+  if (result.success) {
+    broadcast('toast', { message: 'Files reverted to pre-work state for: ' + card.title, type: 'success' });
+  }
+  res.json(result);
+});
+
+app.get('/api/cards/:id/has-snapshot', (req, res) => {
+  res.json({ has: snapshot.has(Number(req.params.id)) });
 });
 
 app.get('/api/cards/:id/sessions', (req, res) => {
@@ -324,6 +339,11 @@ function autoArchiveDone() {
   }
   if (toArchive.length > 0) {
     broadcast('toast', { message: toArchive.length + ' card(s) auto-archived', type: 'info' });
+  }
+  // Rotate archive — cap at 50, delete oldest beyond limit
+  const deleted = cards.rotateArchive();
+  for (const delId of deleted) {
+    snapshot.clear(delId);
   }
 }
 

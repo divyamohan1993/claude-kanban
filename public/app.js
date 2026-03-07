@@ -405,6 +405,7 @@ function renderCard(card, colId) {
     }
   } else if (colId === 'done') {
     actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }));
+    actions.appendChild(btn('Revert', 'btn-sm btn-ghost', function() { doRevert(id); }));
     actions.appendChild(btn('Archive', 'btn-sm btn-ghost', function() { deleteCard(id); }));
   }
 
@@ -524,6 +525,18 @@ async function doReject(id) {
   } else {
     toast('Rejected. ' + (result.rollback ? result.rollback.reason : 'No snapshot.'), 'info');
   }
+}
+
+async function doRevert(id) {
+  if (!confirm('Revert all file changes from this card to pre-work state?')) return;
+  try {
+    var result = await api('/cards/' + id + '/revert-files', { method: 'POST' });
+    if (result.success) {
+      toast('Files reverted to pre-work state.' + (result.wasNew ? ' New project folder removed.' : ''), 'success');
+    } else {
+      toast('Revert failed: ' + (result.reason || 'Unknown error'), 'error');
+    }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function moveCard(id, column) {
@@ -783,6 +796,14 @@ async function showArchive() {
             className: 'review-score ' + (card.review_score >= 8 ? 'review-score-high' : card.review_score >= 5 ? 'review-score-mid' : 'review-score-low'),
             textContent: card.review_score + '/10',
           }) : null,
+          btn('Revert', 'btn-sm btn-ghost', async function() {
+            if (!confirm('Revert file changes from "' + card.title + '" to pre-work state?')) return;
+            try {
+              var rv = await api('/cards/' + card.id + '/revert-files', { method: 'POST' });
+              if (rv.success) toast('Files reverted for: ' + card.title, 'success');
+              else toast('No snapshot: ' + (rv.reason || ''), 'error');
+            } catch (err) { toast(err.message, 'error'); }
+          }),
           btn('Restore', 'btn-sm btn-ghost', async function() {
             await api('/cards/' + card.id + '/unarchive', { method: 'POST' });
             toast('Card restored to Done', 'success');

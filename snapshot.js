@@ -91,6 +91,40 @@ function rollback(cardId) {
   return { success: true, wasNew: manifest.isNew };
 }
 
+function revert(cardId) {
+  const snapDir = snapshotDir(cardId);
+  const manifestPath = path.join(snapDir, '_manifest.json');
+  if (!fs.existsSync(manifestPath)) return { success: false, reason: 'No snapshot' };
+
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+  const projectPath = manifest.projectPath;
+
+  if (manifest.isNew) {
+    if (fs.existsSync(projectPath)) fs.rmSync(projectPath, { recursive: true });
+  } else {
+    const currentFiles = fs.existsSync(projectPath) ? walkDir(projectPath) : [];
+    const originalSet = new Set(manifest.files);
+    for (const rel of currentFiles) {
+      if (!originalSet.has(rel)) {
+        const fp = path.join(projectPath, rel);
+        try { fs.unlinkSync(fp); } catch (_) {}
+      }
+    }
+    cleanEmptyDirs(projectPath);
+    for (const rel of manifest.files) {
+      const src = path.join(snapDir, 'files', rel);
+      const dst = path.join(projectPath, rel);
+      if (fs.existsSync(src)) {
+        fs.mkdirSync(path.dirname(dst), { recursive: true });
+        fs.copyFileSync(src, dst);
+      }
+    }
+  }
+
+  // Keep snapshot intact for future reverts
+  return { success: true, wasNew: manifest.isNew };
+}
+
 function clear(cardId) {
   const snapDir = snapshotDir(cardId);
   if (fs.existsSync(snapDir)) fs.rmSync(snapDir, { recursive: true });
@@ -111,4 +145,8 @@ function cleanEmptyDirs(dir) {
   }
 }
 
-module.exports = { take, rollback, clear, walkDir };
+function has(cardId) {
+  return fs.existsSync(path.join(snapshotDir(cardId), '_manifest.json'));
+}
+
+module.exports = { take, rollback, revert, clear, has, walkDir };

@@ -393,7 +393,12 @@ function autoArchiveDone() {
 }
 
 // --- Archive API ---
-app.get('/api/archive', (_req, res) => { res.json(cards.getArchived()); });
+app.get('/api/archive', (_req, res) => {
+  const archived = cards.getArchived();
+  const config = orchestrator.getConfig();
+  const limit = config.runtime.maxArchiveVisible;
+  res.json(limit > 0 ? archived.slice(0, limit) : archived);
+});
 
 app.post('/api/cards/:id/unarchive', (req, res) => {
   const id = Number(req.params.id);

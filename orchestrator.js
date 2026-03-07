@@ -22,6 +22,7 @@ var MAX_HOURLY_SESSIONS = Number(process.env.MAX_HOURLY_SESSIONS) || 0;   // 0 =
 var MAX_WEEKLY_SESSIONS = Number(process.env.MAX_WEEKLY_SESSIONS) || 0;   // 0 = unlimited
 var USAGE_PAUSE_PCT = Number(process.env.USAGE_PAUSE_PCT) || 80;         // auto-pause pipeline at this %
 var MAX_DONE_VISIBLE = Number(process.env.MAX_DONE_VISIBLE) || 10;       // 0 = show all
+var MAX_ARCHIVE_VISIBLE = Number(process.env.MAX_ARCHIVE_VISIBLE) || 50; // 0 = show all
 var CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-6';
 var CLAUDE_EFFORT = process.env.CLAUDE_EFFORT || 'high';
 var CUSTOM_PROMPTS_FILE = path.join(DATA_DIR, 'custom-prompts.json');
@@ -46,11 +47,32 @@ function setPaused(paused) {
   _broadcast('pipeline-state', { paused: pipelinePaused });
   sendWebhook('pipeline-' + (pipelinePaused ? 'paused' : 'resumed'), {});
   if (!pipelinePaused) {
-    // Restart frozen brainstorm cards
     var allCards = cards.getAll();
+    // Restart fix-interrupted cards at top priority (they have review_data with findings)
     for (var i = 0; i < allCards.length; i++) {
-      if (allCards[i].status === 'frozen' && allCards[i].column_name === 'brainstorm') {
-        try { brainstorm(allCards[i].id); } catch (_) {}
+      var c = allCards[i];
+      if (c.status === 'fix-interrupted' && c.column_name === 'todo') {
+        try {
+          var reviewData = c.review_data ? JSON.parse(c.review_data) : null;
+          if (reviewData && reviewData.findings && reviewData.findings.length > 0) {
+            cards.move(c.id, 'review');
+            cards.setStatus(c.id, 'fixing');
+            autoFixFindings(c.id, reviewData.findings);
+          } else {
+            // No findings data — enqueue as build at top priority
+            cards.setStatus(c.id, 'idle');
+            enqueue(c.id, 100); // highest priority
+          }
+        } catch (_) {
+          cards.setStatus(c.id, 'idle');
+          try { enqueue(c.id, 100); } catch (__) {}
+        }
+      }
+    }
+    // Restart frozen brainstorm cards
+    for (var j = 0; j < allCards.length; j++) {
+      if (allCards[j].status === 'frozen' && allCards[j].column_name === 'brainstorm') {
+        try { brainstorm(allCards[j].id); } catch (_) {}
       }
     }
     processQueue(); // resume picks up queued builds
@@ -95,10 +117,27 @@ function killAll() {
     }
   }
 
-  // 3. Kill all review processes (review column)
+  // 3. Kill all fixing processes — preserve review findings for auto-restart
+  for (var fi = 0; fi < allCards.length; fi++) {
+    var fc = allCards[fi];
+    if (fc.status === 'fixing') {
+      var fPid = buildPids.get(fc.id);
+      if (fPid) { killProcess(fPid); buildPids.delete(fc.id); }
+      var fPoller = activePollers.get(fc.id);
+      if (fPoller) { clearInterval(fPoller); activePollers.delete(fc.id); }
+      cards.setStatus(fc.id, 'fix-interrupted');
+      cards.move(fc.id, 'todo');
+      setActivity(fc.id, 'queue', 'Fix interrupted — will resume at top priority');
+      _broadcast('card-updated', cards.get(fc.id));
+      killed.push({ id: fc.id, title: fc.title, phase: 'fix' });
+    }
+  }
+  activeFixes.clear();
+
+  // 4. Kill all review processes (review column, not fixing)
   for (var ri = 0; ri < allCards.length; ri++) {
     var rc = allCards[ri];
-    if (rc.column_name === 'review') {
+    if (rc.column_name === 'review' && rc.status !== 'fix-interrupted') {
       var rPid = buildPids.get(rc.id);
       if (rPid) { killProcess(rPid); buildPids.delete(rc.id); }
       var rPoller = activePollers.get(rc.id);
@@ -110,9 +149,6 @@ function killAll() {
       killed.push({ id: rc.id, title: rc.title, phase: 'review' });
     }
   }
-
-  // 4. Kill all active fix processes
-  activeFixes.clear();
 
   // 5. Clear remaining orphan pollers/pids
   for (var pollerEntry of activePollers) {
@@ -522,6 +558,7 @@ function getConfig() {
       maxReviewFixAttempts: MAX_REVIEW_FIX_ATTEMPTS,
       maxFixAttempts: MAX_FIX_ATTEMPTS,
       maxDoneVisible: MAX_DONE_VISIBLE,
+      maxArchiveVisible: MAX_ARCHIVE_VISIBLE,
       claudeModel: CLAUDE_MODEL,
       claudeEffort: CLAUDE_EFFORT,
       webhookUrl: WEBHOOK_URL,
@@ -556,6 +593,7 @@ function setConfig(updates) {
   if (updates.maxReviewFixAttempts !== undefined) { MAX_REVIEW_FIX_ATTEMPTS = Math.max(0, Number(updates.maxReviewFixAttempts)); changed.maxReviewFixAttempts = MAX_REVIEW_FIX_ATTEMPTS; }
   if (updates.maxFixAttempts !== undefined) { MAX_FIX_ATTEMPTS = Math.max(0, Number(updates.maxFixAttempts)); changed.maxFixAttempts = MAX_FIX_ATTEMPTS; }
   if (updates.maxDoneVisible !== undefined) { MAX_DONE_VISIBLE = Math.max(0, Number(updates.maxDoneVisible)); changed.maxDoneVisible = MAX_DONE_VISIBLE; }
+  if (updates.maxArchiveVisible !== undefined) { MAX_ARCHIVE_VISIBLE = Math.max(0, Number(updates.maxArchiveVisible)); changed.maxArchiveVisible = MAX_ARCHIVE_VISIBLE; }
   if (updates.claudeModel !== undefined) { CLAUDE_MODEL = String(updates.claudeModel); changed.claudeModel = CLAUDE_MODEL; }
   if (updates.claudeEffort !== undefined) { CLAUDE_EFFORT = String(updates.claudeEffort); changed.claudeEffort = CLAUDE_EFFORT; }
   if (updates.webhookUrl !== undefined) { WEBHOOK_URL = String(updates.webhookUrl); changed.webhookUrl = WEBHOOK_URL; }

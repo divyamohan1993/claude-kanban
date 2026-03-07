@@ -373,6 +373,8 @@ function renderCard(card, colId) {
   var meta = el('div', { className: 'card-meta' });
   if (card.status === 'frozen') {
     meta.appendChild(el('span', { className: 'card-badge badge-blocked', textContent: 'Frozen' }));
+  } else if (card.status === 'fix-interrupted') {
+    meta.appendChild(el('span', { className: 'card-badge badge-warning', textContent: 'Fix Paused' }));
   } else if (card.status === 'brainstorming') {
     meta.appendChild(el('span', { className: 'spinner' }));
     meta.appendChild(el('span', { className: 'card-badge badge-brainstorming', textContent: 'Brainstorming' }));

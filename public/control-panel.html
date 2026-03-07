@@ -569,6 +569,7 @@ function renderBuildConfig(r) {
     cfgSelect('claudeModel', 'Claude Model', r.claudeModel, ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'], 'CLI model flag'),
     cfgSelect('claudeEffort', 'Effort Level', r.claudeEffort, ['low', 'medium', 'high'], 'CLI effort flag'),
     cfgNumber('maxDoneVisible', 'Done Column Limit', r.maxDoneVisible, '0 = show all'),
+    cfgNumber('maxArchiveVisible', 'Archive Limit', r.maxArchiveVisible, '0 = show all · DB keeps everything'),
     cfgText('webhookUrl', 'Webhook URL', r.webhookUrl, 'POST on card state changes'),
   ]);
   body.appendChild(grid);

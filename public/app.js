@@ -58,8 +58,9 @@ function el(tag, attrs, children) {
   return e;
 }
 
-function btn(text, cls, handler) {
-  return el('button', { className: 'btn ' + cls, onClick: handler, textContent: text });
+function btn(text, cls, handler, tooltip) {
+  var attrs = { className: 'btn ' + cls, onClick: handler, textContent: text, title: tooltip || text };
+  return el('button', attrs);
 }
 
 function timeAgo(dateStr) {
@@ -283,11 +284,20 @@ function render() {
 
 function renderColumn(col, colCards) {
   var colEl = el('div', { className: 'column', 'data-col': col.id });
-  var header = el('div', { className: 'column-header' }, [
+  var toggleArrow = el('span', { className: 'column-toggle', textContent: '\u25BC', 'aria-hidden': 'true' });
+  var header = el('div', { className: 'column-header', role: 'button', tabindex: '0', 'aria-label': col.label + ' column, ' + colCards.length + ' cards. Click to collapse or expand.' }, [
     el('div', { className: 'column-dot' }),
     el('h2', { textContent: col.label }),
     el('span', { className: 'card-count', textContent: String(colCards.length) }),
+    toggleArrow,
   ]);
+  header.addEventListener('click', function() {
+    colEl.classList.toggle('collapsed');
+    toggleArrow.textContent = colEl.classList.contains('collapsed') ? '\u25B6' : '\u25BC';
+  });
+  header.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); header.click(); }
+  });
   colEl.appendChild(header);
 
   var list = el('div', { className: 'card-list', 'data-col': col.id });
@@ -426,44 +436,47 @@ function renderCard(card, colId) {
   var actions = el('div', { className: 'card-actions' });
   var id = card.id;
 
+  // Info button on every card — always visible
+  actions.appendChild(btn('Info', 'btn-sm btn-ghost btn-info', function() { showDetail(card); }, 'View full card details, spec, and logs'));
+
   if (card.status === 'interrupted') {
-    actions.appendChild(btn('Retry', 'btn-sm btn-primary', function() { doStartWork(id); }));
-    actions.appendChild(btn('Re-brainstorm', 'btn-sm btn-ghost', function() { doBrainstorm(id); }));
-    actions.appendChild(btn('Reject', 'btn-sm btn-ghost', function() { doReject(id); }));
-    actions.appendChild(btn('Discard', 'btn-sm btn-ghost', function() { deleteCard(id); }));
+    actions.appendChild(btn('Retry', 'btn-sm btn-primary', function() { doStartWork(id); }, 'Retry the build from where it left off'));
+    actions.appendChild(btn('Re-brainstorm', 'btn-sm btn-ghost', function() { doBrainstorm(id); }, 'Generate a new spec via AI brainstorm'));
+    actions.appendChild(btn('Reject', 'btn-sm btn-ghost', function() { doReject(id); }, 'Reject and rollback file changes'));
+    actions.appendChild(btn('Discard', 'btn-sm btn-ghost', function() { deleteCard(id); }, 'Permanently delete this card'));
   } else if (colId === 'brainstorm') {
-    actions.appendChild(btn('Detect', 'btn-sm btn-ghost', function() { doDetect(id); }));
-    actions.appendChild(btn('Brainstorm', 'btn-sm btn-primary', function() { doBrainstorm(id); }));
-    actions.appendChild(btn('Edit', 'btn-sm btn-ghost', function() { editCard(id); }));
-    actions.appendChild(btn('Del', 'btn-sm btn-ghost', function() { deleteCard(id); }));
+    actions.appendChild(btn('Detect', 'btn-sm btn-ghost', function() { doDetect(id); }, 'Find or create a project folder'));
+    actions.appendChild(btn('Brainstorm', 'btn-sm btn-primary', function() { doBrainstorm(id); }, 'AI generates a detailed spec'));
+    actions.appendChild(btn('Edit', 'btn-sm btn-ghost', function() { editCard(id); }, 'Edit card title and description'));
+    actions.appendChild(btn('Del', 'btn-sm btn-ghost', function() { deleteCard(id); }, 'Delete this card'));
   } else if (colId === 'todo') {
-    actions.appendChild(btn('Start', 'btn-sm btn-primary', function() { doStartWork(id); }));
-    actions.appendChild(btn('Re-brainstorm', 'btn-sm btn-ghost', function() { doBrainstorm(id); }));
-    actions.appendChild(btn('Edit', 'btn-sm btn-ghost', function() { editCard(id); }));
+    actions.appendChild(btn('Start', 'btn-sm btn-primary', function() { doStartWork(id); }, 'Queue AI to build this project'));
+    actions.appendChild(btn('Re-brainstorm', 'btn-sm btn-ghost', function() { doBrainstorm(id); }, 'Regenerate the spec'));
+    actions.appendChild(btn('Edit', 'btn-sm btn-ghost', function() { editCard(id); }, 'Edit card title and description'));
   } else if (colId === 'working') {
-    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }));
-    actions.appendChild(btn('Terminal', 'btn-sm btn-ghost', function() { doOpenTerminal(id); }));
-    actions.appendChild(btn('Claude', 'btn-sm btn-ghost', function() { doOpenClaude(id); }));
-    actions.appendChild(btn('Log', 'btn-sm btn-ghost', function() { showLiveLog(id, 'build'); }));
+    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'));
+    actions.appendChild(btn('Terminal', 'btn-sm btn-ghost', function() { doOpenTerminal(id); }, 'Open terminal in project folder'));
+    actions.appendChild(btn('Claude', 'btn-sm btn-ghost', function() { doOpenClaude(id); }, 'Open Claude CLI in project folder'));
+    actions.appendChild(btn('Log', 'btn-sm btn-ghost', function() { showLiveLog(id, 'build'); }, 'Watch live build output'));
   } else if (colId === 'review') {
-    actions.appendChild(btn('Approve', 'btn-sm btn-primary', function() { doApprove(id); }));
-    actions.appendChild(btn('Reject', 'btn-sm btn-ghost', function() { doReject(id); }));
-    actions.appendChild(btn('Diff', 'btn-sm btn-ghost', function() { showDiff(id); }));
-    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }));
+    actions.appendChild(btn('Approve', 'btn-sm btn-primary', function() { doApprove(id); }, 'Approve, update changelog, and git commit'));
+    actions.appendChild(btn('Reject', 'btn-sm btn-ghost', function() { doReject(id); }, 'Reject and rollback file changes'));
+    actions.appendChild(btn('Diff', 'btn-sm btn-ghost', function() { showDiff(id); }, 'View file changes since snapshot'));
+    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'));
     if (card.review_score > 0) {
-      actions.appendChild(btn('Findings', 'btn-sm btn-ghost', function() { showFindings(id); }));
+      actions.appendChild(btn('Findings', 'btn-sm btn-ghost', function() { showFindings(id); }, 'View AI review findings'));
     }
     if (card.status === 'reviewing') {
-      actions.appendChild(btn('Log', 'btn-sm btn-ghost', function() { showLiveLog(id, 'review'); }));
+      actions.appendChild(btn('Log', 'btn-sm btn-ghost', function() { showLiveLog(id, 'review'); }, 'Watch live review output'));
     }
     if (card.status === 'fixing') {
-      actions.appendChild(btn('Log', 'btn-sm btn-ghost', function() { showLiveLog(id, 'review-fix'); }));
+      actions.appendChild(btn('Log', 'btn-sm btn-ghost', function() { showLiveLog(id, 'review-fix'); }, 'Watch auto-fix output'));
     }
   } else if (colId === 'done') {
-    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }));
-    actions.appendChild(btn('Preview', 'btn-sm btn-ghost', function() { doPreview(id); }));
-    actions.appendChild(btn('Diff', 'btn-sm btn-ghost', function() { showDiff(id); }));
-    actions.appendChild(btn('Revert', 'btn-sm btn-ghost', function() { doRevert(id); }));
+    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'));
+    actions.appendChild(btn('Preview', 'btn-sm btn-ghost', function() { doPreview(id); }, 'Run the project and preview it'));
+    actions.appendChild(btn('Diff', 'btn-sm btn-ghost', function() { showDiff(id); }, 'View file changes from the build'));
+    actions.appendChild(btn('Revert', 'btn-sm btn-ghost', function() { doRevert(id); }, 'Revert files to pre-build state'));
   }
 
   cardEl.appendChild(actions);

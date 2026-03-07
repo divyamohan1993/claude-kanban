@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-03-07
+
+### Added
+- **Info button**: Visible "Info" button on every card for discoverability (replaces hidden title-click)
+- **Button tooltips**: All card action buttons now show descriptive tooltips on hover
+- **Column collapsing**: Click any column header to collapse/expand its card list (arrow indicator)
+- **Mobile layout**: Columns stack vertically on phones (<640px) with scrollable card lists
+- **Tablet layout**: Horizontal scroll with snap-to-column on tablets (640-1023px)
+- **4K/ultra-wide scaling**: Font sizes, spacing, and components scale up for large screens (>1920px, >3840px)
+- **Touch targets**: Buttons and interactive elements meet 36px minimum on touch devices
+- **Reduced motion**: Respects `prefers-reduced-motion` system setting
+- **Print styles**: Clean printable layout hiding UI chrome
+
+### Changed
+- Header wraps gracefully on narrow screens; search goes full-width on mobile
+- Import/Export/Archive buttons hidden on very small screens to save space
+- Modals slide up from bottom on mobile for thumb-friendly interaction
+- `.gitignore` now excludes backup zip files
+
 ## [1.3.0] - 2026-03-07
 
 ### Added

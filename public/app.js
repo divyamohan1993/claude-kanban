@@ -552,9 +552,9 @@ async function doStartWork(id) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
-function doOpenVSCode(id) { api('/cards/' + id + '/open-vscode', { method: 'POST' }).catch(function() {}); }
-function doOpenTerminal(id) { api('/cards/' + id + '/open-terminal', { method: 'POST' }).catch(function() {}); }
-function doOpenClaude(id) { api('/cards/' + id + '/open-claude', { method: 'POST' }).catch(function() {}); }
+function doOpenVSCode(id) { api('/cards/' + id + '/open-vscode', { method: 'POST' }).then(function() { toast('Opening VS Code...', 'success'); }).catch(function(e) { toast('VSCode: ' + e.message, 'error'); }); }
+function doOpenTerminal(id) { api('/cards/' + id + '/open-terminal', { method: 'POST' }).then(function() { toast('Opening terminal...', 'success'); }).catch(function(e) { toast('Terminal: ' + e.message, 'error'); }); }
+function doOpenClaude(id) { api('/cards/' + id + '/open-claude', { method: 'POST' }).then(function() { toast('Opening Claude...', 'success'); }).catch(function(e) { toast('Claude: ' + e.message, 'error'); }); }
 
 async function doApprove(id) {
   await api('/cards/' + id + '/approve', { method: 'POST' });
@@ -892,7 +892,14 @@ async function showDiff(cardId) {
   detailModal.classList.add('active');
 
   try {
-    var diff = await api('/cards/' + cardId + '/diff');
+    var resp = await fetch('/api/cards/' + cardId + '/diff');
+    if (!resp.ok) {
+      var errData = await resp.json().catch(function() { return {}; });
+      body.textContent = '';
+      body.appendChild(el('p', { textContent: errData.error || 'No snapshot available. Diff is only available for cards that went through the build pipeline.', style: 'color:var(--text-secondary)' }));
+      return;
+    }
+    var diff = await resp.json();
     body.textContent = '';
 
     // Summary

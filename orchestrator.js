@@ -879,8 +879,10 @@ function pollForCompletion(cardId, projectPath) {
 
 function openInVSCode(cardId) {
   var card = cards.get(cardId);
-  if (!card || !card.project_path) throw new Error('No project path');
-  spawn('code', [card.project_path], { shell: true, detached: true, stdio: 'ignore' }).unref();
+  if (!card || !card.project_path) throw new Error('No project path assigned');
+  var child = spawn('code', [card.project_path], { shell: true, detached: true, stdio: 'ignore' });
+  child.on('error', function(err) { console.error('VSCode spawn error:', err.message); });
+  child.unref();
 }
 
 function openTerminal(cardId) {
@@ -1605,13 +1607,14 @@ function previewProject(cardId) {
 
   if (!runCommand) throw new Error('No run command found in .task-complete or package.json');
 
-  // Open terminal with the run command
+  // Install deps + run command
+  var fullCmd = 'pnpm install && ' + runCommand;
   if (IS_WIN) {
-    spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + projectPath + '" && ' + runCommand], { shell: true, detached: true, stdio: 'ignore' }).unref();
+    spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + projectPath + '" && ' + fullCmd], { shell: true, detached: true, stdio: 'ignore' }).unref();
   } else if (IS_MAC) {
-    spawn('osascript', ['-e', 'tell app "Terminal" to do script "cd \'' + projectPath + '\' && ' + runCommand + '"'], { detached: true, stdio: 'ignore' }).unref();
+    spawn('osascript', ['-e', 'tell app "Terminal" to do script "cd \'' + projectPath + '\' && ' + fullCmd + '"'], { detached: true, stdio: 'ignore' }).unref();
   } else {
-    spawn('gnome-terminal', ['--', 'bash', '-c', 'cd "' + projectPath + '" && ' + runCommand + '; exec bash'], { detached: true, stdio: 'ignore' }).unref();
+    spawn('gnome-terminal', ['--', 'bash', '-c', 'cd "' + projectPath + '" && ' + fullCmd + '; exec bash'], { detached: true, stdio: 'ignore' }).unref();
   }
 
   return { success: true, command: runCommand };

@@ -89,10 +89,22 @@ public/
 
 ## Requirements
 
-- Windows (uses `.bat` wrappers for silent Claude execution)
+- **Windows**, **macOS**, or **Linux** (Ubuntu, Debian, Fedora, Arch, etc.)
 - Node.js 18+
-- [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) authenticated
+- [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) authenticated with `--dangerously-skip-permissions`
 - pnpm
+
+### Platform Notes
+
+| Feature | Windows | macOS | Linux |
+|---------|---------|-------|-------|
+| Silent Claude | `.bat` wrappers | `.sh` scripts | `.sh` scripts |
+| Process kill | `taskkill /T` | `kill -9` (process group) | `kill -9` (process group) |
+| Open terminal | `cmd` | Terminal.app | gnome-terminal / xterm |
+| Open browser | `start` | `open` | `xdg-open` |
+| Default projects dir | `R:\` | `~/Projects` | `~/Projects` |
+
+Override the projects directory with `PROJECTS_ROOT` env var.
 
 ## License
 

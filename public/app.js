@@ -427,7 +427,7 @@ async function doDetect(id, thenAction) {
   if (!card) return;
 
   document.getElementById('folder-modal-title').textContent = 'Select Folder: ' + card.title;
-  document.getElementById('folder-desc').textContent = 'Searching R:\\ for matching project folders...';
+  document.getElementById('folder-desc').textContent = 'Searching for matching project folders...';
   var matchesDiv = document.getElementById('folder-matches');
   var newDiv = document.getElementById('folder-new');
   matchesDiv.textContent = '';
@@ -436,6 +436,8 @@ async function doDetect(id, thenAction) {
 
   try {
     var result = await api('/cards/' + id + '/detect', { method: 'POST' });
+    var root = result.projectsRoot || '';
+    var sep = root.indexOf('\\') >= 0 ? '\\' : '/';
 
     if (result.matches.length > 0) {
       document.getElementById('folder-desc').textContent = 'Found ' + result.matches.length + ' matching folder(s). Pick one or create new:';
@@ -450,10 +452,10 @@ async function doDetect(id, thenAction) {
         })(result.matches[i]);
       }
     } else {
-      document.getElementById('folder-desc').textContent = 'No matching folders found on R:\\.';
+      document.getElementById('folder-desc').textContent = 'No matching folders found in ' + root;
     }
 
-    var newPath = 'R:\\' + result.suggestedName;
+    var newPath = root + sep + result.suggestedName;
     newDiv.appendChild(
       btn('Create New: ' + result.suggestedName, 'btn-sm btn-ghost', function() { selectFolder(newPath); })
     );

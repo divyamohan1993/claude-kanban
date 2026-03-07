@@ -408,7 +408,9 @@ if (process.env.NODE_ENV === 'test') {
 app.listen(PORT, () => {
   orchestrator.init(broadcast);
   console.log('\n  Claude Kanban Board running at http://localhost:' + PORT + '\n');
-  spawn('cmd', ['/c', 'start', '', 'http://localhost:' + PORT], {
-    stdio: 'ignore', windowsHide: true,
-  }).unref();
+  var url = 'http://localhost:' + PORT;
+  var openCmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
+    : process.platform === 'darwin' ? ['open', [url]]
+    : ['xdg-open', [url]];
+  spawn(openCmd[0], openCmd[1], { stdio: 'ignore', windowsHide: true }).unref();
 });

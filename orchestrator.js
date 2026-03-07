@@ -1,10 +1,13 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { cards, sessions } = require('./db');
 const snapshot = require('./snapshot');
 
-const PROJECTS_ROOT = process.env.PROJECTS_ROOT || 'R:\\';
+const IS_WIN = process.platform === 'win32';
+const IS_MAC = process.platform === 'darwin';
+const PROJECTS_ROOT = process.env.PROJECTS_ROOT || (IS_WIN ? 'R:\\' : path.join(os.homedir(), 'Projects'));
 const KANBAN_DIR = __dirname;
 const LOGS_DIR = path.join(KANBAN_DIR, 'logs');
 const RUNTIME_DIR = path.join(KANBAN_DIR, '.runtime');
@@ -118,7 +121,7 @@ function detectProject(title) {
   }
 
   matches.sort(function(a, b) { return b.score - a.score; });
-  return { matches: matches.slice(0, 8), suggestedName: name };
+  return { matches: matches.slice(0, 8), suggestedName: name, projectsRoot: PROJECTS_ROOT };
 }
 
 function analyzeProject(projectPath) {
@@ -153,42 +156,138 @@ function analyzeProject(projectPath) {
 // --- Silent Claude Runner ---
 
 function runClaudeSilent(opts) {
-  var batPath = path.join(RUNTIME_DIR, '.run-' + opts.id + '.bat');
-  var lines = [
-    '@echo off',
-    'cd /d "' + opts.cwd + '"',
-    'set CLAUDECODE=',
-  ];
-
+  var scriptPath, lines;
   var cliBase = 'claude --model claude-opus-4-6 --effort high --dangerously-skip-permissions';
-  var escapedPrompt = opts.prompt.replace(/"/g, "'").replace(/[\r\n]+/g, ' ');
 
-  if (opts.stdoutFile) {
-    lines.push(cliBase + ' -p "' + escapedPrompt + '" > "' + opts.stdoutFile + '" 2>> "' + opts.logFile + '"');
+  if (IS_WIN) {
+    scriptPath = path.join(RUNTIME_DIR, '.run-' + opts.id + '.bat');
+    var escapedPrompt = opts.prompt.replace(/"/g, "'").replace(/[\r\n]+/g, ' ');
+    lines = [
+      '@echo off',
+      'cd /d "' + opts.cwd + '"',
+      'set CLAUDECODE=',
+    ];
+    if (opts.stdoutFile) {
+      lines.push(cliBase + ' -p "' + escapedPrompt + '" > "' + opts.stdoutFile + '" 2>> "' + opts.logFile + '"');
+    } else {
+      lines.push(cliBase + ' -p "' + escapedPrompt + '" >> "' + opts.logFile + '" 2>&1');
+    }
+    fs.writeFileSync(scriptPath, lines.join('\r\n'));
   } else {
-    lines.push(cliBase + ' -p "' + escapedPrompt + '" >> "' + opts.logFile + '" 2>&1');
+    scriptPath = path.join(RUNTIME_DIR, '.run-' + opts.id + '.sh');
+    var escapedPrompt = opts.prompt.replace(/'/g, "'\\''").replace(/[\r\n]+/g, ' ');
+    lines = [
+      '#!/bin/bash',
+      'cd "' + opts.cwd + '"',
+      'unset CLAUDECODE',
+    ];
+    if (opts.stdoutFile) {
+      lines.push(cliBase + " -p '" + escapedPrompt + "' > '" + opts.stdoutFile + "' 2>> '" + opts.logFile + "'");
+    } else {
+      lines.push(cliBase + " -p '" + escapedPrompt + "' >> '" + opts.logFile + "' 2>&1");
+    }
+    fs.writeFileSync(scriptPath, lines.join('\n'), { mode: 0o755 });
   }
 
-  fs.writeFileSync(batPath, lines.join('\r\n'));
-
-  var child = spawn('cmd', ['/c', batPath], {
+  var child = spawn(IS_WIN ? 'cmd' : 'bash', IS_WIN ? ['/c', scriptPath] : [scriptPath], {
     cwd: opts.cwd,
     stdio: 'ignore',
     windowsHide: true,
+    detached: !IS_WIN,
   });
   child.unref();
 
   var pid = child.pid || 0;
   if (opts.cardId) buildPids.set(opts.cardId, pid);
 
-  return { pid: pid, batPath: batPath };
+  return { pid: pid, scriptPath: scriptPath };
+}
+
+function killProcess(pid) {
+  try {
+    if (IS_WIN) {
+      spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    } else {
+      process.kill(-pid, 'SIGKILL');
+    }
+  } catch (_) {
+    try { process.kill(pid, 'SIGKILL'); } catch (_2) {}
+  }
 }
 
 // --- Queue Management ---
 
 function init(broadcastFn) {
   _broadcast = broadcastFn;
+  preflightChecks();
   resetStuckCards();
+}
+
+// --- Preflight: verify all permissions/tools upfront so nothing fails midway ---
+function preflightChecks() {
+  var issues = [];
+  var execFileSync = require('child_process').execFileSync;
+
+  // 1. Ensure runtime + logs dirs exist and are writable
+  [RUNTIME_DIR, LOGS_DIR].forEach(function(dir) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      var testFile = path.join(dir, '.preflight-test');
+      fs.writeFileSync(testFile, 'ok');
+      fs.unlinkSync(testFile);
+    } catch (e) {
+      issues.push('Cannot write to ' + dir + ': ' + e.message);
+    }
+  });
+
+  // 2. Ensure projects root exists (create if missing on Mac/Linux)
+  if (!IS_WIN && !fs.existsSync(PROJECTS_ROOT)) {
+    try { fs.mkdirSync(PROJECTS_ROOT, { recursive: true }); }
+    catch (e) { issues.push('Cannot create projects dir ' + PROJECTS_ROOT + ': ' + e.message); }
+  }
+
+  // 3. Check Claude CLI is available
+  try {
+    execFileSync('claude', ['--version'], { timeout: 10000, stdio: 'pipe' });
+  } catch (_) {
+    issues.push('Claude CLI not found in PATH. Install: https://docs.anthropic.com/en/docs/claude-code');
+  }
+
+  // 4. Check VS Code CLI (non-fatal)
+  try {
+    execFileSync('code', ['--version'], { timeout: 5000, stdio: 'pipe' });
+  } catch (_) {
+    console.log('  [preflight] VS Code CLI not found — "Open in VSCode" will not work');
+  }
+
+  // 5. On macOS, verify shell scripts can be executed
+  if (IS_MAC) {
+    var testScript = path.join(RUNTIME_DIR, '.preflight-exec-test.sh');
+    try {
+      fs.writeFileSync(testScript, '#!/bin/bash\necho ok', { mode: 0o755 });
+      execFileSync('bash', [testScript], { timeout: 5000, stdio: 'pipe' });
+      fs.unlinkSync(testScript);
+    } catch (e) {
+      issues.push('Cannot execute shell scripts: ' + e.message);
+    }
+  }
+
+  // 6. On Linux, check xdg-open for browser
+  if (!IS_WIN && !IS_MAC) {
+    try {
+      execFileSync('which', ['xdg-open'], { timeout: 3000, stdio: 'pipe' });
+    } catch (_) {
+      console.log('  [preflight] xdg-open not found — browser auto-open disabled');
+    }
+  }
+
+  if (issues.length > 0) {
+    console.log('\n  [preflight] Issues detected:');
+    issues.forEach(function(i) { console.log('    - ' + i); });
+    console.log('');
+  } else {
+    console.log('  [preflight] All checks passed (' + process.platform + ')');
+  }
 }
 
 function resetStuckCards() {
@@ -277,7 +376,7 @@ function dequeue(cardId) {
       // Kill the Claude CLI process tree
       var pid = buildPids.get(cardId);
       if (pid) {
-        try { spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch (_) {}
+        killProcess(pid);
         buildPids.delete(cardId);
       }
       processQueue();
@@ -582,7 +681,7 @@ function brainstorm(cardId) {
             _broadcast('card-updated', cards.get(cardId));
             try { fs.appendFileSync(log, '\n---\n[' + new Date().toISOString() + '] Brainstorm completed (' + content.length + ' chars)\n'); } catch (_) {}
             try { fs.unlinkSync(outputFile); } catch (_) {}
-            try { fs.unlinkSync(run.batPath); } catch (_) {}
+            try { fs.unlinkSync(run.scriptPath); } catch (_) {}
 
             // Auto-start work — zero-touch pipeline
             try {
@@ -680,23 +779,42 @@ function pollForCompletion(cardId, projectPath) {
 function openInVSCode(cardId) {
   var card = cards.get(cardId);
   if (!card || !card.project_path) throw new Error('No project path');
-  spawn('cmd', ['/c', 'code', card.project_path], { shell: true, detached: true, stdio: 'ignore' }).unref();
+  spawn('code', [card.project_path], { shell: true, detached: true, stdio: 'ignore' }).unref();
 }
 
 function openTerminal(cardId) {
   var card = cards.get(cardId);
   if (!card || !card.project_path) throw new Error('No project path');
-  spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + card.project_path + '"'], {
-    shell: true, detached: true, stdio: 'ignore',
-  }).unref();
+  var p = card.project_path;
+  if (IS_WIN) {
+    spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + p + '"'], { shell: true, detached: true, stdio: 'ignore' }).unref();
+  } else if (IS_MAC) {
+    spawn('open', ['-a', 'Terminal', p], { detached: true, stdio: 'ignore' }).unref();
+  } else {
+    var child = spawn('gnome-terminal', ['--working-directory=' + p], { detached: true, stdio: 'ignore' });
+    child.on('error', function() {
+      spawn('xterm', ['-e', 'bash'], { cwd: p, detached: true, stdio: 'ignore' }).unref();
+    });
+    child.unref();
+  }
 }
 
 function openClaude(cardId) {
   var card = cards.get(cardId);
   if (!card || !card.project_path) throw new Error('No project path');
-  spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + card.project_path + '" && set CLAUDECODE= && claude'], {
-    shell: true, detached: true, stdio: 'ignore',
-  }).unref();
+  var p = card.project_path;
+  var unsetEnv = IS_WIN ? 'set CLAUDECODE=' : 'unset CLAUDECODE';
+  if (IS_WIN) {
+    spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + p + '" && ' + unsetEnv + ' && claude'], { shell: true, detached: true, stdio: 'ignore' }).unref();
+  } else if (IS_MAC) {
+    spawn('osascript', ['-e', 'tell app "Terminal" to do script "cd \'' + p + '\' && ' + unsetEnv + ' && claude"'], { detached: true, stdio: 'ignore' }).unref();
+  } else {
+    var child = spawn('gnome-terminal', ['--', 'bash', '-c', 'cd "' + p + '" && ' + unsetEnv + ' && claude; exec bash'], { detached: true, stdio: 'ignore' });
+    child.on('error', function() {
+      spawn('xterm', ['-e', 'bash -c \'cd "' + p + '" && ' + unsetEnv + ' && claude; exec bash\''], { detached: true, stdio: 'ignore' }).unref();
+    });
+    child.unref();
+  }
 }
 
 // --- Auto Git Commit ---

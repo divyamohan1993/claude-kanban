@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - **Housekeeping guards pipeline**: Periodic cleanup now skips when any card is in working/building/brainstorming/reviewing/fixing state — prevents deleting logs or runtime files that active Claude sessions need. Manual cleanup from control panel still runs unconditionally
 
+### Changed
+- README.md rewritten for v1.8.1 — full feature list, two-server docs, complete API reference, configuration table, updated project structure
+- `package.json` version bumped to 1.8.1
+- `.env.example` updated: `MAX_CONCURRENT_BUILDS` default corrected to 1, added `BACKUP_RETENTION_DAYS`
+
 ## [1.8.0] - 2026-03-07
 
 ### Added

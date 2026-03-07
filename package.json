@@ -1,6 +1,6 @@
 {
   "name": "claude-kanban",
-  "version": "1.3.0",
+  "version": "1.8.1",
   "description": "AI-powered Kanban board that orchestrates autonomous Claude Code sessions",
   "main": "server.js",
   "scripts": {

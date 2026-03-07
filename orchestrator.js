@@ -14,7 +14,7 @@ const LOGS_DIR = path.join(DATA_DIR, 'logs');
 const RUNTIME_DIR = path.join(DATA_DIR, 'runtime');
 
 // --- Configurable Limits ---
-const MAX_CONCURRENT_BUILDS = Number(process.env.MAX_CONCURRENT_BUILDS) || 3;
+const MAX_CONCURRENT_BUILDS = Number(process.env.MAX_CONCURRENT_BUILDS) || 1;
 const BUILD_TIMEOUT_POLLS = Number(process.env.BUILD_TIMEOUT_MINS || 60) * 12; // 5s intervals
 const WEBHOOK_URL = process.env.WEBHOOK_URL || '';
 
@@ -36,7 +36,8 @@ const activeFixes = new Set();  // sourceCardId set
 var MAX_FIX_ATTEMPTS = 2;
 
 // --- Review Fix State ---
-const reviewFixAttempted = new Set();  // cardIds that already had one auto-fix cycle
+const reviewFixCount = new Map();  // cardId -> number of fix attempts (max 3)
+var MAX_REVIEW_FIX_ATTEMPTS = 3;
 
 // --- Live Activity Tracking ---
 const cardActivity = new Map();  // cardId -> { detail, step, timestamp }
@@ -385,9 +386,9 @@ function enqueue(cardId, priority) {
     return { status: 'queued', position: getQueuePosition(cardId) };
   }
 
-  // Move to working column if not already there
-  if (card.column_name !== 'working') {
-    cards.move(cardId, 'working');
+  // Keep queued cards in todo — only move to working when actually building
+  if (card.column_name !== 'todo' && card.column_name !== 'working') {
+    cards.move(cardId, 'todo');
   }
   cards.setStatus(cardId, 'queued');
   setActivity(cardId, 'queue', 'Waiting in build queue...');
@@ -467,6 +468,17 @@ function broadcastQueuePositions() {
   _broadcast('queue-update', getQueueInfo());
 }
 
+// Release project lock after full pipeline (build+review+fix) completes
+function releaseProjectLock(cardId) {
+  var card = cards.get(cardId);
+  if (!card) return;
+  var projectPath = card.project_path;
+  if (projectPath && activeBuilds.get(projectPath) === cardId) {
+    activeBuilds.delete(projectPath);
+    processQueue();
+  }
+}
+
 function processQueue() {
   // Global concurrency limit
   if (activeBuilds.size >= MAX_CONCURRENT_BUILDS) return;
@@ -516,6 +528,11 @@ function executeWork(cardId, projectPath) {
 
   var isExisting = projectPath && fs.existsSync(projectPath);
 
+  // Move to working column now that build is actually starting
+  if (card.column_name !== 'working') {
+    cards.move(cardId, 'working');
+    _broadcast('card-updated', cards.get(cardId));
+  }
   activeBuilds.set(projectPath, cardId);
   setActivity(cardId, 'snapshot', 'Taking file snapshot...');
   trackPhase(cardId, 'build', 'start');
@@ -832,10 +849,11 @@ function pollForCompletion(cardId, projectPath) {
       if (fs.existsSync(completionFile)) {
         clearInterval(interval);
         activePollers.delete(cardId);
-        activeBuilds.delete(projectPath);
+        // DO NOT release activeBuilds here — keep project locked until full
+        // review cycle completes (build → review → fix → approve). This prevents
+        // dependent cards from building on unreviewed/broken code.
         buildPids.delete(cardId);
         trackPhase(cardId, 'build', 'end');
-        needsQueueProcess = true;
 
         var content = fs.readFileSync(completionFile, 'utf-8');
         cards.setSessionLog(cardId, content);
@@ -1252,10 +1270,11 @@ function autoReview(cardId) {
   promptParts.push('- 1-2: Major rewrites needed');
   promptParts.push('');
   promptParts.push('Create .review-complete in the project root with this EXACT JSON format:');
-  promptParts.push('{"score":NUMBER,"summary":"Brief overall assessment","findings":[{"severity":"critical|warning|info","category":"security|quality|performance|accessibility|completeness","message":"Description","file":"path/to/file"}],"autoApprove":BOOLEAN}');
+  promptParts.push('{"score":NUMBER,"summary":"Brief overall assessment","findings":[{"severity":"critical|warning|info","category":"security|quality|performance|accessibility|completeness","message":"Description","file":"path/to/file"}],"autoApprove":BOOLEAN,"needsHumanApproval":BOOLEAN}');
   promptParts.push('');
   promptParts.push('Set autoApprove to true ONLY if score >= 8 AND zero critical findings.');
-  promptParts.push('You have full access to all tools — read every file, search for patterns, run checks. Be thorough but fair.');
+  promptParts.push('Set needsHumanApproval to true ONLY for genuinely dangerous operations: destructive file deletions affecting production data, mass database changes, rm -rf of important directories, removing security controls. Normal code issues, missing features, or low scores do NOT need human approval — those get auto-fixed.');
+  promptParts.push('You have full access to all tools — read every file, search for patterns, run checks. Be thorough but fair. Focus your review ONLY on what this specific card was supposed to build — do not penalize for features belonging to other cards/phases.');
 
   var prompt = promptParts.join('\n');
 
@@ -1305,10 +1324,15 @@ function autoReview(cardId) {
           // Store review data
           cards.setReviewData(cardId, score, content);
 
-          if (data.autoApprove && score >= 8 && criticals === 0) {
-            // Auto-approve
+          var fixCount = reviewFixCount.get(cardId) || 0;
+          var needsHuman = data.needsHumanApproval === true; // Only for destructive/dangerous ops
+
+          if (score >= 8 && criticals === 0 && !needsHuman) {
+            // Auto-approve — score is good, no criticals, no dangerous ops
+            reviewFixCount.delete(cardId);
             setActivity(cardId, 'approve', 'Score ' + score + '/10 — auto-approving...');
             cards.setStatus(cardId, 'complete');
+            cards.setApprovedBy(cardId, 'ai');
             cards.move(cardId, 'done');
             snapshot.clear(cardId);
             _broadcast('card-updated', cards.get(cardId));
@@ -1320,34 +1344,50 @@ function autoReview(cardId) {
             setActivity(cardId, 'git', 'Git commit & push...');
             autoCommit(cardId);
             setActivity(cardId, 'done', 'Complete — score ' + score + '/10');
-          } else if (score >= 5 && criticals === 0 && !reviewFixAttempted.has(cardId)) {
-            // Score 5-7, no criticals — auto-fix findings then re-review
-            reviewFixAttempted.add(cardId);
+            releaseProjectLock(cardId);
+          } else if (needsHuman) {
+            // Dangerous/destructive ops flagged — require human approval
+            reviewFixCount.delete(cardId);
+            setActivity(cardId, 'review', 'Score ' + score + '/10 — flagged for human approval (destructive ops)');
+            cards.setStatus(cardId, 'idle');
+            _broadcast('card-updated', cards.get(cardId));
+            _broadcast('toast', {
+              message: 'AI Review: Flagged for human approval — destructive operations detected.',
+              type: 'error',
+            });
+            sendWebhook('review-needs-human', { cardId: cardId, title: card.title, score: score, reason: 'destructive_ops' });
+            releaseProjectLock(cardId);
+          } else if (fixCount < MAX_REVIEW_FIX_ATTEMPTS) {
+            // Score < 8 — auto-fix findings and re-review (up to 3 attempts)
+            reviewFixCount.set(cardId, fixCount + 1);
             var findingCount = (data.findings || []).length;
-            setActivity(cardId, 'fix', 'Score ' + score + '/10 — auto-fixing ' + findingCount + ' findings...');
+            setActivity(cardId, 'fix', 'Score ' + score + '/10 (attempt ' + (fixCount + 1) + '/' + MAX_REVIEW_FIX_ATTEMPTS + ') — auto-fixing ' + findingCount + ' findings...');
             cards.setStatus(cardId, 'fixing');
             _broadcast('card-updated', cards.get(cardId));
             _broadcast('toast', {
-              message: 'AI Review: ' + score + '/10 — Auto-fixing ' + findingCount + ' findings...',
+              message: 'AI Review: ' + score + '/10 — Auto-fixing (attempt ' + (fixCount + 1) + '/' + MAX_REVIEW_FIX_ATTEMPTS + ')...',
               type: 'info',
             });
             autoFixFindings(cardId, data.findings || []);
           } else {
-            // Criticals or score < 5 or already attempted fix — human review
-            setActivity(cardId, 'review', 'Score ' + score + '/10, ' + criticals + ' critical — needs human review');
+            // Max fix attempts exhausted — human review as last resort
+            reviewFixCount.delete(cardId);
+            setActivity(cardId, 'review', 'Score ' + score + '/10 — ' + MAX_REVIEW_FIX_ATTEMPTS + ' fix attempts exhausted, needs human review');
             cards.setStatus(cardId, 'idle');
             _broadcast('card-updated', cards.get(cardId));
             _broadcast('toast', {
-              message: 'AI Review: ' + score + '/10 — ' + criticals + ' critical. Human review needed.',
-              type: score >= 5 ? 'info' : 'error',
+              message: 'AI Review: ' + score + '/10 — ' + MAX_REVIEW_FIX_ATTEMPTS + ' fix attempts exhausted. Human review needed.',
+              type: 'error',
             });
-            sendWebhook('review-needs-human', { cardId: cardId, title: card.title, score: score, criticals: criticals });
+            sendWebhook('review-needs-human', { cardId: cardId, title: card.title, score: score, criticals: criticals, reason: 'max_attempts' });
+            releaseProjectLock(cardId);
           }
         } catch (parseErr) {
           console.error('Review parse error:', parseErr.message);
           cards.setStatus(cardId, 'idle');
           _broadcast('card-updated', cards.get(cardId));
           try { fs.appendFileSync(reviewLog, '\n[REVIEW] Failed to parse review JSON: ' + parseErr.message + '\n'); } catch (_) {}
+          releaseProjectLock(cardId);
         }
 
         try { fs.unlinkSync(reviewFile); } catch (_) {}
@@ -1360,6 +1400,7 @@ function autoReview(cardId) {
         _broadcast('card-updated', cards.get(cardId));
         fs.appendFileSync(reviewLog, '\n[REVIEW] Timed out after 15 minutes\n');
         _broadcast('toast', { message: 'AI Review timed out for: ' + card.title, type: 'error' });
+        releaseProjectLock(cardId);
       }
     } catch (err) {
       console.error('autoReview poll error for card', cardId, ':', err.message);
@@ -1448,6 +1489,7 @@ function autoFixFindings(cardId, findings) {
         _broadcast('card-updated', cards.get(cardId));
         try { fs.appendFileSync(fixLog, '\n[FIX] Timed out after 10 minutes\n'); } catch (_) {}
         _broadcast('toast', { message: 'Auto-fix timed out. Human review needed.', type: 'error' });
+        releaseProjectLock(cardId);
       }
     } catch (err) {
       console.error('autoFixFindings poll error:', err.message);
@@ -1470,7 +1512,7 @@ function retryWithFeedback(cardId, feedback) {
   cards.move(cardId, 'working');
   cards.setStatus(cardId, 'building');
   cards.setReviewData(cardId, 0, '');
-  reviewFixAttempted.delete(cardId);
+  reviewFixCount.delete(cardId);
 
   var log = logPath(cardId, 'build');
   var header = '\n\n[' + new Date().toISOString() + '] Retry with feedback\nFeedback: ' + feedback + '\n---\n';
@@ -1524,10 +1566,21 @@ function getDiff(cardId) {
 
   var diff = { added: [], removed: [], modified: [], unchanged: 0, projectPath: projectPath };
 
-  // Added files (in current but not in original)
+  // Added files (in current but not in original) — include content for review
   for (var f of currentFiles) {
     if (!originalFiles.has(f)) {
-      diff.added.push(f);
+      var addedPath = path.join(projectPath, f);
+      try {
+        var buf = fs.readFileSync(addedPath);
+        var isText = !buf.includes(0);
+        if (isText) {
+          diff.added.push({ file: f, content: buf.toString('utf-8').slice(0, 50000), lines: buf.toString('utf-8').split('\n').length });
+        } else {
+          diff.added.push({ file: f, binary: true, size: buf.length });
+        }
+      } catch (_) {
+        diff.added.push({ file: f, error: 'Could not read' });
+      }
     }
   }
 
@@ -1729,4 +1782,5 @@ module.exports = {
   exportBoard: exportBoard,
   getMetrics: getMetrics,
   sendWebhook: sendWebhook,
+  releaseProjectLock: releaseProjectLock,
 };

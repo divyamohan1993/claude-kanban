@@ -397,6 +397,10 @@ function renderCard(card, colId) {
     var scoreCls = card.review_score >= 8 ? 'review-score-high' : card.review_score >= 5 ? 'review-score-mid' : 'review-score-low';
     meta.appendChild(el('span', { className: 'review-score ' + scoreCls, textContent: card.review_score + '/10' }));
   }
+  if (card.approved_by) {
+    var abCls = card.approved_by === 'human' ? 'approved-human' : 'approved-ai';
+    meta.appendChild(el('span', { className: 'approved-badge ' + abCls, textContent: card.approved_by === 'human' ? 'Human Approved' : 'AI Approved' }));
+  }
 
   if (lastVisitTime > 0 && card.created_at) {
     var cardCreated = new Date(card.created_at.replace(' ', 'T') + 'Z').getTime();
@@ -449,6 +453,10 @@ function renderCard(card, colId) {
     actions.appendChild(btn('Brainstorm', 'btn-sm btn-primary', function() { doBrainstorm(id); }, 'AI generates a detailed spec'));
     actions.appendChild(btn('Edit', 'btn-sm btn-ghost', function() { editCard(id); }, 'Edit card title and description'));
     actions.appendChild(btn('Del', 'btn-sm btn-ghost', function() { deleteCard(id); }, 'Delete this card'));
+  } else if (colId === 'todo' && card.status === 'queued') {
+    actions.appendChild(btn('Cancel', 'btn-sm btn-ghost', function() { doCancelQueue(id); }, 'Remove from build queue'));
+    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'));
+    actions.appendChild(btn('Log', 'btn-sm btn-ghost', function() { showLiveLog(id, 'build'); }, 'Watch live build output'));
   } else if (colId === 'todo') {
     actions.appendChild(btn('Start', 'btn-sm btn-primary', function() { doStartWork(id); }, 'Queue AI to build this project'));
     actions.appendChild(btn('Re-brainstorm', 'btn-sm btn-ghost', function() { doBrainstorm(id); }, 'Regenerate the spec'));
@@ -562,6 +570,13 @@ async function doStartWork(id) {
   try {
     await api('/cards/' + id + '/start-work', { method: 'POST' });
     toast('Queued for build', 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function doCancelQueue(id) {
+  try {
+    await api('/cards/' + id + '/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ column: 'todo', source: 'human' }) });
+    toast('Removed from queue', 'success');
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -746,6 +761,7 @@ function showDetail(card) {
   // Info
   var info = 'Status: ' + card.status + '\nColumn: ' + card.column_name + '\nCreated: ' + card.created_at + '\nUpdated: ' + card.updated_at;
   if (card.review_score > 0) info += '\nReview Score: ' + card.review_score + '/10';
+  if (card.approved_by) info += '\nApproved By: ' + (card.approved_by === 'human' ? 'Human' : 'AI Auto-Approve');
   if (card.phase_durations) {
     try {
       var pd = JSON.parse(card.phase_durations);
@@ -897,6 +913,30 @@ async function showFindings(cardId) {
 }
 
 // --- Diff Viewer ---
+function makeEditableFile(cardId, filePath, currentContent) {
+  var editArea = el('textarea', {
+    className: 'diff-editor',
+    style: 'width:100%;min-height:200px;max-height:60vh;font-family:monospace;font-size:11px;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);resize:vertical;tab-size:2;white-space:pre;overflow-wrap:normal;overflow-x:auto',
+  });
+  editArea.value = currentContent;
+  var saveBtn = btn('Save', 'btn-sm btn-primary', async function() {
+    try {
+      await api('/cards/' + cardId + '/edit-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath: filePath, content: editArea.value }),
+      });
+      toast('Saved ' + filePath, 'success');
+    } catch (e) { toast('Save failed: ' + e.message, 'error'); }
+  }, 'Save changes to disk');
+  var cancelBtn = btn('Cancel', 'btn-sm btn-ghost', function() {
+    container.replaceWith(placeholder);
+  }, 'Discard edits');
+  var container = el('div', { className: 'diff-edit-container', style: 'margin-top:4px' }, [editArea, el('div', { style: 'margin-top:4px;display:flex;gap:6px' }, [saveBtn, cancelBtn])]);
+  var placeholder = el('span');
+  return { container: container, placeholder: placeholder };
+}
+
 async function showDiff(cardId) {
   document.getElementById('detail-title').textContent = 'File Changes';
   var body = document.getElementById('detail-body');
@@ -923,14 +963,41 @@ async function showDiff(cardId) {
     summary.appendChild(el('span', { className: 'diff-stat diff-stat-unchanged', textContent: diff.unchanged + ' unchanged' }));
     body.appendChild(summary);
 
-    // Added files
+    // Added files (with expandable content)
     diff.added.forEach(function(f) {
-      body.appendChild(el('div', { className: 'diff-file' }, [
-        el('div', { className: 'diff-file-header' }, [
-          el('span', { className: 'diff-file-badge diff-badge-added', textContent: 'A' }),
-          el('span', { textContent: f }),
-        ]),
-      ]));
+      var fileName = typeof f === 'string' ? f : f.file;
+      var contentEl = el('div', { className: 'diff-file-content' });
+
+      if (f.content) {
+        var lines = f.content.split('\n');
+        var maxLines = Math.min(lines.length, 200);
+        for (var li = 0; li < maxLines; li++) {
+          contentEl.appendChild(el('div', { className: 'diff-line diff-line-add', textContent: '+' + lines[li] }));
+        }
+        if (lines.length > 200) {
+          contentEl.appendChild(el('div', { className: 'diff-line', textContent: '... (' + (lines.length - 200) + ' more lines)' }));
+        }
+      } else if (f.binary) {
+        contentEl.appendChild(el('div', { className: 'diff-line', textContent: 'Binary file (' + f.size + ' bytes)' }));
+      }
+
+      var editBtnAdded = f.content ? btn('Edit', 'btn-sm btn-ghost', (function(fn, fc) { return function() {
+        var edit = makeEditableFile(cardId, fn, fc);
+        contentEl.textContent = '';
+        contentEl.classList.add('expanded');
+        contentEl.appendChild(edit.container);
+      }; })(fileName, f.content), 'Edit this file inline') : null;
+      if (editBtnAdded) editBtnAdded.style.marginLeft = 'auto';
+
+      var header = el('div', { className: 'diff-file-header', style: 'display:flex;align-items:center;gap:6px' }, [
+        el('span', { className: 'diff-file-badge diff-badge-added', textContent: 'A' }),
+        el('span', { textContent: fileName + (f.lines ? ' (' + f.lines + ' lines)' : '') }),
+        editBtnAdded,
+      ]);
+      header.querySelector('span:nth-child(2)').addEventListener('click', function() { contentEl.classList.toggle('expanded'); });
+      header.querySelector('.diff-file-badge').addEventListener('click', function() { contentEl.classList.toggle('expanded'); });
+
+      body.appendChild(el('div', { className: 'diff-file' }, [header, contentEl]));
     });
 
     // Removed files
@@ -968,11 +1035,21 @@ async function showDiff(cardId) {
         }
       }
 
-      var header = el('div', { className: 'diff-file-header' }, [
+      var editBtn = btn('Edit', 'btn-sm btn-ghost', function() {
+        var edit = makeEditableFile(cardId, m.file, m.current || '');
+        contentEl.textContent = '';
+        contentEl.classList.add('expanded');
+        contentEl.appendChild(edit.container);
+      }, 'Edit this file inline');
+      editBtn.style.marginLeft = 'auto';
+
+      var header = el('div', { className: 'diff-file-header', style: 'display:flex;align-items:center;gap:6px' }, [
         el('span', { className: 'diff-file-badge diff-badge-modified', textContent: 'M' }),
         el('span', { textContent: m.file + (m.origLines ? ' (' + m.origLines + ' -> ' + m.currLines + ' lines)' : '') }),
+        editBtn,
       ]);
-      header.addEventListener('click', function() { contentEl.classList.toggle('expanded'); });
+      header.querySelector('span:nth-child(2)').addEventListener('click', function() { contentEl.classList.toggle('expanded'); });
+      header.querySelector('.diff-file-badge').addEventListener('click', function() { contentEl.classList.toggle('expanded'); });
 
       body.appendChild(el('div', { className: 'diff-file' }, [header, contentEl]));
     });

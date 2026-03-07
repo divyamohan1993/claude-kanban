@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-03-07
+
+### Added
+- **Pipeline lock through full review cycle**: `activeBuilds` lock held from build start through review/fix/approve — prevents dependent cards from building on unreviewed code
+- **3-attempt auto-fix loop**: Cards scoring <8 get up to 3 auto-fix attempts before escalating to human review (replaces single-attempt system)
+- **Queue cards stay in Todo**: Queued cards remain in Todo column, only move to Working when build actually starts
+- **Approved-by tracking**: Cards now show "AI Approved" (green badge) or "Human Approved" (blue badge) — `approved_by` column in DB
+- **Manual approve captures review score**: Approve endpoint reads `.review-complete` file to capture AI review score even on manual approvals
+- **Inline file editing in diff viewer**: Edit button on both added and modified files opens a textarea editor with Save/Cancel, writes directly to disk via `POST /api/cards/:id/edit-file`
+- **Full content for new files in diff**: Added files now show complete file content (expandable) instead of just filenames
+- **Cancel queue action**: Queued cards in Todo show Cancel/VSCode/Log buttons
+- **`needsHumanApproval` flag**: AI review only flags cards for human approval on genuinely destructive operations (rm -rf, mass DB changes, security removals)
+- **Scoped review prompt**: AI reviewer focuses only on what the specific card was supposed to build, not penalizing for features belonging to other cards/phases
+
+### Changed
+- `MAX_CONCURRENT_BUILDS` default reduced from 3 to 1 to prevent resource exhaustion on modest hardware
+- `releaseProjectLock()` called at all terminal states: approve, reject, human escalation, max attempts, timeout, parse error
+- Dequeue logic handles cards leaving Todo with `queued` status (not just Working)
+
+### Fixed
+- Queued cards appearing in Working column instead of staying in Todo
+- Next card starting build while previous card still in review
+- Stale `reviewFixAttempted` reference (replaced with `reviewFixCount` Map)
+
 ## [1.4.0] - 2026-03-07
 
 ### Added

@@ -571,6 +571,13 @@ h1 {
 .review-score-mid { background: var(--warning-soft); color: var(--warning); }
 .review-score-low { background: var(--error-soft); color: var(--error); }
 
+.approved-badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 600;
+}
+.approved-human { background: #e8f0fe; color: #1a73e8; }
+.approved-ai { background: #e6f4ea; color: #1e8e3e; }
+
 /* ----------------------------------------------------------------
    Pipeline Steps
    ---------------------------------------------------------------- */

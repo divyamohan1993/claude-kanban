@@ -72,10 +72,13 @@ app.post('/api/cards/:id/move', (req, res) => {
   const fromColumn = card.column_name;
   if (fromColumn === column) return res.json(card);
 
-  // Leaving working → dequeue/cancel
+  // Leaving working or todo (queued) → dequeue/cancel
   var dequeueResult = { removed: false };
-  if (fromColumn === 'working') {
+  if (fromColumn === 'working' || (fromColumn === 'todo' && card.status === 'queued')) {
     dequeueResult = orchestrator.dequeue(id);
+    if (fromColumn === 'todo' && dequeueResult.removed) {
+      cards.setStatus(id, 'idle');
+    }
   }
 
   // Move the card
@@ -101,6 +104,7 @@ app.post('/api/cards/:id/move', (req, res) => {
     orchestrator.autoChangelog(id);
     orchestrator.autoCommit(id);
     autoArchiveDone();
+    orchestrator.releaseProjectLock(id);
   } else if (dequeueResult.wasBuilding) {
     // Card was actively building — mark as interrupted
     cards.setStatus(id, 'interrupted');
@@ -182,8 +186,20 @@ app.post('/api/cards/:id/open-claude', (req, res) => {
 
 app.post('/api/cards/:id/approve', (req, res) => {
   const id = Number(req.params.id);
+  // If review score wasn't saved (e.g. manual approve), try reading .review-complete
+  const card = cards.get(id);
+  if (card && (!card.review_score || card.review_score === 0) && card.project_path) {
+    try {
+      const rcPath = require('path').join(card.project_path, '.review-complete');
+      if (require('fs').existsSync(rcPath)) {
+        const rc = JSON.parse(require('fs').readFileSync(rcPath, 'utf-8'));
+        if (rc.score) cards.setReviewData(id, rc.score, JSON.stringify(rc));
+      }
+    } catch (_) { /* best effort */ }
+  }
   cards.move(id, 'done');
   cards.setStatus(id, 'complete');
+  cards.setApprovedBy(id, 'human');
   broadcast('card-updated', cards.get(id));
   // Auto-changelog
   const clResult = orchestrator.autoChangelog(id);
@@ -196,6 +212,7 @@ app.post('/api/cards/:id/approve', (req, res) => {
     broadcast('toast', { message: 'Git: ' + gitResult.action, type: 'success' });
   }
   autoArchiveDone();
+  orchestrator.releaseProjectLock(id);
   res.json({ card: cards.get(id), git: gitResult, changelog: clResult });
 });
 
@@ -206,7 +223,28 @@ app.post('/api/cards/:id/reject', (req, res) => {
   cards.setStatus(id, 'idle');
   cards.setSessionLog(id, 'REJECTED - Files rolled back. ' + (result.success ? (result.wasNew ? 'New project folder removed.' : 'All files restored to pre-work state.') : result.reason));
   broadcast('card-updated', cards.get(id));
+  orchestrator.releaseProjectLock(id);
   res.json({ card: cards.get(id), rollback: result });
+});
+
+app.post('/api/cards/:id/edit-file', express.json({ limit: '5mb' }), (req, res) => {
+  const id = Number(req.params.id);
+  const card = cards.get(id);
+  if (!card || !card.project_path) return res.status(404).json({ error: 'Card or project not found' });
+  const { filePath, content } = req.body;
+  if (!filePath || content === undefined) return res.status(400).json({ error: 'filePath and content required' });
+  // Security: ensure file is within project directory
+  const fullPath = require('path').resolve(card.project_path, filePath);
+  if (!fullPath.startsWith(card.project_path + require('path').sep) && fullPath !== card.project_path) {
+    return res.status(403).json({ error: 'Path traversal not allowed' });
+  }
+  try {
+    require('fs').writeFileSync(fullPath, content, 'utf-8');
+    broadcast('toast', { message: 'Saved: ' + filePath, type: 'success' });
+    res.json({ success: true, file: filePath });
+  } catch (err) {
+    res.status(500).json({ error: 'Write failed: ' + err.message });
+  }
 });
 
 app.post('/api/cards/:id/revert-files', (req, res) => {

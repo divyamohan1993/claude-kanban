@@ -15,7 +15,8 @@ const RUNTIME_DIR = path.join(DATA_DIR, 'runtime');
 
 // --- Configurable Limits ---
 const MAX_CONCURRENT_BUILDS = Number(process.env.MAX_CONCURRENT_BUILDS) || 1;
-const BUILD_TIMEOUT_POLLS = Number(process.env.BUILD_TIMEOUT_MINS || 60) * 12; // 5s intervals
+const BUILD_TIMEOUT_POLLS = Number(process.env.BUILD_TIMEOUT_MINS || 60) * 12; // 5s intervals — hard cap fallback
+const IDLE_TIMEOUT_MS = Number(process.env.IDLE_TIMEOUT_MINS || 15) * 60 * 1000; // no log activity = stalled
 const WEBHOOK_URL = process.env.WEBHOOK_URL || '';
 
 // Active pollers for build completion
@@ -208,6 +209,8 @@ function runClaudeSilent(opts) {
       'set CLAUDECODE=',
     ];
     if (opts.stdoutFile) {
+      // stdout → output file for polling, stderr → log file
+      // The brainstorm poller mirrors stdout content to the log for live transparency
       lines.push(cliBase + ' -p "' + escapedPrompt + '" > "' + opts.stdoutFile + '" 2>> "' + opts.logFile + '"');
     } else {
       lines.push(cliBase + ' -p "' + escapedPrompt + '" >> "' + opts.logFile + '" 2>&1');
@@ -222,7 +225,8 @@ function runClaudeSilent(opts) {
       'unset CLAUDECODE',
     ];
     if (opts.stdoutFile) {
-      lines.push(cliBase + " -p '" + escapedPrompt + "' > '" + opts.stdoutFile + "' 2>> '" + opts.logFile + "'");
+      // Tee stdout to both output file and log file for live transparency
+      lines.push(cliBase + " -p '" + escapedPrompt + "' 2>> '" + opts.logFile + "' | tee '" + opts.stdoutFile + "' >> '" + opts.logFile + "'");
     } else {
       lines.push(cliBase + " -p '" + escapedPrompt + "' >> '" + opts.logFile + "' 2>&1");
     }
@@ -477,6 +481,86 @@ function releaseProjectLock(cardId) {
     activeBuilds.delete(projectPath);
     processQueue();
   }
+}
+
+// --- Revert Cascade ---
+// When a card is reverted/rejected, find and stop all dependent cards.
+// Independent cards are unaffected.
+function cascadeRevert(revertedCardId) {
+  var allCards = cards.getAll();
+  var affected = [];
+
+  for (var c of allCards) {
+    if (!c.depends_on) continue;
+    var deps = c.depends_on.split(',').map(function(d) { return Number(d.trim()); }).filter(Boolean);
+    if (!deps.includes(revertedCardId)) continue;
+
+    // This card depends on the reverted card
+    var wasActive = false;
+    if (c.status === 'building' || c.status === 'reviewing' || c.status === 'fixing' || c.status === 'queued') {
+      // Kill active build/review if running
+      var dqResult = dequeue(c.id);
+      wasActive = dqResult.wasBuilding || dqResult.removed;
+      // Also kill review pollers if reviewing
+      var reviewPoller = activePollers.get(c.id);
+      if (reviewPoller) { clearInterval(reviewPoller); activePollers.delete(c.id); }
+    }
+
+    if (c.column_name !== 'done' && c.column_name !== 'archive') {
+      cards.setStatus(c.id, 'blocked');
+      if (c.column_name !== 'todo') cards.move(c.id, 'todo');
+      setActivity(c.id, 'queue', 'Blocked — dependency #' + revertedCardId + ' was reverted');
+      _broadcast('card-updated', cards.get(c.id));
+      affected.push({ id: c.id, title: c.title, wasActive: wasActive });
+    }
+  }
+
+  if (affected.length > 0) {
+    _broadcast('toast', {
+      message: 'Reverted card #' + revertedCardId + ' — blocked ' + affected.length + ' dependent card(s)',
+      type: 'error',
+    });
+    sendWebhook('cascade-revert', { revertedCardId: revertedCardId, affected: affected });
+  }
+
+  return affected;
+}
+
+// When a card completes (moves to done), check if any blocked cards can be unblocked
+function checkUnblock() {
+  var allCards = cards.getAll();
+  var unblocked = [];
+
+  for (var c of allCards) {
+    if (c.status !== 'blocked') continue;
+    if (!c.depends_on) { // No deps but blocked? Just unblock
+      cards.setStatus(c.id, 'idle');
+      clearActivity(c.id);
+      _broadcast('card-updated', cards.get(c.id));
+      unblocked.push(c.id);
+      continue;
+    }
+
+    var deps = c.depends_on.split(',').map(function(d) { return Number(d.trim()); }).filter(Boolean);
+    var allSatisfied = true;
+    for (var di = 0; di < deps.length; di++) {
+      var depCard = cards.get(deps[di]);
+      if (depCard && depCard.column_name !== 'done' && depCard.column_name !== 'archive') {
+        allSatisfied = false;
+        break;
+      }
+    }
+
+    if (allSatisfied) {
+      cards.setStatus(c.id, 'idle');
+      clearActivity(c.id);
+      _broadcast('card-updated', cards.get(c.id));
+      _broadcast('toast', { message: 'Unblocked: ' + c.title, type: 'success' });
+      unblocked.push(c.id);
+    }
+  }
+
+  return unblocked;
 }
 
 function processQueue() {
@@ -750,6 +834,7 @@ function brainstorm(cardId) {
   return new Promise(function(resolve, reject) {
     var attempts = 0;
     var maxAttempts = 360;
+    var lastMirroredSize = 0; // Track how much of stdout we've mirrored to log
 
     var interval = setInterval(function() {
       attempts++;
@@ -758,6 +843,21 @@ function brainstorm(cardId) {
         if (!cardNow || cardNow.status !== 'brainstorming') {
           clearInterval(interval);
           return resolve({ success: false, reason: 'cancelled' });
+        }
+
+        // Mirror stdout file content to log for live transparency (Windows only — Linux uses tee)
+        if (IS_WIN && fs.existsSync(outputFile)) {
+          try {
+            var outStat = fs.statSync(outputFile);
+            if (outStat.size > lastMirroredSize) {
+              var fd = fs.openSync(outputFile, 'r');
+              var buf = Buffer.alloc(outStat.size - lastMirroredSize);
+              fs.readSync(fd, buf, 0, buf.length, lastMirroredSize);
+              fs.closeSync(fd);
+              fs.appendFileSync(log, buf.toString('utf-8'));
+              lastMirroredSize = outStat.size;
+            }
+          } catch (_) {}
         }
 
         if (fs.existsSync(outputFile)) {
@@ -827,21 +927,37 @@ function pollForCompletion(cardId, projectPath) {
         return;
       }
 
-      // Build timeout
-      if (pollCount >= BUILD_TIMEOUT_POLLS) {
+      // Activity-based timeout: only timeout if log file hasn't been written to
+      // in IDLE_TIMEOUT_MS. Long-running active builds keep going.
+      var isIdle = false;
+      var idleMinutes = 0;
+      try {
+        var logStat = fs.statSync(log);
+        var msSinceWrite = Date.now() - logStat.mtimeMs;
+        idleMinutes = Math.round(msSinceWrite / 60000);
+        isIdle = msSinceWrite > IDLE_TIMEOUT_MS;
+      } catch (_) {
+        // Log file doesn't exist yet — use poll count as fallback
+        isIdle = pollCount >= BUILD_TIMEOUT_POLLS;
+        idleMinutes = Math.round(pollCount * 5 / 60);
+      }
+      // Hard cap fallback — even active builds have an upper limit
+      var hardTimeout = pollCount >= BUILD_TIMEOUT_POLLS * 4; // 4x the base (default 4 hours)
+
+      if (isIdle || hardTimeout) {
+        var reason = hardTimeout ? 'Hard limit (' + Math.round(pollCount * 5 / 60) + ' min)' : 'Idle for ' + idleMinutes + ' min (no log activity)';
         clearInterval(interval);
         activePollers.delete(cardId);
         activeBuilds.delete(projectPath);
         trackPhase(cardId, 'build', 'end');
-        // Kill the process
         var pid = buildPids.get(cardId);
         if (pid) { killProcess(pid); buildPids.delete(cardId); }
         cards.setStatus(cardId, 'interrupted');
         _broadcast('card-updated', cards.get(cardId));
-        setActivity(cardId, 'build', 'TIMEOUT after ' + Math.round(BUILD_TIMEOUT_POLLS * 5 / 60) + ' minutes');
-        try { fs.appendFileSync(log, '\n---\n[' + new Date().toISOString() + '] TIMEOUT after ' + Math.round(pollCount * 5 / 60) + ' minutes\n'); } catch (_) {}
-        _broadcast('toast', { message: 'Build timed out: ' + card.title, type: 'error' });
-        sendWebhook('build-timeout', { cardId: cardId, title: card.title });
+        setActivity(cardId, 'build', 'TIMEOUT — ' + reason);
+        try { fs.appendFileSync(log, '\n---\n[' + new Date().toISOString() + '] TIMEOUT — ' + reason + '\n'); } catch (_) {}
+        _broadcast('toast', { message: 'Build timed out (' + reason + '): ' + card.title, type: 'error' });
+        sendWebhook('build-timeout', { cardId: cardId, title: card.title, reason: reason });
         needsQueueProcess = true;
         return;
       }
@@ -1345,6 +1461,7 @@ function autoReview(cardId) {
             autoCommit(cardId);
             setActivity(cardId, 'done', 'Complete — score ' + score + '/10');
             releaseProjectLock(cardId);
+            checkUnblock(); // Unblock cards that depended on this one
           } else if (needsHuman) {
             // Dangerous/destructive ops flagged — require human approval
             reviewFixCount.delete(cardId);
@@ -1783,4 +1900,6 @@ module.exports = {
   getMetrics: getMetrics,
   sendWebhook: sendWebhook,
   releaseProjectLock: releaseProjectLock,
+  cascadeRevert: cascadeRevert,
+  checkUnblock: checkUnblock,
 };

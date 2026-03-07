@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0] - 2026-03-07
+
+### Added
+- **Cascade revert**: Rejecting/reverting a card auto-blocks all dependent cards (`blocked` status, amber badge). Kills active builds on affected cards
+- **Auto-unblock**: When a dependency completes (moves to done), blocked cards automatically unblock and become available for work
+- **Activity-based timeout**: Replaces hard timeout with log-activity watchdog — builds only timeout after 15min of no log writes (configurable via `IDLE_TIMEOUT_MINS`). Hard cap at 4x base (~4 hours)
+- **Rich brainstorm log streaming**: Claude's brainstorm output mirrored to log file in real-time (poll-based on Windows, native `tee` on Linux)
+- **Blocked card UI**: Amber "Blocked" badge, pipeline shows blocked state, Retry/VSCode/Discard actions
+
+### Changed
+- Reject endpoint returns `cascaded` array showing which cards were blocked
+- Revert-files endpoint also triggers cascade revert
+- Approve and move-to-done endpoints call `checkUnblock()` to release blocked cards
+
 ## [1.5.0] - 2026-03-07
 
 ### Added

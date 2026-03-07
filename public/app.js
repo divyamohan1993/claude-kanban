@@ -371,6 +371,8 @@ function renderCard(card, colId) {
     meta.appendChild(el('span', { className: 'card-badge badge-building', textContent: 'Auto-Fixing' }));
   } else if (card.status === 'interrupted') {
     meta.appendChild(el('span', { className: 'card-badge badge-interrupted', textContent: 'Interrupted' }));
+  } else if (card.status === 'blocked') {
+    meta.appendChild(el('span', { className: 'card-badge badge-blocked', textContent: 'Blocked' }));
   } else if (card.spec) {
     meta.appendChild(el('span', { className: 'card-badge badge-has-spec', textContent: 'Has Spec' }));
   }
@@ -453,6 +455,10 @@ function renderCard(card, colId) {
     actions.appendChild(btn('Brainstorm', 'btn-sm btn-primary', function() { doBrainstorm(id); }, 'AI generates a detailed spec'));
     actions.appendChild(btn('Edit', 'btn-sm btn-ghost', function() { editCard(id); }, 'Edit card title and description'));
     actions.appendChild(btn('Del', 'btn-sm btn-ghost', function() { deleteCard(id); }, 'Delete this card'));
+  } else if (colId === 'todo' && card.status === 'blocked') {
+    actions.appendChild(btn('Retry', 'btn-sm btn-primary', function() { doStartWork(id); }, 'Re-queue this card for building'));
+    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'));
+    actions.appendChild(btn('Discard', 'btn-sm btn-ghost', function() { deleteCard(id); }, 'Delete this card'));
   } else if (colId === 'todo' && card.status === 'queued') {
     actions.appendChild(btn('Cancel', 'btn-sm btn-ghost', function() { doCancelQueue(id); }, 'Remove from build queue'));
     actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'));

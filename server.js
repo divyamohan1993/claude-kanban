@@ -105,6 +105,7 @@ app.post('/api/cards/:id/move', (req, res) => {
     orchestrator.autoCommit(id);
     autoArchiveDone();
     orchestrator.releaseProjectLock(id);
+    orchestrator.checkUnblock();
   } else if (dequeueResult.wasBuilding) {
     // Card was actively building — mark as interrupted
     cards.setStatus(id, 'interrupted');
@@ -213,6 +214,8 @@ app.post('/api/cards/:id/approve', (req, res) => {
   }
   autoArchiveDone();
   orchestrator.releaseProjectLock(id);
+  // Check if any blocked cards can now be unblocked
+  orchestrator.checkUnblock();
   res.json({ card: cards.get(id), git: gitResult, changelog: clResult });
 });
 
@@ -224,7 +227,9 @@ app.post('/api/cards/:id/reject', (req, res) => {
   cards.setSessionLog(id, 'REJECTED - Files rolled back. ' + (result.success ? (result.wasNew ? 'New project folder removed.' : 'All files restored to pre-work state.') : result.reason));
   broadcast('card-updated', cards.get(id));
   orchestrator.releaseProjectLock(id);
-  res.json({ card: cards.get(id), rollback: result });
+  // Cascade: block any cards that depend on this one
+  const cascaded = orchestrator.cascadeRevert(id);
+  res.json({ card: cards.get(id), rollback: result, cascaded: cascaded });
 });
 
 app.post('/api/cards/:id/edit-file', express.json({ limit: '5mb' }), (req, res) => {
@@ -255,6 +260,8 @@ app.post('/api/cards/:id/revert-files', (req, res) => {
   const result = snapshot.revert(id);
   if (result.success) {
     broadcast('toast', { message: 'Files reverted to pre-work state for: ' + card.title, type: 'success' });
+    // Cascade: block dependent cards since this card's code is now reverted
+    orchestrator.cascadeRevert(id);
   }
   res.json(result);
 });

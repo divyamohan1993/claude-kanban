@@ -523,6 +523,7 @@ h1 {
 .badge-building { background: var(--warning-soft); color: var(--working); }
 .badge-reviewing { background: rgba(239, 68, 68, 0.08); color: var(--review); animation: pulse 2s ease-in-out infinite; }
 .badge-interrupted { background: var(--error-soft); color: var(--error); }
+.badge-blocked { background: #fef3c7; color: #92400e; }
 .badge-has-spec { background: rgba(59, 130, 246, 0.08); color: var(--todo); }
 .badge-complete { background: var(--success-soft); color: var(--done); }
 .badge-blocked { background: var(--error-soft); color: var(--error); font-style: italic; }

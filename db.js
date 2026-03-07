@@ -3,9 +3,20 @@ const path = require('path');
 const fs = require('fs');
 
 const DATA_DIR = path.join(__dirname, '.data');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const DB_PATH = path.join(DATA_DIR, 'kanban.db');
+const DB_BACKUP = path.join(BACKUP_DIR, 'kanban.db.bak');
 
-const db = new Database(path.join(DATA_DIR, 'kanban.db'));
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+
+// Auto-recover: if DB is missing but backup exists, restore it
+if (!fs.existsSync(DB_PATH) && fs.existsSync(DB_BACKUP)) {
+  fs.copyFileSync(DB_BACKUP, DB_PATH);
+  console.log('[db] Restored from backup:', DB_BACKUP);
+}
+
+const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('optimize');
 
@@ -108,13 +119,18 @@ const stmts = {
   auditAll: db.prepare('SELECT * FROM audit_log ORDER BY timestamp DESC'),
 };
 
-// Periodic DB maintenance: WAL checkpoint + optimize every 5 min
+// Periodic DB maintenance: WAL checkpoint + optimize + backup every 5 min
 setInterval(() => {
   try {
     db.pragma('wal_checkpoint(PASSIVE)');
     db.pragma('optimize');
+    // Rolling backup — overwrites previous (keeps one good copy)
+    db.backup(DB_BACKUP).catch(() => {});
   } catch (_) {}
 }, 5 * 60 * 1000);
+
+// Immediate backup on first load
+try { db.backup(DB_BACKUP).catch(() => {}); } catch (_) {}
 
 function auditLog(action, resourceType, resourceId, actor, oldVal, newVal, detail) {
   try {

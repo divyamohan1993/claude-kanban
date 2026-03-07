@@ -3,7 +3,7 @@ var fs = require('fs');
 var path = require('path');
 var { spawn } = require('child_process');
 var { PORT, ADMIN_PORT, ROOT_DIR, DATA_DIR, LOGS_DIR } = require('./config');
-var { securityHeaders, requestId, originCheck, errorHandler } = require('./middleware/security');
+var { securityHeaders, requestId, originCheck, errorHandler, requireJsonContentType } = require('./middleware/security');
 var { rateLimiter, sseGuard } = require('./middleware/rate-limit');
 var { cards, auditLog } = require('./db');
 var { broadcast } = require('./lib/broadcast');
@@ -27,6 +27,7 @@ app.use('/api/events', sseGuard);
 app.use(securityHeaders);
 app.use(requestId);
 app.use(originCheck);
+app.use(requireJsonContentType);
 app.use(express.json({ limit: '1mb' }));
 
 // Block control-panel on public
@@ -57,6 +58,7 @@ adminApp.use(rateLimiter);
 adminApp.use(securityHeaders);
 adminApp.use(requestId);
 adminApp.use(originCheck);
+adminApp.use(requireJsonContentType);
 adminApp.use(express.json({ limit: '1mb' }));
 
 // Admin API routes
@@ -177,7 +179,7 @@ publicServer.keepAliveTimeout = 120000;
 publicServer.maxHeadersCount = 50;
 
 var adminServer = adminApp.listen(ADMIN_PORT, '127.0.0.1', function() {
-  console.log('  Control Panel       http://localhost:' + ADMIN_PORT + '  (localhost-only' + (process.env.ADMIN_PIN ? ', PIN-protected' : '') + ')\n');
+  console.log('  Control Panel       http://localhost:' + ADMIN_PORT + '  (localhost-only, PIN-protected)\n');
   var url = 'http://localhost:' + PORT;
   var openCmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
     : process.platform === 'darwin' ? ['open', [url]]
@@ -189,8 +191,30 @@ adminServer.requestTimeout = 120000;
 adminServer.keepAliveTimeout = 120000;
 adminServer.maxHeadersCount = 50;
 
-// Clean up PID file on exit
+// L2 fix: Graceful shutdown — drain connections, close DB, kill builds, remove PID
+var { db } = require('./db');
 function removePidFile() { try { fs.unlinkSync(PID_FILE); } catch (_) {} }
+
+function gracefulShutdown(signal) {
+  console.log('\n[shutdown] ' + signal + ' received — draining...');
+  try { pipeline.killAll(); } catch (_) {}
+  publicServer.close(function() {
+    adminServer.close(function() {
+      try { db.close(); } catch (_) {}
+      removePidFile();
+      console.log('[shutdown] Clean exit.');
+      process.exit(0);
+    });
+  });
+  // Force exit after 5s if drain takes too long
+  setTimeout(function() {
+    console.error('[shutdown] Forced exit after 5s timeout');
+    try { db.close(); } catch (_) {}
+    removePidFile();
+    process.exit(1);
+  }, 5000);
+}
+
 process.on('exit', removePidFile);
-process.on('SIGTERM', function() { removePidFile(); process.exit(0); });
-process.on('SIGINT', function() { removePidFile(); process.exit(0); });
+process.on('SIGTERM', function() { gracefulShutdown('SIGTERM'); });
+process.on('SIGINT', function() { gracefulShutdown('SIGINT'); });

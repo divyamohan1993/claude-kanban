@@ -7,7 +7,18 @@ function securityHeaders(req, res, next) {
   res.setHeader('X-XSS-Protection', '0');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.setHeader('Cache-Control', 'no-store');
+  // M1 fix: Content-Security-Policy
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'");
+  // M2 fix: HSTS when behind HTTPS proxy
+  if (req.headers['x-forwarded-proto'] === 'https' || process.env.ENABLE_HSTS === 'true') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  // L3 fix: Cache-Control — no-store for API, cacheable for static
+  if (req.path.startsWith('/api')) {
+    res.setHeader('Cache-Control', 'no-store');
+  } else {
+    res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+  }
   next();
 }
 
@@ -27,9 +38,16 @@ function originCheck(req, res, next) {
     return next();
   }
 
-  // Allow requests with no Origin (same-origin, non-browser clients like curl)
+  // M4 fix: require X-Requested-With when Origin is absent (CSRF protection for non-browser tools)
   var origin = req.headers.origin;
-  if (!origin) return next();
+  if (!origin) {
+    if (req.headers['x-requested-with'] === 'XMLHttpRequest') return next();
+    return res.status(403).json({
+      error: 'Missing Origin or X-Requested-With header',
+      code: 'CSRF_PROTECTION',
+      requestId: req.id,
+    });
+  }
 
   // Parse allowed origins from the request's own host
   var host = req.headers.host;
@@ -63,4 +81,17 @@ function errorHandler(err, req, res, _next) {
   });
 }
 
-module.exports = { securityHeaders, requestId, originCheck, errorHandler };
+// L8 fix: reject non-JSON Content-Type on API POST/PUT endpoints
+function requireJsonContentType(req, res, next) {
+  if (req.method !== 'POST' && req.method !== 'PUT') return next();
+  if (!req.path.startsWith('/api')) return next();
+  // Skip auth endpoints that may not send JSON (logout, etc.)
+  if (req.path.startsWith('/api/auth/')) return next();
+  var ct = req.headers['content-type'] || '';
+  if (!ct.includes('application/json') && req.headers['content-length'] !== '0') {
+    return res.status(415).json({ error: 'Content-Type must be application/json', code: 'UNSUPPORTED_MEDIA', requestId: req.id });
+  }
+  next();
+}
+
+module.exports = { securityHeaders, requestId, originCheck, errorHandler, requireJsonContentType };

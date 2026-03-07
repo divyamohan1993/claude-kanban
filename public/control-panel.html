@@ -371,7 +371,7 @@ document.getElementById('pin-form').onsubmit = function(e) {
   err.textContent = '';
   fetch('/api/auth/login', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
     body: JSON.stringify({ pin: pin })
   }).then(function(r) { return r.json(); }).then(function(d) {
     submitBtn.disabled = false;
@@ -391,7 +391,7 @@ document.getElementById('pin-form').onsubmit = function(e) {
 
 // --- API (no tokens — session cookie sent automatically by browser) ---
 function api(method, url, body) {
-  var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+  var opts = { method: method, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } };
   if (body) opts.body = JSON.stringify(body);
   return fetch(url, opts).then(function(r) {
     if (r.status === 401) {

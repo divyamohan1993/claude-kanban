@@ -24,8 +24,19 @@ function suggestName(title) {
 
 // --- Webhook ---
 
+// M5 fix: block SSRF to internal/metadata IPs
+var BLOCKED_HOSTS_RE = /^(127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|0\.0\.0\.0|localhost|::1|\[::1\])$/i;
+
+function isBlockedWebhookUrl(urlStr) {
+  try {
+    var url = new URL(urlStr);
+    return BLOCKED_HOSTS_RE.test(url.hostname);
+  } catch (_) { return true; }
+}
+
 function sendWebhook(event, data) {
   if (!runtime.webhookUrl) return;
+  if (isBlockedWebhookUrl(runtime.webhookUrl)) return;
   try {
     var mod = runtime.webhookUrl.startsWith('https') ? require('https') : require('http');
     var url = new URL(runtime.webhookUrl);
@@ -41,4 +52,4 @@ function sendWebhook(event, data) {
   } catch (_) {}
 }
 
-module.exports = { logPath, suggestName, sendWebhook };
+module.exports = { logPath, suggestName, sendWebhook, isBlockedWebhookUrl };

@@ -12,16 +12,18 @@ function runClaudeSilent(opts) {
 
   if (IS_WIN) {
     scriptPath = path.join(RUNTIME_DIR, '.run-' + opts.id + '.bat');
-    var escapedPrompt = opts.prompt.replace(/"/g, "'").replace(/[\r\n]+/g, ' ');
+    // C6 fix: write prompt to temp file to avoid ALL bat metachar injection (%,^,&,|,!,<,>)
+    var promptFile = path.join(RUNTIME_DIR, '.prompt-' + opts.id + '.txt');
+    fs.writeFileSync(promptFile, opts.prompt);
     lines = [
       '@echo off',
       'cd /d "' + opts.cwd + '"',
       'set CLAUDECODE=',
     ];
     if (opts.stdoutFile) {
-      lines.push(cliBase + ' -p "' + escapedPrompt + '" > "' + opts.stdoutFile + '" 2>> "' + opts.logFile + '"');
+      lines.push('type "' + promptFile + '" | ' + cliBase + ' > "' + opts.stdoutFile + '" 2>> "' + opts.logFile + '"');
     } else {
-      lines.push(cliBase + ' -p "' + escapedPrompt + '" >> "' + opts.logFile + '" 2>&1');
+      lines.push('type "' + promptFile + '" | ' + cliBase + ' >> "' + opts.logFile + '" 2>&1');
     }
     fs.writeFileSync(scriptPath, lines.join('\r\n'));
   } else {

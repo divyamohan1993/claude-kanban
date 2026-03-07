@@ -9,6 +9,7 @@
 //
 // Frontend involvement: ZERO. Browser sends cookie. Server validates everything.
 
+var crypto = require('crypto');
 var session = require('../lib/session');
 var { auditLog } = require('../db');
 
@@ -35,15 +36,14 @@ class PinAuthProvider extends AuthProvider {
     if (!this.pin) {
       return { authenticated: true, user: { id: 'local', role: 'admin', name: 'Local Admin', provider: 'none' } };
     }
-    // Constant-time comparison to prevent timing attacks
-    if (credentials && credentials.pin && credentials.pin.length === this.pin.length) {
-      var match = true;
-      for (var i = 0; i < this.pin.length; i++) {
-        if (credentials.pin.charCodeAt(i) !== this.pin.charCodeAt(i)) match = false;
-      }
-      if (match) {
-        return { authenticated: true, user: { id: 'pin', role: 'admin', name: 'PIN Auth', provider: 'pin' } };
-      }
+    // H4 fix: true constant-time comparison using crypto.timingSafeEqual with fixed-size buffers
+    var pin = (credentials && credentials.pin) ? String(credentials.pin) : '';
+    var a = Buffer.alloc(256);
+    a.write(pin);
+    var b = Buffer.alloc(256);
+    b.write(this.pin);
+    if (crypto.timingSafeEqual(a, b)) {
+      return { authenticated: true, user: { id: 'pin', role: 'admin', name: 'PIN Auth', provider: 'pin' } };
     }
     return { authenticated: false };
   }
@@ -91,7 +91,7 @@ function createLoginHandler(provider) {
     var ip = req.ip || req.socket.remoteAddress || '';
 
     // Rate limit check — reject before any processing
-    var rateCheck = session.checkRateLimit(ip);
+    var rateCheck = session.checkRateLimit(ip, req);
     if (!rateCheck.allowed) {
       if (rateCheck.permanent) {
         auditLog('auth-lockout', 'session', null, 'unknown', '', ip, 'permanent lockout — rejected');
@@ -108,7 +108,7 @@ function createLoginHandler(provider) {
     try {
       var result = await provider.authenticate(req.body || {});
       if (result.authenticated) {
-        session.recordSuccessfulLogin(ip);
+        session.recordSuccessfulLogin(ip, req);
 
         // Destroy any existing session (rotation — prevents fixation)
         var oldSid = session.parseId(req.headers.cookie);
@@ -123,7 +123,7 @@ function createLoginHandler(provider) {
       }
 
       // Failed attempt — record and audit
-      var record = session.recordFailedLogin(ip);
+      var record = session.recordFailedLogin(ip, req);
       var detail = 'attempt ' + record.count;
       if (record.permanentLock) detail += ' — PERMANENTLY LOCKED';
       else if (record.lockedUntil) detail += ' — locked ' + Math.ceil((record.lockedUntil - Date.now()) / 1000) + 's';

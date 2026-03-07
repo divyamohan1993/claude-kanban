@@ -6,6 +6,31 @@ const { cards, sessions, audit } = require('../db');
 const snapshot = require('./snapshot');
 const { suggestName } = require('../lib/helpers');
 
+// --- Security: Project path validation (C3 fix) ---
+var resolvedProjectsRoot = path.resolve(PROJECTS_ROOT);
+var SHELL_METACHAR_RE = /[;&|`$%^<>!(){}[\]"'#~]/;
+
+function validateProjectPath(p) {
+  if (!p || typeof p !== 'string') return 'Project path is required';
+  if (!path.isAbsolute(p)) return 'Project path must be absolute';
+  if (SHELL_METACHAR_RE.test(p)) return 'Project path contains disallowed characters';
+  var resolved = path.resolve(p);
+  if (resolved !== resolvedProjectsRoot && !resolved.startsWith(resolvedProjectsRoot + path.sep)) {
+    return 'Project path must be under PROJECTS_ROOT (' + PROJECTS_ROOT + ')';
+  }
+  return null; // valid
+}
+
+// --- Security: Allowed preview commands (C4 fix) ---
+var ALLOWED_RUN_RE = /^(pnpm|npm|node)\s/;
+function isAllowedRunCommand(cmd) {
+  if (!cmd || typeof cmd !== 'string') return false;
+  if (!ALLOWED_RUN_RE.test(cmd)) return false;
+  // Block shell metacharacters in run commands
+  if (/[;&|`$<>!]/.test(cmd)) return false;
+  return true;
+}
+
 // --- Project Detection ---
 
 function detectProject(title) {
@@ -84,6 +109,8 @@ function analyzeProject(projectPath) {
 function openInVSCode(cardId) {
   var card = cards.get(cardId);
   if (!card || !card.project_path) throw new Error('No project path assigned');
+  var err = validateProjectPath(card.project_path);
+  if (err) throw new Error(err);
   var child = spawn('code', [card.project_path], { shell: true, detached: true, stdio: 'ignore' });
   child.on('error', function(err) { console.error('VSCode spawn error:', err.message); });
   child.unref();
@@ -92,9 +119,11 @@ function openInVSCode(cardId) {
 function openTerminal(cardId) {
   var card = cards.get(cardId);
   if (!card || !card.project_path) throw new Error('No project path');
+  var err = validateProjectPath(card.project_path);
+  if (err) throw new Error(err);
   var p = card.project_path;
   if (IS_WIN) {
-    spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + p + '"'], { shell: true, detached: true, stdio: 'ignore' }).unref();
+    spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + p + '"'], { detached: true, stdio: 'ignore' }).unref();
   } else if (IS_MAC) {
     spawn('open', ['-a', 'Terminal', p], { detached: true, stdio: 'ignore' }).unref();
   } else {
@@ -109,16 +138,20 @@ function openTerminal(cardId) {
 function openClaude(cardId) {
   var card = cards.get(cardId);
   if (!card || !card.project_path) throw new Error('No project path');
+  var err = validateProjectPath(card.project_path);
+  if (err) throw new Error(err);
   var p = card.project_path;
-  var unsetEnv = IS_WIN ? 'set CLAUDECODE=' : 'unset CLAUDECODE';
   if (IS_WIN) {
-    spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + p + '" && ' + unsetEnv + ' && claude'], { shell: true, detached: true, stdio: 'ignore' }).unref();
+    // Path validated by validateProjectPath — no shell metacharacters possible
+    spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + p + '" && set CLAUDECODE= && claude'], { detached: true, stdio: 'ignore' }).unref();
   } else if (IS_MAC) {
-    spawn('osascript', ['-e', 'tell app "Terminal" to do script "cd \'' + p + '\' && ' + unsetEnv + ' && claude"'], { detached: true, stdio: 'ignore' }).unref();
+    var script = "cd '" + p.replace(/'/g, "'\\''") + "' && unset CLAUDECODE && claude";
+    spawn('osascript', ['-e', 'tell app "Terminal" to do script "' + script.replace(/"/g, '\\"') + '"'], { detached: true, stdio: 'ignore' }).unref();
   } else {
-    var child = spawn('gnome-terminal', ['--', 'bash', '-c', 'cd "' + p + '" && ' + unsetEnv + ' && claude; exec bash'], { detached: true, stdio: 'ignore' });
+    var bashCmd = "cd '" + p.replace(/'/g, "'\\''") + "' && unset CLAUDECODE && claude; exec bash";
+    var child = spawn('gnome-terminal', ['--', 'bash', '-c', bashCmd], { detached: true, stdio: 'ignore' });
     child.on('error', function() {
-      spawn('xterm', ['-e', 'bash -c \'cd "' + p + '" && ' + unsetEnv + " && claude; exec bash'"], { detached: true, stdio: 'ignore' }).unref();
+      spawn('xterm', ['-e', 'bash', '-c', bashCmd], { detached: true, stdio: 'ignore' }).unref();
     });
     child.unref();
   }
@@ -201,6 +234,8 @@ function getDiff(cardId) {
 function previewProject(cardId) {
   var card = cards.get(cardId);
   if (!card || !card.project_path) throw new Error('No project path');
+  var pathErr = validateProjectPath(card.project_path);
+  if (pathErr) throw new Error(pathErr);
 
   var projectPath = card.project_path;
   var completionFile = path.join(projectPath, '.task-complete');
@@ -228,14 +263,17 @@ function previewProject(cardId) {
   }
 
   if (!runCommand) throw new Error('No run command found in .task-complete or package.json');
+  if (!isAllowedRunCommand(runCommand)) throw new Error('Run command not allowed: ' + runCommand + '. Must start with pnpm/npm/node and contain no shell metacharacters.');
 
   var fullCmd = 'pnpm install && ' + runCommand;
   if (IS_WIN) {
-    spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + projectPath + '" && ' + fullCmd], { shell: true, detached: true, stdio: 'ignore' }).unref();
+    spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + projectPath + '" && ' + fullCmd], { detached: true, stdio: 'ignore' }).unref();
   } else if (IS_MAC) {
-    spawn('osascript', ['-e', 'tell app "Terminal" to do script "cd \'' + projectPath + '\' && ' + fullCmd + '"'], { detached: true, stdio: 'ignore' }).unref();
+    var safeP = projectPath.replace(/'/g, "'\\''");
+    spawn('osascript', ['-e', 'tell app "Terminal" to do script "cd \'' + safeP + '\' && ' + fullCmd + '"'], { detached: true, stdio: 'ignore' }).unref();
   } else {
-    spawn('gnome-terminal', ['--', 'bash', '-c', 'cd "' + projectPath + '" && ' + fullCmd + '; exec bash'], { detached: true, stdio: 'ignore' }).unref();
+    var safeP = projectPath.replace(/'/g, "'\\''");
+    spawn('gnome-terminal', ['--', 'bash', '-c', "cd '" + safeP + "' && " + fullCmd + '; exec bash'], { detached: true, stdio: 'ignore' }).unref();
   }
 
   return { success: true, command: runCommand };
@@ -340,4 +378,5 @@ module.exports = {
   previewProject: previewProject,
   exportBoard: exportBoard,
   getMetrics: getMetrics,
+  validateProjectPath: validateProjectPath,
 };

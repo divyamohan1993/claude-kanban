@@ -134,7 +134,7 @@ async function checkSession() {
     err.textContent = '';
     fetch('/api/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
       body: JSON.stringify({ pin: pin })
     }).then(function(r) { return r.json(); }).then(function(d) {
       btn.disabled = false;
@@ -156,7 +156,7 @@ async function checkSession() {
 // --- API ---
 async function api(path, opts) {
   var res = await fetch('/api' + path, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
     ...opts,
     body: opts && opts.body ? JSON.stringify(opts.body) : undefined,
   });

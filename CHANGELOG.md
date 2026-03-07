@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.0] - 2026-03-07
+
+### Fixed
+- **[C1/C2] Log path traversal**: Whitelist allowed log types, verify resolved paths stay under LOGS_DIR — blocks `../` and `%5C` traversal on both endpoints
+- **[C3] Command injection via project_path**: Validate all project paths — must be absolute, under PROJECTS_ROOT, no shell metacharacters. Enforced at assign-folder and every spawn site
+- **[C4] Command injection via run_command**: Whitelist preview commands (pnpm/npm/node only), reject shell metacharacters
+- **[C5] Edit-file path traversal**: Validate project_path under PROJECTS_ROOT before file writes, use resolved paths for containment check
+- **[C6] Windows .bat prompt injection**: Write prompt to temp file, pipe via `type | claude` — eliminates all bat metachar vectors (%,^,&,|,!,<,>)
+- **[H4] PIN timing attack**: Replace manual charCode loop with `crypto.timingSafeEqual` on fixed-size 256-byte buffers
+- **[M6] SQLite BUSY errors**: Add `busy_timeout = 5000` pragma — retry on concurrent writes instead of immediate failure
+- **[L7] Silent backup failures**: Log all backup errors, track last success time, alert if no backup in 30 minutes
+
+### Added
+- **[H1] Auth on all read endpoints**: Every GET API endpoint now requires session authentication
+- **[H2] Auth on SSE**: Event stream requires valid session cookie — no anonymous real-time data leak
+- **[H3] Auto-generated PIN**: When ADMIN_PIN unset, generates random 6-digit PIN on first run, saves to `.data/.generated-pin`, prints at startup
+- **[H5] Session store cap**: Max 10,000 sessions with oldest-eviction — prevents OOM via session flooding
+- **[M1] CSP header**: `Content-Security-Policy` with `default-src 'self'`, `frame-ancestors 'none'`
+- **[M2] HSTS header**: `Strict-Transport-Security` when behind HTTPS proxy (`X-Forwarded-Proto` or `ENABLE_HSTS=true`)
+- **[M3] Secure cookie flag**: Adds `Secure` flag when `SECURE_COOKIES=true` or `NODE_ENV=production`
+- **[M4] CSRF hardening**: State-changing requests without `Origin` header must include `X-Requested-With: XMLHttpRequest`. Frontend updated
+- **[M5] Webhook SSRF block**: Validates webhook URLs — blocks RFC1918, link-local (169.254), localhost, and loopback addresses
+- **[M7] Input length limits**: Title max 500 chars, description 10K, spec 100K — prevents megabyte payloads per card
+- **[M8] Rate limit keying**: Admin auth rate limit keyed on IP + User-Agent — prevents shared-localhost lockout
+- **[L1] Test endpoint auth**: Test-only state manipulation requires authentication
+- **[L2] Graceful shutdown**: SIGTERM/SIGINT drains connections, closes DB, kills active builds, removes PID (5s timeout)
+- **[L3] Static asset caching**: `Cache-Control: public, max-age=86400, immutable` for static files; `no-store` only for API
+- **[L4] Enhanced fingerprint**: Session binding includes Accept-Language and Accept-Encoding in addition to IP + User-Agent
+- **[L6] Factory reset cleanup**: Uses SIGTERM for graceful shutdown instead of `process.exit(0)`
+- **[L8] Content-Type validation**: Rejects non-`application/json` on API POST/PUT endpoints (415 Unsupported Media Type)
+
 ## [1.8.1] - 2026-03-07
 
 ### Fixed

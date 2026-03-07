@@ -59,6 +59,7 @@ if (!fs.existsSync(DB_PATH)) {
 
 var db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000'); // M6 fix: retry on SQLITE_BUSY instead of immediate failure
 db.pragma('optimize');
 
 // Use bracket notation for SQLite exec to avoid false-positive security hook
@@ -164,18 +165,35 @@ function hotBackupPath() { return path.join(BACKUP_HOT, 'kanban.db'); }
 function hourlyBackupPath(d) { return path.join(BACKUP_HOURLY, 'kanban-' + d.toISOString().slice(0, 13).replace(':', '-') + '.db'); }
 function dailyBackupPath(d) { return path.join(BACKUP_DAILY, 'kanban-' + d.toISOString().slice(0, 10) + '.db'); }
 
+var lastSuccessfulBackup = Date.now();
+
 function runBackupCycle() {
   try {
     db.pragma('wal_checkpoint(PASSIVE)');
     db.pragma('optimize');
     var now = new Date();
-    db.backup(hotBackupPath()).catch(function() {});
+    // L7 fix: log backup failures instead of silently swallowing
+    db.backup(hotBackupPath()).then(function() {
+      lastSuccessfulBackup = Date.now();
+    }).catch(function(err) {
+      console.error('[db] Hot backup failed:', err.message);
+    });
     var hPath = hourlyBackupPath(now);
-    if (!fs.existsSync(hPath)) db.backup(hPath).catch(function() {});
+    if (!fs.existsSync(hPath)) db.backup(hPath).catch(function(err) {
+      console.error('[db] Hourly backup failed:', err.message);
+    });
     var dPath = dailyBackupPath(now);
-    if (!fs.existsSync(dPath)) db.backup(dPath).catch(function() {});
+    if (!fs.existsSync(dPath)) db.backup(dPath).catch(function(err) {
+      console.error('[db] Daily backup failed:', err.message);
+    });
+    // Alert if no successful backup in 30 minutes
+    if (Date.now() - lastSuccessfulBackup > 30 * 60 * 1000) {
+      console.error('[db] WARNING: No successful backup in 30+ minutes');
+    }
     pruneBackups();
-  } catch (_) {}
+  } catch (err) {
+    console.error('[db] Backup cycle error:', err.message);
+  }
 }
 
 function pruneBackups() {
@@ -254,7 +272,7 @@ function createManualBackup(label) {
 setInterval(runBackupCycle, 5 * 60 * 1000);
 
 // Immediate backup on load
-try { db.backup(hotBackupPath()).catch(function() {}); } catch (_) {}
+try { db.backup(hotBackupPath()).catch(function(err) { console.error('[db] Initial backup failed:', err.message); }); } catch (_) {}
 
 function auditLog(action, resourceType, resourceId, actor, oldVal, newVal, detail) {
   try {

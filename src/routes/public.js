@@ -3,7 +3,7 @@ var fs = require('fs');
 var path = require('path');
 var { cards, sessions, auditLog, VALID_COLUMNS } = require('../db');
 var { broadcast, sseClients } = require('../lib/broadcast');
-var { LOGS_DIR, ADMIN_PIN, runtime } = require('../config');
+var { LOGS_DIR, ADMIN_PIN, PROJECTS_ROOT, runtime } = require('../config');
 var { requireAuth } = require('../lib/session');
 var { PinAuthProvider, createSessionHandler, createLoginHandler, logoutHandler } = require('../middleware/auth');
 var pipeline = require('../services/pipeline');
@@ -15,6 +15,20 @@ var usageSvc = require('../services/usage');
 
 var router = express.Router();
 
+// --- Security: Allowed log types (C1/C2 path traversal fix) ---
+var ALLOWED_LOG_TYPES = ['build', 'brainstorm', 'review', 'review-fix', 'fix-1', 'fix-2', 'fix-3'];
+
+function isAllowedLogType(type) {
+  return typeof type === 'string' && ALLOWED_LOG_TYPES.includes(type);
+}
+
+// --- Security: Validate project_path under PROJECTS_ROOT (C3/C5 fix) ---
+var resolvedProjectsRoot = path.resolve(PROJECTS_ROOT);
+function isPathUnderProjectsRoot(p) {
+  var resolved = path.resolve(p);
+  return resolved === resolvedProjectsRoot || resolved.startsWith(resolvedProjectsRoot + path.sep);
+}
+
 // --- Auth Provider (shared with admin) ---
 var authProvider = new PinAuthProvider(ADMIN_PIN);
 
@@ -24,8 +38,8 @@ router.get('/api/auth/session', createSessionHandler(authProvider));
 router.post('/api/auth/login', createLoginHandler(authProvider));
 router.post('/api/auth/logout', logoutHandler);
 
-// --- SSE (read-only, no auth required) ---
-router.get('/api/events', function(req, res) {
+// --- SSE (H2 fix: require auth) ---
+router.get('/api/events', requireAuth, function(req, res) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -221,30 +235,30 @@ function enrichCards(list) {
 }
 
 // =============================================================================
-// READ-ONLY ENDPOINTS (no auth — safe to view)
+// READ ENDPOINTS — H1 fix: all require authentication
 // =============================================================================
 
-router.get('/api/cards', function(_req, res) {
+router.get('/api/cards', requireAuth, function(_req, res) {
   res.json(enrichCards(cards.getAll()));
 });
 
-router.get('/api/queue', function(_req, res) { res.json(pipeline.getQueueInfo()); });
-router.get('/api/activities', function(_req, res) { res.json(pipeline.getActivities()); });
-router.get('/api/pipeline', function(_req, res) { res.json({ paused: pipeline.isPaused() }); });
-router.get('/api/search', function(req, res) {
+router.get('/api/queue', requireAuth, function(_req, res) { res.json(pipeline.getQueueInfo()); });
+router.get('/api/activities', requireAuth, function(_req, res) { res.json(pipeline.getActivities()); });
+router.get('/api/pipeline', requireAuth, function(_req, res) { res.json({ paused: pipeline.isPaused() }); });
+router.get('/api/search', requireAuth, function(req, res) {
   if (!req.query.q) return res.json([]);
   res.json(enrichCards(cards.search(req.query.q)));
 });
-router.get('/api/metrics', function(_req, res) { res.json(support.getMetrics()); });
-router.get('/api/export', function(_req, res) { res.json(support.exportBoard()); });
+router.get('/api/metrics', requireAuth, function(_req, res) { res.json(support.getMetrics()); });
+router.get('/api/export', requireAuth, function(_req, res) { res.json(support.exportBoard()); });
 
-router.get('/api/archive', function(_req, res) {
+router.get('/api/archive', requireAuth, function(_req, res) {
   var archived = cards.getArchived();
   var limit = runtime.maxArchiveVisible;
   res.json(enrichCards(limit > 0 ? archived.slice(0, limit) : archived));
 });
 
-router.get('/api/cards/:id/review', function(req, res) {
+router.get('/api/cards/:id/review', requireAuth, function(req, res) {
   var card = cards.get(Number(req.params.id));
   if (!card) return res.status(404).json({ error: 'Card not found' });
   if (!card.review_data) return res.json({ score: 0, findings: [] });
@@ -252,30 +266,42 @@ router.get('/api/cards/:id/review', function(req, res) {
   catch (_) { res.json({ score: card.review_score || 0, findings: [] }); }
 });
 
-router.get('/api/cards/:id/sessions', function(req, res) {
+router.get('/api/cards/:id/sessions', requireAuth, function(req, res) {
   res.json(sessions.getByCard(Number(req.params.id)));
 });
 
-router.get('/api/cards/:id/has-snapshot', function(req, res) {
+router.get('/api/cards/:id/has-snapshot', requireAuth, function(req, res) {
   res.json({ has: snapshot.has(Number(req.params.id)) });
 });
 
-router.get('/api/cards/:id/diff', function(req, res) {
+router.get('/api/cards/:id/diff', requireAuth, function(req, res) {
   var result = support.getDiff(Number(req.params.id));
   if (result.error) return res.status(404).json(result);
   res.json(result);
 });
 
-router.get('/api/cards/:id/log/:type', function(req, res) {
+router.get('/api/cards/:id/log/:type', requireAuth, function(req, res) {
+  if (!isAllowedLogType(req.params.type)) return res.status(400).json({ error: 'Invalid log type' });
   var logFile = path.join(LOGS_DIR, 'card-' + req.params.id + '-' + req.params.type + '.log');
+  var resolved = path.resolve(logFile);
+  if (!resolved.startsWith(path.resolve(LOGS_DIR) + path.sep)) return res.status(403).json({ error: 'Path traversal blocked' });
   if (!fs.existsSync(logFile)) return res.status(404).json({ error: 'No log found' });
   res.type('text/plain').send(fs.readFileSync(logFile, 'utf-8'));
 });
 
-router.get('/api/cards/:id/log-stream', function(req, res) {
+router.get('/api/cards/:id/log-stream', requireAuth, function(req, res) {
   var id = req.params.id;
   var type = req.query.type || 'build';
+  if (!isAllowedLogType(type)) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    return res.end('Invalid log type');
+  }
   var logFile = path.join(LOGS_DIR, 'card-' + id + '-' + type + '.log');
+  var resolvedLog = path.resolve(logFile);
+  if (!resolvedLog.startsWith(path.resolve(LOGS_DIR) + path.sep)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    return res.end('Path traversal blocked');
+  }
 
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
   res.write('data: ' + JSON.stringify({ type: 'connected' }) + '\n\n');
@@ -323,8 +349,8 @@ router.get('/api/cards/:id/log-stream', function(req, res) {
   req.on('close', function() { clearInterval(interval); clearInterval(heartbeat); });
 });
 
-// Config is read-only on public (no sensitive data exposed)
-router.get('/api/config', function(_req, res) { res.json(usageSvc.getConfig(pipeline.getPipelineState())); });
+// Config read-only on public — H1 fix: require auth
+router.get('/api/config', requireAuth, function(_req, res) { res.json(usageSvc.getConfig(pipeline.getPipelineState())); });
 
 // =============================================================================
 // WRITE ENDPOINTS — ALL require authentication
@@ -356,6 +382,9 @@ router.post('/api/cards', requireAuth, function(req, res) {
   var description = req.body.description;
   var column = req.body.column;
   if (!title) return res.status(400).json({ error: 'Title required' });
+  // M7: Input length limits
+  if (title.length > 500) return res.status(400).json({ error: 'Title too long (max 500 chars)' });
+  if (description && description.length > 10000) return res.status(400).json({ error: 'Description too long (max 10K chars)' });
   var result = cards.create(title, description, column);
   var card = cards.get(Number(result.lastInsertRowid));
   auditLog('create', 'card', card.id, req.user.id, '', card.title, '');
@@ -365,6 +394,8 @@ router.post('/api/cards', requireAuth, function(req, res) {
 
 router.put('/api/cards/:id', requireAuth, function(req, res) {
   var id = Number(req.params.id);
+  if (req.body.title && req.body.title.length > 500) return res.status(400).json({ error: 'Title too long (max 500 chars)' });
+  if (req.body.description && req.body.description.length > 10000) return res.status(400).json({ error: 'Description too long (max 10K chars)' });
   var old = cards.get(id);
   cards.update(id, req.body.title, req.body.description);
   var card = cards.get(id);
@@ -445,7 +476,9 @@ router.post('/api/cards/:id/detect', requireAuth, function(req, res) {
 router.post('/api/cards/:id/assign-folder', requireAuth, function(req, res) {
   var id = Number(req.params.id);
   if (!req.body.projectPath) return res.status(400).json({ error: 'projectPath required' });
-  cards.setProjectPath(id, req.body.projectPath);
+  var pathErr = support.validateProjectPath(req.body.projectPath);
+  if (pathErr) return res.status(400).json({ error: pathErr });
+  cards.setProjectPath(id, path.resolve(req.body.projectPath));
   var card = cards.get(id);
   broadcast('card-updated', enrichCard(card));
   res.json(enrichCard(card));
@@ -543,8 +576,13 @@ router.post('/api/cards/:id/edit-file', requireAuth, express.json({ limit: '5mb'
   var filePath = req.body.filePath;
   var content = req.body.content;
   if (!filePath || content === undefined) return res.status(400).json({ error: 'filePath and content required' });
-  var fullPath = path.resolve(card.project_path, filePath);
-  if (!fullPath.startsWith(card.project_path + path.sep) && fullPath !== card.project_path) {
+  // C5 fix: validate project_path itself is under PROJECTS_ROOT
+  if (!isPathUnderProjectsRoot(card.project_path)) {
+    return res.status(403).json({ error: 'Project path not under allowed root' });
+  }
+  var resolvedProject = path.resolve(card.project_path);
+  var fullPath = path.resolve(resolvedProject, filePath);
+  if (!fullPath.startsWith(resolvedProject + path.sep) && fullPath !== resolvedProject) {
     return res.status(403).json({ error: 'Path traversal not allowed' });
   }
   try {
@@ -576,6 +614,7 @@ router.put('/api/cards/:id/spec', requireAuth, function(req, res) {
   var old = cards.get(id);
   var spec = req.body.spec;
   if (typeof spec !== 'string') return res.status(400).json({ error: 'spec required' });
+  if (spec.length > 100000) return res.status(400).json({ error: 'Spec too long (max 100K chars)' });
   cards.setSpec(id, spec);
   auditLog('edit-spec', 'card', id, req.user.id, (old && old.spec) ? old.spec.slice(0, 200) : '', spec.slice(0, 200), '');
   var card = cards.get(id);
@@ -655,9 +694,9 @@ router.post('/api/cards/:id/unarchive', requireAuth, function(req, res) {
   res.json(enrichCard(cards.get(id)));
 });
 
-// --- Test-only ---
+// --- Test-only (L1 fix: require auth even in test mode) ---
 if (process.env.NODE_ENV === 'test') {
-  router.put('/api/test/cards/:id/state', function(req, res) {
+  router.put('/api/test/cards/:id/state', requireAuth, function(req, res) {
     var id = Number(req.params.id);
     if (!cards.get(id)) return res.status(404).json({ error: 'Not found' });
     cards.updateState(id, req.body);

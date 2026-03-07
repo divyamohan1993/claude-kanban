@@ -1,5 +1,7 @@
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
+const fs = require('fs');
 
 const IS_WIN = process.platform === 'win32';
 const IS_MAC = process.platform === 'darwin';
@@ -45,6 +47,27 @@ const SNAPSHOT_ARCHIVE_RETENTION_DAYS = 14;
 const MAX_AUDIT_ROWS = 10000;
 const RUNTIME_STALE_HOURS = 24;
 
+// H3 fix: auto-generate ADMIN_PIN if not set
+var ADMIN_PIN = process.env.ADMIN_PIN || '';
+if (!ADMIN_PIN) {
+  // Ensure DATA_DIR exists for storing generated PIN
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  var pinFile = path.join(DATA_DIR, '.generated-pin');
+  try {
+    if (fs.existsSync(pinFile)) {
+      ADMIN_PIN = fs.readFileSync(pinFile, 'utf-8').trim();
+    }
+  } catch (_) {}
+  if (!ADMIN_PIN) {
+    ADMIN_PIN = crypto.randomInt(100000, 999999).toString();
+    try { fs.writeFileSync(pinFile, ADMIN_PIN); } catch (_) {}
+  }
+  console.log('\n  *** ADMIN_PIN not set — auto-generated: ' + ADMIN_PIN + ' ***');
+  console.log('  Set ADMIN_PIN in .env to use your own. Saved to .data/.generated-pin\n');
+}
+
+var PORT = Number(process.env.PORT) || 51777;
+
 module.exports = {
   IS_WIN,
   IS_MAC,
@@ -68,7 +91,7 @@ module.exports = {
   SNAPSHOT_ARCHIVE_RETENTION_DAYS,
   MAX_AUDIT_ROWS,
   RUNTIME_STALE_HOURS,
-  PORT: Number(process.env.PORT) || 51777,
-  ADMIN_PORT: Number(process.env.ADMIN_PORT) || (Number(process.env.PORT) || 51777) + 1,
-  ADMIN_PIN: process.env.ADMIN_PIN || '',
+  PORT: PORT,
+  ADMIN_PORT: Number(process.env.ADMIN_PORT) || PORT + 1,
+  ADMIN_PIN: ADMIN_PIN,
 };

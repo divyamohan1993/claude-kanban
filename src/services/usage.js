@@ -4,7 +4,7 @@ const os = require('os');
 const { runtime, CUSTOM_PROMPTS_FILE, PROJECTS_ROOT } = require('../config');
 const { broadcast } = require('../lib/broadcast');
 const { usage, backups } = require('../db');
-const { sendWebhook } = require('../lib/helpers');
+const { sendWebhook, isBlockedWebhookUrl } = require('../lib/helpers');
 
 // --- Claude Max Usage (real plan limits from API) ---
 
@@ -172,7 +172,11 @@ function setConfig(updates) {
   if (updates.backupRetentionDays !== undefined) { backups.setRetentionDays(updates.backupRetentionDays); changed.backupRetentionDays = backups.getRetentionDays(); }
   if (updates.claudeModel !== undefined) { runtime.claudeModel = String(updates.claudeModel); changed.claudeModel = runtime.claudeModel; }
   if (updates.claudeEffort !== undefined) { runtime.claudeEffort = String(updates.claudeEffort); changed.claudeEffort = runtime.claudeEffort; }
-  if (updates.webhookUrl !== undefined) { runtime.webhookUrl = String(updates.webhookUrl); changed.webhookUrl = runtime.webhookUrl; }
+  if (updates.webhookUrl !== undefined) {
+    var newUrl = String(updates.webhookUrl);
+    if (newUrl && isBlockedWebhookUrl(newUrl)) { /* M5: reject SSRF targets silently */ }
+    else { runtime.webhookUrl = newUrl; changed.webhookUrl = runtime.webhookUrl; }
+  }
   broadcast('config-updated', getConfig());
   return changed;
 }

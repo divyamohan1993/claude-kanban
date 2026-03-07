@@ -146,7 +146,8 @@ router.post('/api/factory-reset', requireAdmin, function(_req, res) {
   setTimeout(function() {
     try { fs.rmSync(DATA_DIR, { recursive: true, force: true }); } catch (_) {}
     console.log('[factory-reset] All data wiped. Exiting.');
-    process.exit(0);
+    // L6 fix: use SIGTERM for graceful shutdown instead of process.exit(0)
+    process.kill(process.pid, 'SIGTERM');
   }, 500);
 });
 

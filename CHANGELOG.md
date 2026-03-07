@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-03-07
+
+### Added
+- Cross-platform start/stop scripts with auto-install (Node, pnpm, dependencies)
+- PID-based server lifecycle management
+- Runtime consolidation: all artifacts moved to `.data/` directory
+
+### Changed
+- Default branch switched from `master` to `main`
+- DB, logs, snapshots, runtime scripts now under `.data/` (gitignored)
+- `.gitignore` simplified to 3 entries
+
 ## [1.1.0] - 2026-03-07
 
 ### Added

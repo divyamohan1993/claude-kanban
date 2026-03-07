@@ -342,34 +342,17 @@ document.getElementById('theme-toggle').onclick = function() {
   document.getElementById('back-link').href = location.protocol + '//localhost:' + boardPort;
 })();
 
-// --- Admin PIN auth ---
-var _adminPin = sessionStorage.getItem('admin-pin') || '';
+// --- Session-based auth (HTTP-only cookies — no tokens in frontend) ---
 
-function checkPinRequired() {
-  return fetch('/api/admin/verify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pin: '' })
-  }).then(function(r) { return r.json(); }).then(function(d) {
-    if (d.ok && !d.pinRequired) {
-      // No PIN required — unlock immediately
+function checkSession() {
+  return fetch('/api/auth/session').then(function(r) { return r.json(); }).then(function(d) {
+    if (d.authenticated) {
       document.getElementById('pin-overlay').classList.add('hidden');
       initApp();
-      return;
+    } else {
+      showPinScreen();
     }
-    // PIN required — check if we have a cached one
-    if (_adminPin) {
-      return verifyPin(_adminPin).then(function(ok) {
-        if (ok) {
-          document.getElementById('pin-overlay').classList.add('hidden');
-          initApp();
-        } else {
-          sessionStorage.removeItem('admin-pin');
-          _adminPin = '';
-          showPinScreen();
-        }
-      });
-    }
+  }).catch(function() {
     showPinScreen();
   });
 }
@@ -379,26 +362,20 @@ function showPinScreen() {
   document.getElementById('pin-input').focus();
 }
 
-function verifyPin(pin) {
-  return fetch('/api/admin/verify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pin: pin })
-  }).then(function(r) { return r.json(); }).then(function(d) { return !!d.ok; });
-}
-
 document.getElementById('pin-form').onsubmit = function(e) {
   e.preventDefault();
   var pin = document.getElementById('pin-input').value;
-  var btn = document.getElementById('pin-btn');
+  var submitBtn = document.getElementById('pin-btn');
   var err = document.getElementById('pin-err');
-  btn.disabled = true;
+  submitBtn.disabled = true;
   err.textContent = '';
-  verifyPin(pin).then(function(ok) {
-    btn.disabled = false;
-    if (ok) {
-      _adminPin = pin;
-      sessionStorage.setItem('admin-pin', pin);
+  fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin: pin })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    submitBtn.disabled = false;
+    if (d.ok) {
       document.getElementById('pin-overlay').classList.add('hidden');
       initApp();
     } else {
@@ -406,23 +383,23 @@ document.getElementById('pin-form').onsubmit = function(e) {
       document.getElementById('pin-input').value = '';
       document.getElementById('pin-input').focus();
     }
+  }).catch(function() {
+    submitBtn.disabled = false;
+    err.textContent = 'Connection error.';
   });
 };
 
-// --- API ---
+// --- API (no tokens — session cookie sent automatically by browser) ---
 function api(method, url, body) {
   var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
-  if (_adminPin) opts.headers['X-Admin-Pin'] = _adminPin;
   if (body) opts.body = JSON.stringify(body);
   return fetch(url, opts).then(function(r) {
     if (r.status === 401) {
-      sessionStorage.removeItem('admin-pin');
-      _adminPin = '';
       showPinScreen();
       throw new Error('Auth required');
     }
     if (r.status === 403) {
-      toast('Access denied — admin API is localhost-only', 'error');
+      toast('Access denied', 'error');
       throw new Error('Forbidden');
     }
     return r.json();
@@ -980,8 +957,8 @@ function initApp() {
   setInterval(function() { loadPipeline(); loadProcesses(); }, 30000);
 }
 
-// Kick off auth check
-checkPinRequired();
+// Kick off session check
+checkSession();
 
 })();
 </script>

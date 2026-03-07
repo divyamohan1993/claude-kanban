@@ -124,6 +124,20 @@
     </div>
   </div>
 
+  <!-- Login Overlay (shown when session required) -->
+  <div class="login-overlay" id="login-overlay">
+    <div class="login-box">
+      <div class="login-logo" aria-hidden="true">&#9670;</div>
+      <div class="login-title">Claude Kanban</div>
+      <div class="login-sub">Enter PIN to continue</div>
+      <form id="login-form" autocomplete="off">
+        <input type="password" class="login-input" id="login-pin" placeholder="PIN" autocomplete="off" maxlength="64" aria-label="Admin PIN">
+        <div class="login-err" id="login-err"></div>
+        <button type="submit" class="login-btn" id="login-btn">Sign In</button>
+      </form>
+    </div>
+  </div>
+
   <!-- Toast container -->
   <div id="toasts" aria-live="polite"></div>
 

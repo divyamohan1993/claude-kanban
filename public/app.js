@@ -92,6 +92,67 @@ function labelClass(label) {
   return LABEL_CLASSES[label.toLowerCase().trim()] || 'label-default';
 }
 
+// --- Auth (server-side sessions — frontend never sees tokens) ---
+function showLogin() {
+  var overlay = document.getElementById('login-overlay');
+  if (overlay) overlay.classList.remove('hidden');
+  var inp = document.getElementById('login-pin');
+  if (inp) inp.focus();
+}
+
+function hideLogin() {
+  var overlay = document.getElementById('login-overlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+// Check session on load — server auto-creates session if no PIN required
+async function checkSession() {
+  try {
+    var res = await fetch('/api/auth/session');
+    var data = await res.json();
+    if (data.authenticated) {
+      hideLogin();
+      init();
+    } else {
+      showLogin();
+    }
+  } catch (_) {
+    showLogin();
+  }
+}
+
+// Login form handler
+(function() {
+  var form = document.getElementById('login-form');
+  if (!form) return;
+  form.onsubmit = function(e) {
+    e.preventDefault();
+    var pin = document.getElementById('login-pin').value;
+    var btn = document.getElementById('login-btn');
+    var err = document.getElementById('login-err');
+    btn.disabled = true;
+    err.textContent = '';
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: pin })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      btn.disabled = false;
+      if (d.ok) {
+        hideLogin();
+        init();
+      } else {
+        err.textContent = 'Invalid PIN. Try again.';
+        document.getElementById('login-pin').value = '';
+        document.getElementById('login-pin').focus();
+      }
+    }).catch(function() {
+      btn.disabled = false;
+      err.textContent = 'Connection error.';
+    });
+  };
+})();
+
 // --- API ---
 async function api(path, opts) {
   var res = await fetch('/api' + path, {
@@ -99,9 +160,16 @@ async function api(path, opts) {
     ...opts,
     body: opts && opts.body ? JSON.stringify(opts.body) : undefined,
   });
+  if (res.status === 401) {
+    showLogin();
+    throw new Error('Authentication required');
+  }
   if (!res.ok) {
     var err = await res.json().catch(function() { return { error: 'Request failed' }; });
-    throw new Error(err.error || 'Request failed');
+    var e = new Error(err.error || 'Request failed');
+    e.code = err.code || null;
+    e.data = err;
+    throw e;
   }
   return res.json();
 }
@@ -220,19 +288,9 @@ function updateCardActivity(cardId) {
   if (pipelineEl) renderPipelineInto(pipelineEl, activity.step, false);
 }
 
+// Pipeline step comes from server via card.display.pipelineStep — no frontend decisions
 function getCompletedStep(card) {
-  if (card.column_name === 'done') return 'done';
-  if (card.status === 'complete') return 'done';
-  if (card.status === 'fixing') return 'fix';
-  if (card.status === 'reviewing') return 'review';
-  if (card.status === 'building') return 'build';
-  if (card.status === 'queued') return 'queue';
-  if (card.status === 'brainstorming') return 'spec';
-  if (card.column_name === 'review') return 'review';
-  if (card.column_name === 'working') return 'build';
-  if (card.spec) return 'spec';
-  if (card.project_path) return 'folder';
-  return null;
+  return card.display ? card.display.pipelineStep : null;
 }
 
 function renderPipelineInto(container, activeStep, completed) {
@@ -253,9 +311,10 @@ function renderPipelineInto(container, activeStep, completed) {
 
 function renderPipeline(card) {
   var activity = cardActivities[card.id];
-  var activeStep = activity ? activity.step : getCompletedStep(card);
+  var disp = card.display || {};
+  var activeStep = activity ? activity.step : disp.pipelineStep;
   if (!activeStep) return null;
-  var completed = card.column_name === 'done' || card.status === 'complete';
+  var completed = !!disp.pipelineComplete;
   var container = el('div', { className: 'pipeline-steps' });
   renderPipelineInto(container, activeStep, completed);
   return container;
@@ -330,13 +389,13 @@ function renderColumn(col, colCards) {
   });
 
   for (var i = 0; i < colCards.length; i++) {
-    list.appendChild(renderCard(colCards[i], col.id));
+    list.appendChild(renderCard(colCards[i]));
   }
   colEl.appendChild(list);
   return colEl;
 }
 
-function renderCard(card, colId) {
+function renderCard(card) {
   var cardEl = el('div', { className: 'card' + (card.id === selectedCardId ? ' card-selected' : ''), draggable: 'true', 'data-id': card.id });
   cardEl.addEventListener('dragstart', function() { dragCardId = card.id; cardEl.classList.add('dragging'); });
   cardEl.addEventListener('dragend', function() { cardEl.classList.remove('dragging'); dragCardId = null; });
@@ -369,63 +428,25 @@ function renderCard(card, colId) {
     }));
   }
 
-  // Badges
+  // Badges — rendered from server-computed card.display (zero frontend decisions)
   var meta = el('div', { className: 'card-meta' });
-  if (card.status === 'frozen') {
-    meta.appendChild(el('span', { className: 'card-badge badge-blocked', textContent: 'Frozen' }));
-  } else if (card.status === 'fix-interrupted') {
-    meta.appendChild(el('span', { className: 'card-badge badge-warning', textContent: 'Fix Paused' }));
-  } else if (card.status === 'brainstorming') {
-    meta.appendChild(el('span', { className: 'spinner' }));
-    meta.appendChild(el('span', { className: 'card-badge badge-brainstorming', textContent: 'Brainstorming' }));
-  } else if (card.status === 'queued') {
-    var qPos = -1;
-    for (var qi = 0; qi < queueInfo.queue.length; qi++) {
-      if (queueInfo.queue[qi].cardId === card.id) { qPos = queueInfo.queue[qi].position; break; }
-    }
-    meta.appendChild(el('span', { className: 'card-badge badge-queued', textContent: 'Queued' + (qPos > 0 ? ' #' + qPos : '') }));
-  } else if (card.status === 'building') {
-    meta.appendChild(el('span', { className: 'spinner' }));
-    meta.appendChild(el('span', { className: 'card-badge badge-building', textContent: 'Building' }));
-  } else if (card.status === 'reviewing') {
-    meta.appendChild(el('span', { className: 'spinner' }));
-    meta.appendChild(el('span', { className: 'card-badge badge-reviewing', textContent: 'AI Reviewing' }));
-  } else if (card.status === 'fixing') {
-    meta.appendChild(el('span', { className: 'spinner' }));
-    meta.appendChild(el('span', { className: 'card-badge badge-building', textContent: 'Auto-Fixing' }));
-  } else if (card.status === 'interrupted') {
-    meta.appendChild(el('span', { className: 'card-badge badge-interrupted', textContent: 'Interrupted' }));
-  } else if (card.status === 'blocked') {
-    meta.appendChild(el('span', { className: 'card-badge badge-blocked', textContent: 'Blocked' }));
-  } else if (card.spec) {
-    meta.appendChild(el('span', { className: 'card-badge badge-has-spec', textContent: 'Has Spec' }));
-  }
-  if (card.status === 'complete') {
-    meta.appendChild(el('span', { className: 'card-badge badge-complete', textContent: 'Complete' }));
+  var disp = card.display || {};
+  var badges = disp.badges || [];
+  for (var bi = 0; bi < badges.length; bi++) {
+    var badge = badges[bi];
+    if (badge.spinner) meta.appendChild(el('span', { className: 'spinner' }));
+    meta.appendChild(el('span', { className: 'card-badge badge-' + badge.type, textContent: badge.text }));
   }
 
-  // Dependency badge
-  if (card.depends_on) {
-    var deps = card.depends_on.split(',').filter(Boolean);
-    var blockedBy = [];
-    deps.forEach(function(d) {
-      var depCard = state.cards.find(function(c) { return c.id === Number(d.trim()); });
-      if (depCard && depCard.column_name !== 'done' && depCard.column_name !== 'archive') {
-        blockedBy.push('#' + d.trim());
-      }
-    });
-    if (blockedBy.length > 0) {
-      meta.appendChild(el('span', { className: 'card-badge badge-blocked', textContent: 'Blocked: ' + blockedBy.join(', ') }));
-    }
+  // Review score — server-computed display type
+  if (disp.reviewScore) {
+    meta.appendChild(el('span', { className: 'review-score review-score-' + disp.reviewScore.type, textContent: disp.reviewScore.value + '/10' }));
   }
 
-  if (card.review_score > 0) {
-    var scoreCls = card.review_score >= 8 ? 'review-score-high' : card.review_score >= 5 ? 'review-score-mid' : 'review-score-low';
-    meta.appendChild(el('span', { className: 'review-score ' + scoreCls, textContent: card.review_score + '/10' }));
-  }
-  if (card.approved_by) {
-    var abCls = card.approved_by === 'human' ? 'approved-human' : 'approved-ai';
-    meta.appendChild(el('span', { className: 'approved-badge ' + abCls, textContent: card.approved_by === 'human' ? 'Human Approved' : 'AI Approved' }));
+  // Approval badge — server-computed
+  if (disp.approval) {
+    var abCls = disp.approval.type === 'human' ? 'approved-human' : 'approved-ai';
+    meta.appendChild(el('span', { className: 'approved-badge ' + abCls, textContent: disp.approval.type === 'human' ? 'Human Approved' : 'AI Approved' }));
   }
 
   if (lastVisitTime > 0 && card.created_at) {
@@ -462,60 +483,43 @@ function renderCard(card, colId) {
     cardEl.appendChild(el('div', { className: 'card-activity', textContent: activity.detail }));
   }
 
-  // Actions
+  // Actions — server decides what buttons to show via card.actions array
   var actions = el('div', { className: 'card-actions' });
   var id = card.id;
+  var ca = card.actions || [];
 
-  // Info button on every card — always visible
+  // Info button always visible
   actions.appendChild(btn('Info', 'btn-sm btn-ghost btn-info', function() { showDetail(card); }, 'View full card details, spec, and logs'));
 
-  if (card.status === 'interrupted') {
-    actions.appendChild(btn('Retry', 'btn-sm btn-primary', function() { doStartWork(id); }, 'Retry the build from where it left off'));
-    actions.appendChild(btn('Re-brainstorm', 'btn-sm btn-ghost', function() { doBrainstorm(id); }, 'Generate a new spec via AI brainstorm'));
-    actions.appendChild(btn('Reject', 'btn-sm btn-ghost', function() { doReject(id); }, 'Reject and rollback file changes'));
-    actions.appendChild(btn('Discard', 'btn-sm btn-ghost', function() { deleteCard(id); }, 'Permanently delete this card'));
-  } else if (colId === 'brainstorm') {
-    actions.appendChild(btn('Detect', 'btn-sm btn-ghost', function() { doDetect(id); }, 'Find or create a project folder'));
-    actions.appendChild(btn('Brainstorm', 'btn-sm btn-primary', function() { doBrainstorm(id); }, 'AI generates a detailed spec'));
-    actions.appendChild(btn('Edit', 'btn-sm btn-ghost', function() { editCard(id); }, 'Edit card title and description'));
-    actions.appendChild(btn('Del', 'btn-sm btn-ghost', function() { deleteCard(id); }, 'Delete this card'));
-  } else if (colId === 'todo' && card.status === 'blocked') {
-    actions.appendChild(btn('Retry', 'btn-sm btn-primary', function() { doStartWork(id); }, 'Re-queue this card for building'));
-    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'));
-    actions.appendChild(btn('Discard', 'btn-sm btn-ghost', function() { deleteCard(id); }, 'Delete this card'));
-  } else if (colId === 'todo' && card.status === 'queued') {
-    actions.appendChild(btn('Cancel', 'btn-sm btn-ghost', function() { doCancelQueue(id); }, 'Remove from build queue'));
-    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'));
-    actions.appendChild(btn('Log', 'btn-sm btn-ghost btn-log', function() { showLiveLog(id, 'build'); }, 'Watch live build output'));
-  } else if (colId === 'todo') {
-    actions.appendChild(btn('Start', 'btn-sm btn-primary', function() { doStartWork(id); }, 'Queue AI to build this project'));
-    actions.appendChild(btn('Re-brainstorm', 'btn-sm btn-ghost', function() { doBrainstorm(id); }, 'Regenerate the spec'));
-    actions.appendChild(btn('Edit', 'btn-sm btn-ghost', function() { editCard(id); }, 'Edit card title and description'));
-  } else if (colId === 'working') {
-    actions.appendChild(btn('Stop', 'btn-sm btn-danger', function() { doStopCard(id); }, 'Stop this build immediately'));
-    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'));
-    actions.appendChild(btn('Terminal', 'btn-sm btn-ghost', function() { doOpenTerminal(id); }, 'Open terminal in project folder'));
-    actions.appendChild(btn('Claude', 'btn-sm btn-ghost', function() { doOpenClaude(id); }, 'Open Claude CLI in project folder'));
-    actions.appendChild(btn('Log', 'btn-sm btn-ghost btn-log', function() { showLiveLog(id, 'build'); }, 'Watch live build output'));
-  } else if (colId === 'review') {
-    actions.appendChild(btn('Approve', 'btn-sm btn-primary', function() { doApprove(id); }, 'Approve, update changelog, and git commit'));
-    actions.appendChild(btn('Reject', 'btn-sm btn-ghost', function() { doReject(id); }, 'Reject and rollback file changes'));
-    actions.appendChild(btn('Diff', 'btn-sm btn-ghost', function() { showDiff(id); }, 'View file changes since snapshot'));
-    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'));
-    if (card.review_score > 0) {
-      actions.appendChild(btn('Findings', 'btn-sm btn-ghost', function() { showFindings(id); }, 'View AI review findings'));
-    }
-    if (card.status === 'reviewing') {
-      actions.appendChild(btn('Log', 'btn-sm btn-ghost btn-log', function() { showLiveLog(id, 'review'); }, 'Watch live review output'));
-    }
-    if (card.status === 'fixing') {
-      actions.appendChild(btn('Log', 'btn-sm btn-ghost btn-log', function() { showLiveLog(id, 'review-fix'); }, 'Watch auto-fix output'));
-    }
-  } else if (colId === 'done') {
-    actions.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'));
-    actions.appendChild(btn('Preview', 'btn-sm btn-ghost', function() { doPreview(id); }, 'Run the project and preview it'));
-    actions.appendChild(btn('Diff', 'btn-sm btn-ghost', function() { showDiff(id); }, 'View file changes from the build'));
-    actions.appendChild(btn('Revert', 'btn-sm btn-ghost', function() { doRevert(id); }, 'Revert files to pre-build state'));
+  // Action button map — server says which ones, we just render them
+  var ACTION_MAP = {
+    'detect-project': ['Detect', 'btn-sm btn-ghost', function() { doDetect(id); }, 'Find or create a project folder'],
+    'brainstorm': ['Brainstorm', 'btn-sm btn-primary', function() { doBrainstorm(id); }, 'AI generates a detailed spec'],
+    're-brainstorm': ['Re-brainstorm', 'btn-sm btn-ghost', function() { doBrainstorm(id); }, 'Regenerate the spec'],
+    'move-to-todo': ['Move to Todo', 'btn-sm btn-ghost', function() { api('/cards/' + id + '/move', { method: 'POST', body: { column: 'todo', source: 'human' } }).catch(function(e) { toast(e.message, 'error'); }); }, 'Move card to Todo column'],
+    'start-work': ['Start', 'btn-sm btn-primary', function() { doStartWork(id); }, 'Queue AI to build this project'],
+    'retry': ['Retry', 'btn-sm btn-primary', function() { doStartWork(id); }, 'Retry the build'],
+    'cancel-queue': ['Cancel', 'btn-sm btn-ghost', function() { doCancelQueue(id); }, 'Remove from build queue'],
+    'stop': ['Stop', 'btn-sm btn-danger', function() { doStopCard(id); }, 'Stop this build immediately'],
+    'approve': ['Approve', 'btn-sm btn-primary', function() { doApprove(id); }, 'Approve, update changelog, and git commit'],
+    'reject': ['Reject', 'btn-sm btn-ghost', function() { doReject(id); }, 'Reject and rollback file changes'],
+    'revert': ['Revert', 'btn-sm btn-ghost', function() { doRevert(id); }, 'Revert files to pre-build state'],
+    'discard': ['Discard', 'btn-sm btn-ghost', function() { deleteCard(id); }, 'Permanently delete this card'],
+    'edit': ['Edit', 'btn-sm btn-ghost', function() { editCard(id); }, 'Edit card title and description'],
+    'open-vscode': ['VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'],
+    'open-terminal': ['Terminal', 'btn-sm btn-ghost', function() { doOpenTerminal(id); }, 'Open terminal in project folder'],
+    'open-claude': ['Claude', 'btn-sm btn-ghost', function() { doOpenClaude(id); }, 'Open Claude CLI in project folder'],
+    'preview': ['Preview', 'btn-sm btn-ghost', function() { doPreview(id); }, 'Run the project and preview it'],
+    'diff': ['Diff', 'btn-sm btn-ghost', function() { showDiff(id); }, 'View file changes'],
+    'view-findings': ['Findings', 'btn-sm btn-ghost', function() { showFindings(id); }, 'View AI review findings'],
+    'view-log': ['Log', 'btn-sm btn-ghost btn-log', function() { showLiveLog(id, 'build'); }, 'Watch live build output'],
+    'view-fix-log': ['Log', 'btn-sm btn-ghost btn-log', function() { showLiveLog(id, 'review-fix'); }, 'Watch auto-fix output'],
+    'unarchive': ['Unarchive', 'btn-sm btn-ghost', function() { api('/cards/' + id + '/unarchive', { method: 'POST' }).then(function() { loadCards(); toast('Unarchived', 'success'); }).catch(function(e) { toast(e.message, 'error'); }); }, 'Restore from archive'],
+  };
+
+  for (var ai = 0; ai < ca.length; ai++) {
+    var def = ACTION_MAP[ca[ai]];
+    if (def) actions.appendChild(btn(def[0], def[1], def[2], def[3]));
   }
 
   cardEl.appendChild(actions);
@@ -585,9 +589,18 @@ async function selectFolder(projectPath) {
 
 // --- Actions ---
 async function doBrainstorm(id) {
-  var card = state.cards.find(function(c) { return c.id === id; });
-  if (card && !card.project_path) { doDetect(id, 'brainstorm'); return; }
-  startBrainstorm(id);
+  // Always ask server — server decides if project path is needed
+  try {
+    await api('/cards/' + id + '/brainstorm', { method: 'POST' });
+    toast('Brainstorming started', 'success');
+  } catch (e) {
+    if (e.code === 'NEEDS_PROJECT') {
+      // Server says project path required — show folder detection
+      doDetect(id, 'brainstorm');
+    } else {
+      toast(e.message || 'Brainstorm failed', 'error');
+    }
+  }
 }
 
 async function startBrainstorm(id) {
@@ -823,8 +836,8 @@ function showDetail(card) {
     body.appendChild(acts);
   }
 
-  // Retry with feedback (for review cards)
-  if (card.column_name === 'review' || (card.column_name === 'review' && card.review_score > 0)) {
+  // Retry with feedback — shown when server includes action
+  if (card.actions && card.actions.indexOf('retry-with-feedback') >= 0) {
     var retrySec = el('div', { className: 'retry-section' });
     retrySec.appendChild(el('h3', { textContent: 'Retry with Feedback' }));
     var feedbackArea = el('textarea', { rows: '3', placeholder: 'Keep the work, but fix this specifically...' });
@@ -1504,4 +1517,4 @@ async function init() {
     setTimeout(function() { if (hint) hint.style.display = 'none'; }, 500);
   }, 10000);
 }
-init();
+checkSession();

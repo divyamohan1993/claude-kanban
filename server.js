@@ -93,12 +93,13 @@ app.post('/api/cards/:id/move', (req, res) => {
     }
   }
 
-  // Moving to done → approve + auto-commit
+  // Moving to done → approve + auto-commit + auto-archive overflow
   if (column === 'done') {
     if (fromColumn === 'review') snapshot.clear(id);
     cards.setStatus(id, 'complete');
     orchestrator.autoChangelog(id);
     orchestrator.autoCommit(id);
+    autoArchiveDone();
   } else if (dequeueResult.wasBuilding) {
     // Card was actively building — mark as interrupted
     cards.setStatus(id, 'interrupted');
@@ -194,6 +195,7 @@ app.post('/api/cards/:id/approve', (req, res) => {
   if (gitResult.success && gitResult.action !== 'no-changes') {
     broadcast('toast', { message: 'Git: ' + gitResult.action, type: 'success' });
   }
+  autoArchiveDone();
   res.json({ card: cards.get(id), git: gitResult, changelog: clResult });
 });
 
@@ -308,6 +310,37 @@ function escalateToHuman(sourceCardId, errors, file, logFile) {
 }
 
 setInterval(scanLogsForErrors, 30000);
+
+// --- Auto-Archive: keep latest 5 in Done, move rest to archive ---
+function autoArchiveDone() {
+  const doneCards = cards.getAll().filter(c => c.column_name === 'done');
+  if (doneCards.length <= 5) return;
+  // Sort by updated_at descending — keep 5 newest
+  doneCards.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+  const toArchive = doneCards.slice(5);
+  for (const card of toArchive) {
+    cards.move(card.id, 'archive');
+    broadcast('card-deleted', { id: card.id });
+  }
+  if (toArchive.length > 0) {
+    broadcast('toast', { message: toArchive.length + ' card(s) auto-archived', type: 'info' });
+  }
+}
+
+// --- Archive API ---
+app.get('/api/archive', (_req, res) => {
+  res.json(cards.getArchived());
+});
+
+app.post('/api/cards/:id/unarchive', (req, res) => {
+  const id = Number(req.params.id);
+  const card = cards.get(id);
+  if (!card) return res.status(404).json({ error: 'Card not found' });
+  cards.move(id, 'done');
+  broadcast('card-created', cards.get(id));
+  autoArchiveDone();
+  res.json(cards.get(id));
+});
 
 // --- Queue API ---
 app.get('/api/queue', (_req, res) => {

@@ -753,12 +753,64 @@ async function showFindings(cardId) {
   document.getElementById('detail-modal').classList.add('active');
 }
 
+// --- Archive ---
+var archiveModal = document.getElementById('archive-modal');
+document.getElementById('archive-close').addEventListener('click', function() { archiveModal.classList.remove('active'); });
+archiveModal.addEventListener('click', function(e) { if (e.target === archiveModal) archiveModal.classList.remove('active'); });
+
+document.getElementById('archive-btn').addEventListener('click', function() { showArchive(); });
+
+async function showArchive() {
+  var body = document.getElementById('archive-body');
+  body.textContent = '';
+  archiveModal.classList.add('active');
+
+  try {
+    var archived = await api('/archive');
+    if (archived.length === 0) {
+      body.appendChild(el('p', { textContent: 'No archived cards.', style: 'color:var(--text-tertiary);font-size:13px;padding:16px 0' }));
+      return;
+    }
+
+    for (var i = 0; i < archived.length; i++) {
+      (function(card) {
+        var row = el('div', { style: 'display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)' }, [
+          el('div', { style: 'flex:1;min-width:0' }, [
+            el('div', { style: 'font-weight:600;font-size:13px;margin-bottom:2px', textContent: card.title }),
+            el('div', { style: 'font-size:11px;color:var(--text-tertiary)', textContent: (card.project_path || 'No project') + '  ·  ' + timeAgo(card.updated_at) }),
+          ]),
+          card.review_score > 0 ? el('span', {
+            className: 'review-score ' + (card.review_score >= 8 ? 'review-score-high' : card.review_score >= 5 ? 'review-score-mid' : 'review-score-low'),
+            textContent: card.review_score + '/10',
+          }) : null,
+          btn('Restore', 'btn-sm btn-ghost', async function() {
+            await api('/cards/' + card.id + '/unarchive', { method: 'POST' });
+            toast('Card restored to Done', 'success');
+            showArchive(); // refresh
+            loadCards();
+          }),
+          btn('Delete', 'btn-sm btn-ghost', async function() {
+            if (!confirm('Permanently delete "' + card.title + '"?')) return;
+            await api('/cards/' + card.id, { method: 'DELETE' });
+            toast('Card deleted', 'info');
+            showArchive();
+          }),
+        ]);
+        body.appendChild(row);
+      })(archived[i]);
+    }
+  } catch (err) {
+    body.appendChild(el('p', { textContent: 'Failed to load archive: ' + err.message, style: 'color:var(--error)' }));
+  }
+}
+
 // --- Keyboard ---
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     cardModal.classList.remove('active');
     detailModal.classList.remove('active');
     folderModal.classList.remove('active');
+    archiveModal.classList.remove('active');
     if (activeLogStream) { activeLogStream.close(); activeLogStream = null; }
   }
   if (e.key === 'n' && !e.ctrlKey && !e.metaKey && document.activeElement === document.body) {

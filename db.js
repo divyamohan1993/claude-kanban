@@ -34,7 +34,8 @@ try { db.exec('ALTER TABLE cards ADD COLUMN review_score INTEGER DEFAULT 0'); } 
 try { db.exec('ALTER TABLE cards ADD COLUMN review_data TEXT DEFAULT ""'); } catch (_) {}
 
 const stmts = {
-  getAll: db.prepare('SELECT * FROM cards ORDER BY created_at ASC'),
+  getAll: db.prepare("SELECT * FROM cards WHERE column_name != 'archive' ORDER BY created_at ASC"),
+  getArchived: db.prepare("SELECT * FROM cards WHERE column_name = 'archive' ORDER BY updated_at DESC"),
   get: db.prepare('SELECT * FROM cards WHERE id = ?'),
   create: db.prepare('INSERT INTO cards (title, description, column_name) VALUES (?, ?, ?)'),
   update: db.prepare("UPDATE cards SET title = ?, description = ?, updated_at = datetime('now') WHERE id = ?"),
@@ -54,6 +55,7 @@ module.exports = {
   db,
   cards: {
     getAll: () => stmts.getAll.all(),
+    getArchived: () => stmts.getArchived.all(),
     get: (id) => stmts.get.get(id),
     create: (title, desc, col) => stmts.create.run(title, desc || '', col || 'brainstorm'),
     update: (id, title, desc) => stmts.update.run(title, desc, id),

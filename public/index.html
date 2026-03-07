@@ -16,6 +16,7 @@
       <span class="subtitle">Autonomous AI Workflow Board</span>
     </div>
     <div class="header-stats" id="header-stats"></div>
+    <button class="btn btn-ghost" id="archive-btn" style="font-size:12px">Archive</button>
     <button class="btn btn-primary" id="add-btn">+ New Card</button>
   </header>
 
@@ -63,6 +64,17 @@
       <p id="folder-desc" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px;"></p>
       <div id="folder-matches"></div>
       <div id="folder-new" style="margin-top:12px;"></div>
+    </div>
+  </div>
+
+  <!-- Archive Modal -->
+  <div class="modal-overlay" id="archive-modal">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>Archived Cards</h2>
+        <button class="modal-close" id="archive-close">&times;</button>
+      </div>
+      <div id="archive-body"></div>
     </div>
   </div>
 

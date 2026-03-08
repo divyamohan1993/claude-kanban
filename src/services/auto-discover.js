@@ -7,6 +7,47 @@ const { log } = require('../lib/logger');
 const { logPath, sendWebhook } = require('../lib/helpers');
 const { runClaudeSilent } = require('./claude-runner');
 
+// --- Strategic Discovery Lenses ---
+// Rotates through 10 strategic domains to ensure product coverage grows evenly.
+// LRU selection: each lens used once before any repeats, random pick within unused pool.
+
+const STRATEGIC_LENSES = [
+  { id: 'security-audit', name: 'Security Audit', directive: 'Find the most critical security vulnerability or weakness. Focus on: injection vectors, authentication gaps, authorization bypasses, data exposure, missing encryption, OWASP Top 10 violations. Suggest a fix that hardens the most exposed attack surface.' },
+  { id: 'testing-gaps', name: 'Testing Gap Analysis', directive: 'Find the most dangerous untested code path. Focus on: missing test coverage for critical flows, untested edge cases, integration points without tests, error paths that are assumed-correct. Suggest adding the test or verification that would prevent the worst silent regression.' },
+  { id: 'ux-deep-dive', name: 'UX Deep Dive', directive: 'Find the worst user experience friction point. Focus on: confusing workflows, missing feedback, error messages that don\'t help, accessibility violations (WCAG 2.2 AA), unresponsive layouts, interactions that require documentation. Suggest a UX improvement that reduces user frustration measurably.' },
+  { id: 'architecture-debt', name: 'Architecture Debt', directive: 'Find the most expensive technical debt. Focus on: tight coupling, circular dependencies, god objects, duplicated logic, missing abstractions that cause bugs, patterns that fight the framework. Suggest a refactor that makes the codebase cheaper to change.' },
+  { id: 'performance-audit', name: 'Performance Audit', directive: 'Find the biggest performance bottleneck. Focus on: N+1 queries, missing caching, unnecessary re-renders, large bundle sizes, synchronous operations that could be async, memory leaks. Suggest the optimization with the highest user-perceptible impact.' },
+  { id: 'accessibility-audit', name: 'Accessibility Audit', directive: 'Find the most impactful accessibility barrier. Focus on: missing ARIA labels, keyboard traps, color-only information, missing alt text, broken focus management, inaccessible forms, missing skip links. Suggest the fix that includes the most excluded users.' },
+  { id: 'error-handling', name: 'Error Handling Audit', directive: 'Find the most fragile error handling path. Focus on: swallowed errors, missing error boundaries, user-unfriendly error messages, missing retry logic, cascading failures, unhandled promise rejections. Suggest the resilience improvement that prevents the worst silent failure.' },
+  { id: 'data-integrity', name: 'Data Integrity Audit', directive: 'Find the most dangerous data integrity risk. Focus on: race conditions, missing transactions, inconsistent state, missing validations, schema drift, backup gaps, data that can\'t be recovered after corruption. Suggest the safeguard that protects the most valuable data.' },
+  { id: 'developer-experience', name: 'Developer Experience', directive: 'Find what would confuse a new developer the most. Focus on: missing documentation, unclear naming, undocumented environment setup, magic values, hidden configuration, inconsistent patterns. Suggest the improvement that saves the most onboarding time.' },
+  { id: 'operational-readiness', name: 'Operational Readiness', directive: 'Find the biggest operational risk. Focus on: missing health checks, no monitoring, manual deployment steps, missing rollback path, no alerting, log gaps, missing resource limits. Suggest the operational improvement that would prevent the worst 3 AM incident.' },
+];
+
+function selectStrategicLens() {
+  const usedRaw = dbConfig.get('used-discovery-lenses');
+  let used = [];
+  try { used = JSON.parse(usedRaw || '[]'); } catch (_) {}
+
+  let available = STRATEGIC_LENSES.filter(function(lens) {
+    return used.indexOf(lens.id) === -1;
+  });
+
+  // All used — reset and start fresh rotation
+  if (available.length === 0) {
+    used = [];
+    available = STRATEGIC_LENSES.slice();
+  }
+
+  // Random pick from available pool (variance within the rotation)
+  const selected = available[Math.floor(Math.random() * available.length)];
+
+  used.push(selected.id);
+  dbConfig.set('used-discovery-lenses', JSON.stringify(used));
+
+  return selected;
+}
+
 // --- State ---
 let discoveryInterval = null;
 let discoveryRunning = false;
@@ -213,9 +254,9 @@ function getCompletedWorkSummary() {
 }
 
 function buildDiscoveryPrompt(projectPath) {
-  // --- Alignment tracking ---
+  // --- Strategic lens rotation ---
   const cycleCount = Number(dbConfig.get('brainstorm-cycle-count') || '0');
-  const isRogueCycle = cycleCount > 0 && (cycleCount + 1) % 4 === 0;
+  const lens = selectStrategicLens();
 
   // Capture original idea on first run
   captureOriginalIdea(projectPath);
@@ -226,29 +267,20 @@ function buildDiscoveryPrompt(projectPath) {
 
   const parts = [];
   parts.push('You are an autonomous project analyst for a CI/CD kanban system.');
-
-  if (isRogueCycle) {
-    parts.push('');
-    parts.push('## MODE: ROGUE INNOVATION (Cycle #' + (cycleCount + 1) + ')');
-    parts.push('This is a special innovation cycle. Think laterally and suggest exactly 1 UNEXPECTED feature.');
-    parts.push('Go beyond the original scope. Add functionality that seems unrelated but will prove useful in the future.');
-    parts.push('Think cross-domain: what adjacent capability would make this project surprisingly more powerful?');
-    parts.push('Examples: analytics dashboard for a CLI tool, plugin system for a monolith, AI-powered search for a CRUD app, WebSocket live-sync for a static site.');
-    parts.push('The feature MUST be fully integrated with the existing codebase, not a disconnected experiment.');
-  } else {
-    parts.push('Your job: analyze this project thoroughly and suggest exactly 1 high-impact improvement.');
-    parts.push('Stay tightly aligned with the project\'s original vision. Build on what exists, deepen it, strengthen it.');
-  }
+  parts.push('');
+  parts.push('## Strategic Lens: ' + lens.name + ' (Cycle #' + (cycleCount + 1) + ')');
+  parts.push('');
+  parts.push(lens.directive);
+  parts.push('');
+  parts.push('Your suggestion MUST be specifically about ' + lens.name + '.');
+  parts.push('Do not suggest generic features. Target this exact domain with surgical precision.');
+  parts.push('Suggest exactly 1 improvement that addresses this lens.');
   parts.push('');
 
   // Original idea — north star
   if (originalIdea) {
     parts.push('## Original Project Vision (North Star)');
-    if (isRogueCycle) {
-      parts.push('The rogue feature should creatively complement this vision, not contradict it:');
-    } else {
-      parts.push('Every improvement must serve or extend this founding vision:');
-    }
+    parts.push('Every improvement must serve or extend this founding vision:');
     parts.push(originalIdea);
     parts.push('');
   }
@@ -308,9 +340,7 @@ function buildDiscoveryPrompt(projectPath) {
   parts.push('- Will this improve the user\'s life, or just look cleaner to developers?');
   parts.push('- Is the timing right, or is this premature optimization?');
   parts.push('- What\'s the cost of NOT doing this?');
-  if (isRogueCycle) {
-    parts.push('- For rogue features: will this age well? Will users discover it and be delighted?');
-  }
+  parts.push('- Does this address a DIFFERENT domain than recent improvements?');
   parts.push('Only suggest things that pass this filter.');
   parts.push('');
   parts.push('## Output Format');
@@ -384,9 +414,8 @@ function processDiscoveryOutput(content, projectPath) {
   if (created > 0) {
     const newCycle = Number(dbConfig.get('brainstorm-cycle-count') || '0') + 1;
     dbConfig.set('brainstorm-cycle-count', String(newCycle));
-    const nextIsRogue = (newCycle + 1) % 4 === 0;
-    log.info({ cycle: newCycle, nextRogue: nextIsRogue }, 'Brainstorm cycle #' + newCycle + ' started');
-    broadcast('toast', { message: 'Auto-discovery: cycle #' + newCycle + (nextIsRogue ? ' (next: rogue innovation)' : ''), type: 'success' });
+    log.info({ cycle: newCycle }, 'Brainstorm cycle #' + newCycle + ' started');
+    broadcast('toast', { message: 'Auto-discovery: cycle #' + newCycle, type: 'success' });
     sendWebhook('auto-discovery', { count: created, cycle: newCycle, ideas: ideas.slice(0, created).map(function(i) { return i.title; }) });
   }
 }

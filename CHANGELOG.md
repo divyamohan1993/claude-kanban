@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.0] - 2026-03-09
+
+### Added
+- **Strategic domain rotation**: Auto-discovery rotates through 10 strategic lenses (Security Audit, Testing Gaps, UX Deep Dive, Architecture Debt, Performance Audit, Accessibility Audit, Error Handling, Data Integrity, Developer Experience, Operational Readiness). LRU selection ensures every domain is visited before any repeats, with random pick within unused pool for variance
+- **Domain coverage tracking**: 10 strategic domains with keyword-based detection. Computes coverage from completed cards, identifies NEGLECTED and WEAK areas. Injects coverage analysis into brainstorm prompts, steering specs toward under-addressed domains
+- **Confrontational spec challenges**: 5 mandatory challenges every spec must answer: Alternatives Test (name 2 different approaches), Opportunity Cost (what won't get built), Failure Pre-Mortem (imagine it failed), User Reality Check (name a specific persona), Scope Knife (cut 30%, justify the rest). Prevents repetitive, score-chasing specs
+
+### Changed
+- **Discovery prompt**: Replaced rogue innovation / highest-impact binary with strategic lens rotation. Each cycle targets a specific domain with surgical precision instead of generic "suggest the best thing"
+- **Brainstorm prompt**: Now injects domain coverage analysis and confrontational challenges alongside existing multi-lens and creative constraint sections
+
+### Removed
+- **Rogue innovation cycles**: Subsumed by strategic lens rotation which provides better variance with guaranteed domain coverage
+
 ## [2.2.0] - 2026-03-09
 
 ### Added

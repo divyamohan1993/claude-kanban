@@ -114,9 +114,17 @@ function buildBrainstormPrompt(card) {
     if (historicalNew) parts.push(historicalNew);
   }
 
+  // --- Domain Coverage: steers spec toward neglected product areas ---
+  const domainCoverage = specIntel.buildDomainCoverageSection();
+  if (domainCoverage) parts.push(domainCoverage);
+
   // --- Creative Constraint: randomized creative thinking prompt ---
   const constraint = specIntel.selectCreativeConstraint(card);
   if (constraint) parts.push(constraint);
+
+  // --- Confrontational Challenges: forces real critical thinking ---
+  const confrontational = specIntel.buildConfrontationalSection();
+  if (confrontational) parts.push(confrontational);
 
   parts.push('');
   parts.push('Be practical and specific. This spec will be given to an AI coding agent (Claude Code)');

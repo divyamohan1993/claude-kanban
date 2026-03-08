@@ -551,6 +551,185 @@ function learnFromSpec(specText, score) {
 }
 
 // =============================================================================
+// 5. Domain Coverage & Confrontational Challenges
+// =============================================================================
+// Tracks which strategic domains have been addressed by completed cards.
+// Injects coverage analysis and critical thinking challenges into brainstorm prompts.
+// Ensures the product grows evenly across all domains, not just features.
+
+const STRATEGIC_DOMAINS = {
+  'security-audit': {
+    name: 'Security & Trust',
+    keywords: ['security', 'auth', 'encrypt', 'xss', 'csrf', 'inject', 'sanitiz', 'owasp', 'password', 'token', 'permission', 'cors', 'csp', 'tls'],
+    question: 'What attack vectors remain unaddressed?',
+  },
+  'testing-gaps': {
+    name: 'Testing & Verification',
+    keywords: ['test', 'spec', 'coverage', 'assert', 'mock', 'e2e', 'integration', 'unit', 'regression', 'snapshot'],
+    question: 'Where is the project most likely to break silently?',
+  },
+  'ux-deep-dive': {
+    name: 'User Experience',
+    keywords: ['ux', 'ui', 'accessibility', 'a11y', 'wcag', 'aria', 'responsive', 'mobile', 'animation', 'design', 'layout', 'navigation'],
+    question: 'What frustrates users that they never report?',
+  },
+  'architecture-debt': {
+    name: 'Architecture & Tech Debt',
+    keywords: ['refactor', 'architecture', 'pattern', 'module', 'coupling', 'cohesion', 'dependency', 'circular', 'abstraction', 'separation'],
+    question: 'What structural weakness will cost the most to fix later?',
+  },
+  'performance-audit': {
+    name: 'Performance & Efficiency',
+    keywords: ['performance', 'speed', 'latency', 'cache', 'bundle', 'lazy', 'optimize', 'memory', 'cpu', 'throughput', 'bottleneck'],
+    question: 'Where does the user wait unnecessarily?',
+  },
+  'accessibility-audit': {
+    name: 'Accessibility & Inclusion',
+    keywords: ['accessibility', 'a11y', 'wcag', 'aria', 'screen reader', 'keyboard', 'contrast', 'focus', 'landmark', 'semantic'],
+    question: 'Who is excluded from using this product today?',
+  },
+  'error-handling': {
+    name: 'Error Handling & Resilience',
+    keywords: ['error', 'exception', 'fallback', 'retry', 'timeout', 'graceful', 'recovery', 'boundary', 'crash', 'fail'],
+    question: 'What happens when everything goes wrong at once?',
+  },
+  'data-integrity': {
+    name: 'Data & State Management',
+    keywords: ['data', 'state', 'migration', 'schema', 'validation', 'consistency', 'race', 'concurrent', 'transaction', 'backup'],
+    question: 'What data corruption scenario has no recovery path?',
+  },
+  'developer-experience': {
+    name: 'Developer Experience',
+    keywords: ['dx', 'api', 'documentation', 'readme', 'setup', 'onboarding', 'tooling', 'debug', 'log', 'config'],
+    question: 'What would confuse a new developer on day one?',
+  },
+  'operational-readiness': {
+    name: 'Operations & Deployment',
+    keywords: ['deploy', 'ci', 'cd', 'docker', 'monitor', 'health', 'log', 'alert', 'scaling', 'rollback', 'infrastructure'],
+    question: 'What will break at 3 AM with nobody watching?',
+  },
+};
+
+function buildDomainCoverageSection() {
+  try {
+    const allCards = cards.getAll().concat(cards.getArchived());
+    const domainKeys = Object.keys(STRATEGIC_DOMAINS);
+    const coverage = {};
+
+    for (let i = 0; i < domainKeys.length; i++) {
+      coverage[domainKeys[i]] = 0;
+    }
+
+    for (let ci = 0; ci < allCards.length; ci++) {
+      const c = allCards[ci];
+      if (c.column_name !== 'done' && c.column_name !== 'archive') continue;
+      const text = ((c.title || '') + ' ' + (c.labels || '') + ' ' + (c.description || '')).toLowerCase();
+
+      for (let di = 0; di < domainKeys.length; di++) {
+        const domain = STRATEGIC_DOMAINS[domainKeys[di]];
+        for (let ki = 0; ki < domain.keywords.length; ki++) {
+          if (text.indexOf(domain.keywords[ki]) !== -1) {
+            coverage[domainKeys[di]]++;
+            break;
+          }
+        }
+      }
+    }
+
+    const totalCompleted = allCards.filter(function(c) {
+      return c.column_name === 'done' || c.column_name === 'archive';
+    }).length;
+
+    if (totalCompleted < 2) return '';
+
+    const neglected = [];
+
+    for (let i = 0; i < domainKeys.length; i++) {
+      const key = domainKeys[i];
+      const count = coverage[key];
+      const pct = totalCompleted > 0 ? Math.round(count / totalCompleted * 100) : 0;
+
+      if (count === 0 || pct < 10) {
+        neglected.push({
+          name: STRATEGIC_DOMAINS[key].name,
+          count: count,
+          question: STRATEGIC_DOMAINS[key].question,
+        });
+      }
+    }
+
+    if (neglected.length === 0) return '';
+
+    const parts = [];
+    parts.push('## Product Coverage Analysis');
+    parts.push('');
+    parts.push('Completed ' + totalCompleted + ' tasks. Coverage by strategic domain:');
+    parts.push('');
+
+    for (let i = 0; i < domainKeys.length; i++) {
+      const key = domainKeys[i];
+      const domain = STRATEGIC_DOMAINS[key];
+      const count = coverage[key];
+      const status = count === 0 ? 'NEGLECTED' : (count < 3 ? 'WEAK' : 'OK');
+      parts.push('  ' + domain.name + ': ' + count + ' tasks (' + status + ')');
+    }
+
+    parts.push('');
+    parts.push('### Neglected Domains — Your spec SHOULD address at least one:');
+
+    neglected.sort(function(a, b) { return a.count - b.count; });
+
+    for (let ni = 0; ni < neglected.length && ni < 3; ni++) {
+      const n = neglected[ni];
+      parts.push('- **' + n.name + '** (' + n.count + ' tasks): ' + n.question);
+    }
+
+    parts.push('');
+    parts.push('A well-rounded product covers all domains, not just features.');
+    parts.push('');
+
+    return parts.join('\n');
+  } catch (err) {
+    log.error({ err: err.message }, 'spec-intelligence: buildDomainCoverageSection failed');
+    return '';
+  }
+}
+
+function buildConfrontationalSection() {
+  const parts = [];
+  parts.push('## Confrontational Spec Challenges (MANDATORY)');
+  parts.push('');
+  parts.push('Before finalizing the specification, answer these five challenges.');
+  parts.push('These force real critical thinking and prevent repetitive, score-chasing specs.');
+  parts.push('');
+  parts.push('### Challenge 1: Alternatives Test');
+  parts.push('Name 2 fundamentally different approaches to solving this problem.');
+  parts.push('For each, state one concrete advantage over the chosen approach.');
+  parts.push('Then justify why the chosen approach wins, considering the tradeoffs.');
+  parts.push('');
+  parts.push('### Challenge 2: Opportunity Cost');
+  parts.push('By building this, what will NOT get built? Name a specific feature or improvement');
+  parts.push('that competes for the same effort. Why is this more valuable right now?');
+  parts.push('');
+  parts.push('### Challenge 3: Failure Pre-Mortem');
+  parts.push('Imagine this feature shipped and failed. Write a 2-sentence post-mortem:');
+  parts.push('what went wrong, and what should have been caught in the spec?');
+  parts.push('Now address that risk explicitly in the specification.');
+  parts.push('');
+  parts.push('### Challenge 4: User Reality Check');
+  parts.push('Name a specific user persona (role, context, frequency of use).');
+  parts.push('Describe the exact moment they need this feature. If you cannot name a concrete');
+  parts.push('scenario, the feature may not be needed. Simplify or pivot.');
+  parts.push('');
+  parts.push('### Challenge 5: Scope Knife');
+  parts.push('Cut 30% of the planned scope. What survives? Justify each remaining piece.');
+  parts.push('The surviving 70% is probably the real spec. Consider using it.');
+  parts.push('');
+
+  return parts.join('\n');
+}
+
+// =============================================================================
 // API: Spec Intelligence Insights
 // =============================================================================
 // Returns aggregated spec quality data for dashboards and monitoring.
@@ -674,6 +853,8 @@ module.exports = {
   buildMultiLensSection: buildMultiLensSection,
   gatherHistoricalContext: gatherHistoricalContext,
   selectCreativeConstraint: selectCreativeConstraint,
+  buildDomainCoverageSection: buildDomainCoverageSection,
+  buildConfrontationalSection: buildConfrontationalSection,
 
   // Spec feedback loop
   computeSpecEffectiveness: computeSpecEffectiveness,
@@ -682,6 +863,7 @@ module.exports = {
   // API / monitoring
   getInsights: getInsights,
   detectCardType: detectCardType,
+  STRATEGIC_DOMAINS: STRATEGIC_DOMAINS,
 
   // Lifecycle
   init: init,

@@ -20,7 +20,7 @@
     "orchestrator"
   ],
   "author": "Divya Mohan (https://dmj.one)",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/divyamohan1993/claude-kanban.git"

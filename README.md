@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/divyamohan1993/claude-kanban/actions/workflows/ci.yml/badge.svg)](https://github.com/divyamohan1993/claude-kanban/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/divyamohan1993/claude-kanban/actions/workflows/codeql.yml/badge.svg)](https://github.com/divyamohan1993/claude-kanban/actions/workflows/codeql.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 **Drop an idea. Walk away. Come back to committed code.**
 
@@ -106,4 +106,6 @@ Express 4 + SQLite (WAL) + Vanilla JS. No framework, no build step, no bundler. 
 
 ## License
 
-[MIT](LICENSE) — [Divya Mohan](https://dmj.one)
+[Apache 2.0](LICENSE) — [Divya Mohan](https://dmj.one)
+
+See [NOTICE](NOTICE) for attribution requirements.

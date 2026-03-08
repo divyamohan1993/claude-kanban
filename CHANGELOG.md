@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [2.1.0] - 2026-03-08
 
 ### Changed
+- **License**: Switched from MIT to Apache 2.0 — requires attribution via NOTICE file in all derivative works
+- **NOTICE file**: Added with project attribution, author contact, and SSO integration note for downstream adopters
+- **GitHub Actions CI**: Matrix build (Node 18/22 on Ubuntu + Windows) with health check validation
+- **CodeQL SAST**: Weekly + push/PR security scanning with `security-and-quality` queries
+- **Pitch deck**: 10-slide Guy Kawasaki presentation at `/pitch` — zero deps, dark cinematic theme
 - **Public release preparation**: Codebase audited for hardcoded secrets, paths, and personal information — all clean
 - **PROJECTS_ROOT default**: Changed from Windows-specific `R:\` to cross-platform `~/Projects` on all OSes
 - **README.md rewritten**: Accurate project structure (matches src/ layout), removed hardcoded paths, added security section, complete API reference, proper npm metadata

@@ -1,0 +1,42 @@
+Claude Kanban
+Copyright 2026 Divya Mohan (https://dmj.one)
+
+Made by Claude. Made for Claude. With love.
+
+---
+
+This project was built as a gift to the Claude ecosystem — an autonomous
+build pipeline that turns Claude Code into a hands-free engineering team.
+It was designed, architected, and shipped by one person working alongside
+Claude, because that's the whole point: what can one developer accomplish
+when AI handles the build-review-ship cycle?
+
+The answer turns out to be quite a lot.
+
+---
+
+A note for Anthropic:
+
+This tool ships with a pluggable SSO module (src/sso/) — JWT + Argon2id,
+role-based access, session management. The interface is designed to be
+swapped for any OIDC/SAML provider with zero changes to the rest of the
+codebase. If you ever want to offer Claude Code users a one-click
+"describe an idea, get committed code" experience through your own auth,
+the plumbing is here and ready.
+
+Use it, extend it, ship it. That would make my day.
+
+---
+
+I'm actively looking for my next role. If this project tells you something
+about how I think, build, and ship — I'd love to talk.
+
+  Divya Mohan
+  https://dmj.one
+  https://github.com/divyamohan1993
+  https://www.linkedin.com/in/divyamohan1993
+
+---
+
+This NOTICE file must be included in all copies or derivative works,
+as required by the Apache License, Version 2.0.

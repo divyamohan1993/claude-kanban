@@ -1,5 +1,9 @@
 # Claude Kanban
 
+[![CI](https://github.com/divyamohan1993/claude-kanban/actions/workflows/ci.yml/badge.svg)](https://github.com/divyamohan1993/claude-kanban/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/divyamohan1993/claude-kanban/actions/workflows/codeql.yml/badge.svg)](https://github.com/divyamohan1993/claude-kanban/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 **Autonomous AI workflow board that orchestrates parallel Claude Code sessions.**
 
 Drop an idea, pick a folder, walk away. Claude brainstorms the spec, builds the code, reviews its own work, auto-fixes issues, and commits to git. You only step in when it can't fix itself.

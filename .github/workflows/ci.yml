@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [18, 22]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: pnpm audit --prod --audit-level=critical
+        continue-on-error: true
+
+      - name: Start server and health check
+        shell: bash
+        run: |
+          node src/server.js &
+          SERVER_PID=$!
+
+          # Wait for server to be ready (up to 15s)
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:51777/health > /dev/null 2>&1; then
+              echo "Server healthy after ~$((i/2))s"
+              break
+            fi
+            sleep 0.5
+          done
+
+          # Liveness probe
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:51777/health)
+          if [ "$STATUS" != "200" ]; then
+            echo "Health check failed with status $STATUS"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+          echo "Liveness probe: OK ($STATUS)"
+
+          # Readiness probe
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:51777/health/ready)
+          if [ "$STATUS" != "200" ]; then
+            echo "Readiness probe returned $STATUS (non-blocking)"
+          else
+            echo "Readiness probe: OK ($STATUS)"
+          fi
+
+          # Verify API responds
+          CARDS=$(curl -sf http://localhost:51777/api/cards)
+          if [ $? -ne 0 ]; then
+            echo "API /api/cards failed"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+          echo "API check: OK"
+
+          kill $SERVER_PID 2>/dev/null || true
+          echo "All checks passed"

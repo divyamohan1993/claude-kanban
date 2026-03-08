@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2026-03-08
+
+### Changed
+- **Public release preparation**: Codebase audited for hardcoded secrets, paths, and personal information — all clean
+- **PROJECTS_ROOT default**: Changed from Windows-specific `R:\` to cross-platform `~/Projects` on all OSes
+- **README.md rewritten**: Accurate project structure (matches src/ layout), removed hardcoded paths, added security section, complete API reference, proper npm metadata
+- **package.json**: Added `repository`, `homepage`, `bugs`, `keywords`, `author`, `license`, `engines` fields for npm/GitHub discoverability
+- **.env.example**: Removed hardcoded `R:\` path, commented out optional fields with safe placeholders
+- **.gitignore**: Added OS files (.DS_Store, Thumbs.db), IDE directories, additional .env variants
+- **Version**: Bumped to 2.1.0
+
 ## [2.0.0] - 2026-03-08
 
 ### Added

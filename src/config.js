@@ -18,7 +18,7 @@ const SNAPSHOT_ROOT = path.join(DATA_DIR, 'snapshots');
 const SNAPSHOT_ARCHIVE = path.join(DATA_DIR, 'archive', 'snapshots');
 const CUSTOM_PROMPTS_FILE = path.join(DATA_DIR, 'custom-prompts.json');
 
-const PROJECTS_ROOT = process.env.PROJECTS_ROOT || (IS_WIN ? 'R:\\' : path.join(os.homedir(), 'Projects'));
+const PROJECTS_ROOT = process.env.PROJECTS_ROOT || path.join(os.homedir(), 'Projects');
 
 const VALID_COLUMNS = ['brainstorm', 'todo', 'working', 'review', 'done', 'archive'];
 

@@ -5,8 +5,20 @@ node_modules/
 .data/
 .playwright-mcp/
 
-# Environment
+# Environment (contains credentials)
 .env
+.env.local
+.env.production
 
 # Backups
 backup-*.zip
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

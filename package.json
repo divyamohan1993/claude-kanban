@@ -1,11 +1,36 @@
 {
   "name": "claude-kanban",
-  "version": "2.0.0",
-  "description": "AI-powered Kanban board that orchestrates autonomous Claude Code sessions",
+  "version": "2.1.0",
+  "description": "AI-powered Kanban board that orchestrates autonomous Claude Code sessions — zero-touch build-review-ship pipeline",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js"
+  },
+  "keywords": [
+    "claude",
+    "kanban",
+    "ai",
+    "automation",
+    "code-review",
+    "ci-cd",
+    "claude-code",
+    "anthropic",
+    "autonomous",
+    "orchestrator"
+  ],
+  "author": "Divya Mohan (https://dmj.one)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/divyamohan1993/claude-kanban.git"
+  },
+  "homepage": "https://github.com/divyamohan1993/claude-kanban#readme",
+  "bugs": {
+    "url": "https://github.com/divyamohan1993/claude-kanban/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

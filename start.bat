@@ -68,7 +68,7 @@ echo   [OK]   Dependencies ready
 
 :: --- Start server (hidden, survives terminal close) ---
 echo   [..]   Starting server...
-powershell -NoProfile -Command "Start-Process -FilePath 'node' -ArgumentList 'server.js' -WindowStyle Hidden -WorkingDirectory '%~dp0'"
+powershell -NoProfile -Command "Start-Process -FilePath 'node' -ArgumentList 'src/server.js' -WindowStyle Hidden -WorkingDirectory '%~dp0'"
 
 :: Wait for PID file (server writes it on listen)
 set TRIES=0

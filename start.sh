@@ -91,7 +91,7 @@ info "Dependencies ready"
 
 # --- Start server ---
 step "Starting server..."
-nohup node server.js > "$LOG_FILE" 2>&1 &
+nohup node src/server.js > "$LOG_FILE" 2>&1 &
 disown
 
 # Wait for PID file (server writes it on listen)

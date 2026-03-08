@@ -18,6 +18,11 @@ All notable changes to this project will be documented in this file.
 - **.gitignore**: Added OS files (.DS_Store, Thumbs.db), IDE directories, additional .env variants
 - **Version**: Bumped to 2.1.0
 
+### Fixed
+- **start.sh/start.bat**: Entry point corrected from `node server.js` to `node src/server.js` — server would fail to start
+- **Architecture docs**: Table count corrected from 11 to 8 (removed phantom `users` and `activities` tables)
+- **Pitch deck**: License references updated from MIT to Apache 2.0, DB table count corrected
+
 ## [2.0.0] - 2026-03-08
 
 ### Added

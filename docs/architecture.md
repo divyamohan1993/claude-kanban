@@ -38,7 +38,7 @@ src/
   server.js              ← Express app setup, middleware, SSE, startup
   config.js              ← All constants, runtime config, port generation
 
-  db/index.js            ← SQLite schema (11 tables), prepared statements, backups
+  db/index.js            ← SQLite schema (8 tables), prepared statements, backups
 
   lib/
     logger.js            ← Pino structured JSON logging + DB error hook
@@ -76,7 +76,7 @@ src/
 
 ## Database Schema
 
-SQLite with WAL mode for concurrent read/write. 11 tables:
+SQLite with WAL mode for concurrent read/write. 8 tables:
 
 | Table | Purpose |
 |-------|---------|
@@ -88,8 +88,6 @@ SQLite with WAL mode for concurrent read/write. 11 tables:
 | `error_log` | Persisted errors (level, source, card, context, resolution) |
 | `learnings` | Intelligence patterns (category, key, value, confidence) |
 | `checkpoints` | Rollback points for intelligence auto-changes |
-| `users` | Credentials (Argon2id hashed) |
-| `activities` | Pipeline event log |
 
 Every table has `created_at`. Cards have `updated_at` and `deleted_at` (soft delete).
 
@@ -97,7 +95,7 @@ Every table has `created_at`. Cards have `updated_at` and `deleted_at` (soft del
 
 Four files in `public/`, served as static assets:
 
-- `index.html` — Board shell, 9 modals, zero inline scripts
+- `index.html` — Board shell, 7 modals, zero inline scripts
 - `app.js` — All client logic: SSE, drag-drop, modals, pipeline rendering
 - `style.css` — Anthropic-branded theme with dark mode, responsive from 375px to 4K
 - `control-panel.html` — Standalone admin dashboard (no shared code with board)

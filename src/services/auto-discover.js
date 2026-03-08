@@ -108,8 +108,11 @@ function runDiscovery() {
   const projectPath = getProjectPath();
   if (!projectPath || !fs.existsSync(projectPath)) return;
 
-  // Don't discover if we already have enough brainstorm cards
-  if (countActiveBrainstorms() >= runtime.maxBrainstormQueue) return;
+  // Don't discover if there are any brainstorm cards pending
+  if (countActiveBrainstorms() > 0) return;
+
+  // Don't discover if there's active work (build/review/todo with status)
+  if (countActiveWork() > 0) return;
 
   // Don't discover if there's an active initiative with incomplete children
   if (hasActiveInitiativeWork()) return;
@@ -125,8 +128,8 @@ function runDiscovery() {
   fs.writeFileSync(log, header);
 
   // Build discovery prompt — reads the project and suggests improvements
-  const slotsAvailable = runtime.maxBrainstormQueue - countActiveBrainstorms();
-  const prompt = buildDiscoveryPrompt(projectPath, slotsAvailable);
+  // Always discover exactly 1 idea — finish it end-to-end before the next
+  const prompt = buildDiscoveryPrompt(projectPath, 1);
 
   const run = runClaudeSilent({
     id: 'discovery-' + Date.now(),
@@ -176,7 +179,7 @@ function runDiscovery() {
   }, 5000);
 }
 
-function buildDiscoveryPrompt(projectPath, slots) {
+function buildDiscoveryPrompt(projectPath) {
   const parts = [];
   parts.push('You are an autonomous project analyst for a CI/CD kanban system.');
   parts.push('Your job: analyze this project thoroughly and suggest exactly ' + Math.min(slots, 3) + ' high-impact improvements.');
@@ -229,7 +232,7 @@ function buildDiscoveryPrompt(projectPath, slots) {
   parts.push('  {"title": "Short imperative title (max 80 chars)", "description": "2-3 sentence description of what needs to change and why", "labels": "bug|feature|security|perf|refactor|docs|chore", "priority": "critical|high|medium|low"}');
   parts.push(']');
   parts.push('');
-  parts.push('Exactly ' + Math.min(slots, 3) + ' items. Highest impact first. Each must be independently buildable as an end-to-end solution.');
+  parts.push('Exactly 1 item — the single highest-impact improvement. It must be independently buildable as an end-to-end solution.');
   parts.push('You have full tool access — read files, search code, check dependencies. Be thorough.');
 
   return parts.join('\n');
@@ -257,7 +260,8 @@ function processDiscoveryOutput(content, projectPath) {
   const pipeline = require('./pipeline');
   let created = 0;
 
-  for (let i = 0; i < ideas.length && i < runtime.maxBrainstormQueue; i++) {
+  // Only create 1 card per discovery cycle — sequential pipeline
+  for (let i = 0; i < ideas.length && i < 1; i++) {
     const idea = ideas[i];
     if (!idea.title) continue;
 

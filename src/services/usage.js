@@ -140,6 +140,9 @@ function getConfig(pipelineState, opts) {
       claudeModel: runtime.claudeModel,
       claudeEffort: runtime.claudeEffort,
       webhookUrl: isAdmin ? runtime.webhookUrl : (runtime.webhookUrl ? '[configured]' : ''),
+      multiLensBrainstorm: runtime.multiLensBrainstorm,
+      creativeConstraintPct: runtime.creativeConstraintPct,
+      specFeedbackLoop: runtime.specFeedbackLoop,
     },
     status: pipelineState ? {
       pipelinePaused: pipelineState.paused,
@@ -190,6 +193,9 @@ function setConfig(updates) {
     if (newUrl && isBlockedWebhookUrl(newUrl)) { changed._webhookError = 'Webhook URL blocked: internal/private IP addresses not allowed'; }
     else { runtime.webhookUrl = newUrl; changed.webhookUrl = runtime.webhookUrl; }
   }
+  if (updates.multiLensBrainstorm !== undefined) { runtime.multiLensBrainstorm = !!updates.multiLensBrainstorm; changed.multiLensBrainstorm = runtime.multiLensBrainstorm; }
+  if (updates.creativeConstraintPct !== undefined) { runtime.creativeConstraintPct = Math.max(0, Math.min(100, Number(updates.creativeConstraintPct))); changed.creativeConstraintPct = runtime.creativeConstraintPct; }
+  if (updates.specFeedbackLoop !== undefined) { runtime.specFeedbackLoop = !!updates.specFeedbackLoop; changed.specFeedbackLoop = runtime.specFeedbackLoop; }
   broadcast('config-updated', getConfig());
   return changed;
 }

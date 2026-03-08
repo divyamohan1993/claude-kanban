@@ -107,6 +107,7 @@ try { runSQL('ALTER TABLE cards ADD COLUMN phase_durations TEXT DEFAULT ""'); } 
 try { runSQL('ALTER TABLE cards ADD COLUMN approved_by TEXT DEFAULT ""'); } catch (_) {}
 try { runSQL('ALTER TABLE cards ADD COLUMN deleted_at TEXT DEFAULT NULL'); } catch (_) {}
 try { runSQL('ALTER TABLE cards ADD COLUMN parent_card_id INTEGER DEFAULT NULL'); } catch (_) {}
+try { runSQL('ALTER TABLE cards ADD COLUMN spec_score INTEGER DEFAULT 0'); } catch (_) {}
 
 // Config key-value store — server config persisted in DB
 runSQL([
@@ -214,6 +215,7 @@ const stmts = {
   auditByResource: db.prepare('SELECT * FROM audit_log WHERE resource_type = ? AND resource_id = ? ORDER BY timestamp DESC'),
   auditRecent: db.prepare('SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ?'),
   auditAll: db.prepare('SELECT * FROM audit_log ORDER BY timestamp DESC'),
+  setSpecScore: db.prepare("UPDATE cards SET spec_score = ?, updated_at = datetime('now') WHERE id = ?"),
   setParentCardId: db.prepare("UPDATE cards SET parent_card_id = ?, updated_at = datetime('now') WHERE id = ?"),
   getByParent: db.prepare("SELECT * FROM cards WHERE parent_card_id = ? AND deleted_at IS NULL ORDER BY created_at ASC"),
   countByParentAndColumn: db.prepare("SELECT COUNT(*) as cnt FROM cards WHERE parent_card_id = ? AND column_name != 'done' AND column_name != 'archive' AND deleted_at IS NULL"),
@@ -406,6 +408,7 @@ module.exports = {
     setLabels: function(id, labels) { stmts.setLabels.run(labels, id); },
     setDependsOn: function(id, deps) { stmts.setDependsOn.run(deps, id); },
     setPhaseDurations: function(id, durations) { stmts.setPhaseDurations.run(durations, id); },
+    setSpecScore: function(id, score) { stmts.setSpecScore.run(score, id); },
     setParentCardId: function(id, parentId) { stmts.setParentCardId.run(parentId, id); },
     getByParent: function(parentId) { return stmts.getByParent.all(parentId); },
     countIncompleteChildren: function(parentId) { return stmts.countByParentAndColumn.get(parentId).cnt; },
@@ -425,6 +428,7 @@ module.exports = {
         'project_path': 'project_path', 'labels': 'labels', 'depends_on': 'depends_on',
         'phase_durations': 'phase_durations', 'approved_by': 'approved_by',
         'parent_card_id': 'parent_card_id',
+        'spec_score': 'spec_score',
       };
       const filtered = {};
       const allKeys = Object.keys(updates);

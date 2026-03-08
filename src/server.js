@@ -11,6 +11,7 @@ const { cards, auditLog, config: dbConfig, errors: dbErrors } = require('./db');
 const { broadcast, setEnrichCard } = require('./lib/broadcast');
 const pipeline = require('./services/pipeline');
 const intelligence = require('./services/intelligence');
+const specIntelligence = require('./services/spec-intelligence');
 const publicRoutes = require('./routes/public');
 setEnrichCard(publicRoutes.enrichCard);
 const adminRoutes = require('./routes/admin');
@@ -312,6 +313,7 @@ const publicServer = app.listen(PORT, '0.0.0.0', function() {
   dbConfig.set('server_pid', String(process.pid));
   pipeline.init();
   intelligence.init();
+  specIntelligence.init();
 
   // Start periodic tasks — scan both log files and DB error table
   setInterval(scanLogsForErrors, 30000);

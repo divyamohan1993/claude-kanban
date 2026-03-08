@@ -53,7 +53,7 @@ The start script installs Node.js, pnpm, and dependencies if missing. Safe to re
 |----------|-------------------|
 | [Architecture](docs/architecture.md) | Two-server design, service layer, database schema, how it all fits together |
 | [Pipeline](docs/pipeline.md) | Build-review-ship cycle, auto-fix loop, queue mechanics, self-healing |
-| [API Reference](docs/api.md) | All 69 endpoints — public, admin, SSE, health checks |
+| [API Reference](docs/api.md) | All 79 endpoints — public, admin, SSE, health checks |
 | [Configuration](docs/configuration.md) | Every environment variable, runtime config, custom prompts |
 | [Deployment](docs/deployment.md) | Start/stop scripts, platform support, production hardening |
 | [Security Audit](docs/security-audit.md) | Two audits, 41 findings, 35 fixed — full remediation log |

@@ -1,12 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const { IS_WIN, RUNTIME_DIR, ROOT_DIR, runtime, getEffectiveProjectPath } = require('../config');
-const { cards, sessions } = require('../db');
+const { cards, sessions, config: dbConfig } = require('../db');
 const { broadcast } = require('../lib/broadcast');
 const { log } = require('../lib/logger');
 const { logPath, sendWebhook } = require('../lib/helpers');
 const { runClaudeSilent } = require('./claude-runner');
 const { getCustomPrompts } = require('./usage');
+const specIntel = require('./spec-intelligence');
 
 // --- Brainstorm Queue (concurrency control) ---
 let brainstormQueue = [];    // [{cardId, enqueuedAt}]
@@ -21,10 +22,69 @@ function buildBrainstormPrompt(card) {
   parts.push('Your job: analyze this task and produce a detailed, buildable specification.');
   parts.push('');
 
+  // --- Multi-Lens Brainstorm: forces multi-perspective thinking before spec ---
+  const multiLens = specIntel.buildMultiLensSection(card);
+  if (multiLens) parts.push(multiLens);
+
   if (isExisting) {
     parts.push('## Existing Project');
     parts.push(support.analyzeProject(card.project_path));
     parts.push('');
+
+    // Single-project alignment: north star + completed work + deep read
+    if (runtime.mode === 'single-project') {
+      // Capture original idea if not yet stored
+      if (!dbConfig.get('original-idea')) {
+        const ideaFiles = ['idea.md', 'IDEAS.md', 'ROADMAP.md', 'TODO.md', 'README.md'];
+        const captured = [];
+        for (let fi = 0; fi < ideaFiles.length; fi++) {
+          const fp = path.join(card.project_path, ideaFiles[fi]);
+          if (fs.existsSync(fp)) {
+            try {
+              const limit = ideaFiles[fi] === 'README.md' ? 3000 : 5000;
+              captured.push('--- ' + ideaFiles[fi] + ' ---\n' + fs.readFileSync(fp, 'utf-8').slice(0, limit));
+            } catch (_) {}
+          }
+        }
+        if (captured.length > 0) {
+          dbConfig.set('original-idea', captured.join('\n\n'));
+        }
+      }
+
+      const originalIdea = dbConfig.get('original-idea');
+      if (originalIdea) {
+        parts.push('## Project Vision (North Star)');
+        parts.push('This specification MUST advance the original project vision. Do not drift or go vague:');
+        parts.push(originalIdea);
+        parts.push('');
+      }
+
+      const allDone = cards.getAll().concat(cards.getArchived());
+      const completed = [];
+      for (let di = 0; di < allDone.length; di++) {
+        const c = allDone[di];
+        if ((c.column_name === 'done' || c.column_name === 'archive') && c.id !== card.id) {
+          completed.push('- ' + c.title);
+        }
+      }
+      if (completed.length > 0) {
+        parts.push('## Previously Completed Work');
+        parts.push('Build on this existing work. Do not duplicate or contradict:');
+        parts.push(completed.join('\n'));
+        parts.push('');
+      }
+
+      parts.push('## Codebase Deep Read');
+      parts.push('MANDATORY: Read the ENTIRE codebase before writing this specification.');
+      parts.push('Understand every file, module, and pattern. Your spec must integrate seamlessly with the existing architecture.');
+      parts.push('The codebase has grown from previous brainstorm cycles. Account for everything that exists now.');
+      parts.push('');
+    }
+
+    // --- Historical Review Injection: past build intelligence ---
+    const historical = specIntel.gatherHistoricalContext(card);
+    if (historical) parts.push(historical);
+
     parts.push('## Requested Changes');
     parts.push(card.title);
     if (card.description) parts.push(card.description);
@@ -48,7 +108,15 @@ function buildBrainstormPrompt(card) {
     parts.push('5) File structure');
     parts.push('6) Step-by-step implementation plan');
     parts.push('7) Edge cases and risks');
+
+    // --- Historical Review Injection for new projects ---
+    const historicalNew = specIntel.gatherHistoricalContext(card);
+    if (historicalNew) parts.push(historicalNew);
   }
+
+  // --- Creative Constraint: randomized creative thinking prompt ---
+  const constraint = specIntel.selectCreativeConstraint(card);
+  if (constraint) parts.push(constraint);
 
   parts.push('');
   parts.push('Be practical and specific. This spec will be given to an AI coding agent (Claude Code)');

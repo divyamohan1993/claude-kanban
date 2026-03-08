@@ -138,6 +138,8 @@ function autoReview(cardId) {
             cards.move(cardId, 'done');
             // Intelligence: learn from successful build
             try { require('./intelligence').learnFromBuild(cardId); } catch (_) {}
+            // Spec intelligence: score spec effectiveness (auto-approved, fix rounds completed before this review)
+            try { require('./spec-intelligence').computeSpecEffectiveness(cardId, score, fixCount, true); } catch (_) {}
             snapshot.clear(cardId);
             broadcast('card-updated', cards.get(cardId));
             broadcast('toast', { message: 'AI Review: ' + score + '/10 — Auto-approved!', type: 'success' });
@@ -174,6 +176,8 @@ function autoReview(cardId) {
           } else {
             // Max fix attempts exhausted — human review
             pipeline.deleteReviewFixCount(cardId);
+            // Spec intelligence: score spec effectiveness (exhausted all fix attempts)
+            try { require('./spec-intelligence').computeSpecEffectiveness(cardId, score, fixCount, false); } catch (_) {}
             pipeline.setActivity(cardId, 'review', 'Score ' + score + '/10 — ' + runtime.maxReviewFixAttempts + ' fix attempts exhausted, needs human review');
             cards.setStatus(cardId, 'idle');
             broadcast('card-updated', cards.get(cardId));

@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.0] - 2026-03-09
+
+### Added
+- **Spec intelligence service** (`src/services/spec-intelligence.js`): Enterprise-grade specification quality engine with four integrated subsystems
+- **Multi-lens brainstorm**: Forces multi-perspective analysis (End User, Adversary, Future Maintainer) before spec writing. Card-type-aware profiles for bug, feature, security, refactor, and performance cards with tailored lens questions per type
+- **Historical review injection**: Queries past review findings, spec effectiveness patterns, workflow notes, and feedback themes from the intelligence service. Injects aggregated insights into brainstorm prompts so new specs avoid past mistakes
+- **Creative constraints**: 21 context-aware creative thinking prompts (accessibility, resilience, simplicity, user empathy, security, observability, scale, cross-domain). Weighted random selection favors unused constraints. Configurable application rate (default 20% of brainstorms)
+- **Spec quality feedback loop**: Computes spec effectiveness score (0-100) after every review cycle. Formula accounts for review score, fix rounds, timeouts, and auto-approval. Learns 18 structural spec features (numbered steps, file paths, code blocks, edge cases, security sections, test plans, etc.) and correlates them with effectiveness over time
+- **Spec pattern learning**: Extracts structural features from spec text, tracks running averages per feature, identifies which spec patterns lead to high vs low quality builds. Also learns from absent features in low-scoring specs
+- **Card type detection**: Label-first, then title-based regex matching with proper priority ordering (specific security keywords before generic bug keywords, refactor before auth)
+- **`spec_score` column**: New card column tracking spec effectiveness, persisted in DB with full audit trail
+- **Config knobs**: `multiLensBrainstorm` (bool, default true), `creativeConstraintPct` (0-100, default 20), `specFeedbackLoop` (bool, default true) — all live-configurable via control panel
+- **API endpoints**: `GET /api/spec-intelligence` on both public and admin routes — returns spec score distribution, pattern analysis, constraint usage stats, review finding aggregation, and config state
+
 ## [2.1.0] - 2026-03-08
 
 ### Changed
@@ -20,8 +34,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - **start.sh/start.bat**: Entry point corrected from `node server.js` to `node src/server.js` — server would fail to start
-- **Architecture docs**: Table count corrected from 11 to 8 (removed phantom `users` and `activities` tables)
-- **Pitch deck**: License references updated from MIT to Apache 2.0, DB table count corrected
+- **Architecture docs**: Table count corrected from 11 to 8 (removed phantom `users` and `activities` tables), modal count corrected from 9 to 7
+- **API docs**: Added 14 undocumented endpoints (review, sessions, folders, ideas, feedback, promote, config, mode, audit, discovery, pending-actions), removed phantom `admin/verify`, moved `kill-all` to admin, updated SSE events from 6 to 12 types — total endpoints now 79
+- **Pitch deck**: License references updated from MIT to Apache 2.0, DB table count corrected, line count updated to 12K, endpoint count updated to 79
 
 ## [2.0.0] - 2026-03-08
 

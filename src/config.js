@@ -54,6 +54,14 @@ const runtime = {
   discoveryIntervalMins: Number(process.env.DISCOVERY_INTERVAL_MINS) || 30,
   // Max child todo cards per brainstorm initiative
   maxChildCards: Number(process.env.MAX_CHILD_CARDS) || 10,
+
+  // --- Spec Intelligence ---
+  // Multi-lens brainstorm: forces multi-perspective analysis before spec writing
+  multiLensBrainstorm: (process.env.MULTI_LENS_BRAINSTORM || 'true') === 'true',
+  // Percentage of brainstorms that receive a creative thinking constraint (0-100)
+  creativeConstraintPct: Number(process.env.CREATIVE_CONSTRAINT_PCT) || 20,
+  // Spec feedback loop: scores spec effectiveness, learns patterns over time
+  specFeedbackLoop: (process.env.SPEC_FEEDBACK_LOOP || 'true') === 'true',
 };
 
 // Housekeeping constants

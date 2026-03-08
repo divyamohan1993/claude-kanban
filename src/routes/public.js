@@ -279,6 +279,7 @@ router.get('/api/search', optionalAuth, function(req, res) {
   res.json(enrichCards(cards.search(req.query.q), !!req.user));
 });
 router.get('/api/metrics', optionalAuth, function(_req, res) { res.json(support.getMetrics()); });
+router.get('/api/spec-intelligence', optionalAuth, function(_req, res) { res.json(require('../services/spec-intelligence').getInsights()); });
 router.get('/api/export', requireAuth, function(_req, res) { res.json(support.exportBoard()); });
 
 router.get('/api/archive', optionalAuth, function(req, res) {
@@ -603,6 +604,8 @@ router.post('/api/cards/:id/approve', requireAuth, function(req, res) {
   cards.setApprovedBy(id, 'human');
   // Intelligence: learn from completed build
   intelligence.learnFromBuild(id);
+  // Spec intelligence: score spec effectiveness (human-approved)
+  try { require('../services/spec-intelligence').computeSpecEffectiveness(id, card.review_score || 7, 0, false); } catch (_) {}
   auditLog('approve', 'card', id, req.user.id, card ? card.status : '', 'complete', card ? card.title : '');
   broadcast('card-updated', enrichCard(cards.get(id)));
   const clResult = git.autoChangelog(id);

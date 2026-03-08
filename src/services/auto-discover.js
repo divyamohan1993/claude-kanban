@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { runtime, RUNTIME_DIR, getEffectiveProjectPath } = require('../config');
-const { cards } = require('../db');
+const { cards, config: dbConfig } = require('../db');
 const { broadcast } = require('../lib/broadcast');
 const { log } = require('../lib/logger');
 const { logPath, sendWebhook } = require('../lib/helpers');
@@ -179,16 +179,100 @@ function runDiscovery() {
   }, 5000);
 }
 
+function captureOriginalIdea(projectPath) {
+  if (dbConfig.get('original-idea')) return;
+  const files = ['idea.md', 'IDEAS.md', 'ROADMAP.md', 'TODO.md', 'README.md'];
+  const captured = [];
+  for (let i = 0; i < files.length; i++) {
+    const fp = path.join(projectPath, files[i]);
+    if (fs.existsSync(fp)) {
+      try {
+        const limit = files[i] === 'README.md' ? 3000 : 5000;
+        captured.push('--- ' + files[i] + ' ---\n' + fs.readFileSync(fp, 'utf-8').slice(0, limit));
+      } catch (_) {}
+    }
+  }
+  if (captured.length > 0) {
+    dbConfig.set('original-idea', captured.join('\n\n'));
+  }
+}
+
+function getCompletedWorkSummary() {
+  const allCards = cards.getAll().concat(cards.getArchived());
+  const completed = [];
+  for (let i = 0; i < allCards.length; i++) {
+    const c = allCards[i];
+    if (c.column_name === 'done' || c.column_name === 'archive') {
+      let entry = '- ' + c.title;
+      if (c.review_score) entry += ' (score: ' + c.review_score + '/10)';
+      if (c.labels) entry += ' [' + c.labels + ']';
+      completed.push(entry);
+    }
+  }
+  return completed;
+}
+
 function buildDiscoveryPrompt(projectPath) {
+  // --- Alignment tracking ---
+  const cycleCount = Number(dbConfig.get('brainstorm-cycle-count') || '0');
+  const isRogueCycle = cycleCount > 0 && (cycleCount + 1) % 4 === 0;
+
+  // Capture original idea on first run
+  captureOriginalIdea(projectPath);
+  const originalIdea = dbConfig.get('original-idea');
+
+  // Completed work summary
+  const completedWork = getCompletedWorkSummary();
+
   const parts = [];
   parts.push('You are an autonomous project analyst for a CI/CD kanban system.');
-  parts.push('Your job: analyze this project thoroughly and suggest exactly ' + Math.min(slots, 3) + ' high-impact improvements.');
+
+  if (isRogueCycle) {
+    parts.push('');
+    parts.push('## MODE: ROGUE INNOVATION (Cycle #' + (cycleCount + 1) + ')');
+    parts.push('This is a special innovation cycle. Think laterally and suggest exactly 1 UNEXPECTED feature.');
+    parts.push('Go beyond the original scope. Add functionality that seems unrelated but will prove useful in the future.');
+    parts.push('Think cross-domain: what adjacent capability would make this project surprisingly more powerful?');
+    parts.push('Examples: analytics dashboard for a CLI tool, plugin system for a monolith, AI-powered search for a CRUD app, WebSocket live-sync for a static site.');
+    parts.push('The feature MUST be fully integrated with the existing codebase, not a disconnected experiment.');
+  } else {
+    parts.push('Your job: analyze this project thoroughly and suggest exactly 1 high-impact improvement.');
+    parts.push('Stay tightly aligned with the project\'s original vision. Build on what exists, deepen it, strengthen it.');
+  }
   parts.push('');
+
+  // Original idea — north star
+  if (originalIdea) {
+    parts.push('## Original Project Vision (North Star)');
+    if (isRogueCycle) {
+      parts.push('The rogue feature should creatively complement this vision, not contradict it:');
+    } else {
+      parts.push('Every improvement must serve or extend this founding vision:');
+    }
+    parts.push(originalIdea);
+    parts.push('');
+  }
+
+  // Completed work — prevent duplication
+  if (completedWork.length > 0) {
+    parts.push('## Already Completed (' + completedWork.length + ' items)');
+    parts.push('Do NOT suggest anything that duplicates, undoes, or conflicts with this work:');
+    parts.push(completedWork.join('\n'));
+    parts.push('');
+  }
+
   parts.push('## Project Location');
   parts.push(projectPath);
   parts.push('');
+
+  parts.push('## Analysis Mandate');
+  parts.push('Read the ENTIRE codebase first. Every source file, config, test, and script.');
+  parts.push('Understand what the project does today before suggesting what it should do next.');
+  parts.push('Your suggestion must integrate seamlessly with the existing architecture.');
+  parts.push('');
+
   parts.push('## Analysis Checklist');
-  parts.push('Read the entire codebase. Check for:');
+  parts.push('Check for:');
   parts.push('1. **Bugs**: Runtime errors, logic flaws, edge cases, null handling');
   parts.push('2. **Security**: OWASP Top 10, injection, XSS, auth flaws, secrets in code');
   parts.push('3. **Performance**: N+1 queries, missing caching, bundle size, lazy loading');
@@ -224,6 +308,9 @@ function buildDiscoveryPrompt(projectPath) {
   parts.push('- Will this improve the user\'s life, or just look cleaner to developers?');
   parts.push('- Is the timing right, or is this premature optimization?');
   parts.push('- What\'s the cost of NOT doing this?');
+  if (isRogueCycle) {
+    parts.push('- For rogue features: will this age well? Will users discover it and be delighted?');
+  }
   parts.push('Only suggest things that pass this filter.');
   parts.push('');
   parts.push('## Output Format');
@@ -295,8 +382,12 @@ function processDiscoveryOutput(content, projectPath) {
   }
 
   if (created > 0) {
-    broadcast('toast', { message: 'Auto-discovery found ' + created + ' improvement(s)', type: 'success' });
-    sendWebhook('auto-discovery', { count: created, ideas: ideas.slice(0, created).map(function(i) { return i.title; }) });
+    const newCycle = Number(dbConfig.get('brainstorm-cycle-count') || '0') + 1;
+    dbConfig.set('brainstorm-cycle-count', String(newCycle));
+    const nextIsRogue = (newCycle + 1) % 4 === 0;
+    log.info({ cycle: newCycle, nextRogue: nextIsRogue }, 'Brainstorm cycle #' + newCycle + ' started');
+    broadcast('toast', { message: 'Auto-discovery: cycle #' + newCycle + (nextIsRogue ? ' (next: rogue innovation)' : ''), type: 'success' });
+    sendWebhook('auto-discovery', { count: created, cycle: newCycle, ideas: ideas.slice(0, created).map(function(i) { return i.title; }) });
   }
 }
 

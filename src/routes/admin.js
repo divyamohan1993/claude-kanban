@@ -13,6 +13,7 @@ const snapshot = require('../services/snapshot');
 const autoDiscover = require('../services/auto-discover');
 const brainstormSvc = require('../services/brainstorm');
 const intelligence = require('../services/intelligence');
+const specIntelligence = require('../services/spec-intelligence');
 
 const router = express.Router();
 
@@ -244,6 +245,11 @@ router.delete('/api/intelligence/learnings/:id', requireAdmin, function(req, res
   intelligence.removeLearning(Number(req.params.id));
   auditLog('delete-learning', 'learning', Number(req.params.id), req.user.id, '', '', 'manual removal');
   res.json({ success: true });
+});
+
+// --- Spec Intelligence ---
+router.get('/api/spec-intelligence', requireAdmin, function(_req, res) {
+  res.json(specIntelligence.getInsights());
 });
 
 // --- Checkpoints / Rollback ---

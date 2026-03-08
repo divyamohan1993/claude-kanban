@@ -25,6 +25,8 @@ All endpoints return JSON. Write endpoints require authentication. Read endpoint
 | `POST` | `/api/cards/:id/revert-files` | Revert files to pre-work snapshot |
 | `POST` | `/api/cards/:id/retry` | Retry build with specific feedback |
 | `POST` | `/api/cards/:id/stop` | Kill active build on this card |
+| `POST` | `/api/cards/:id/promote` | Promote brainstorm card to build queue |
+| `POST` | `/api/cards/:id/feedback` | Add feedback to a card |
 
 ### Card Metadata
 
@@ -42,6 +44,8 @@ All endpoints return JSON. Write endpoints require authentication. Read endpoint
 | `GET` | `/api/cards/:id/has-snapshot` | Check if pre-work snapshot exists |
 | `GET` | `/api/cards/:id/log/:type` | Read log file (brainstorm/build/review/fix) |
 | `GET` | `/api/cards/:id/log-stream` | SSE stream of live log output |
+| `GET` | `/api/cards/:id/review` | Review status and score |
+| `GET` | `/api/cards/:id/sessions` | Claude CLI sessions for this card |
 | `POST` | `/api/cards/:id/edit-file` | Inline file edit (path traversal protected) |
 | `POST` | `/api/cards/:id/preview` | Run preview command (whitelisted: pnpm/npm/node) |
 
@@ -67,6 +71,10 @@ All endpoints return JSON. Write endpoints require authentication. Read endpoint
 | `GET` | `/api/metrics` | Dashboard stats (scores, durations, counts) |
 | `GET` | `/api/queue` | Work queue status |
 | `GET` | `/api/activities` | Pipeline event log |
+| `GET` | `/api/folders` | List project folders |
+| `POST` | `/api/ideas` | Generate improvement ideas from project analysis |
+| `GET` | `/api/config` | Read runtime config (public view) |
+| `GET` | `/api/mode` | Auto-discover mode state |
 
 ### Pipeline Control
 
@@ -75,7 +83,6 @@ All endpoints return JSON. Write endpoints require authentication. Read endpoint
 | `GET` | `/api/pipeline` | Pipeline state (paused, active count, queued) |
 | `POST` | `/api/pipeline/pause` | Pause queue processing |
 | `POST` | `/api/pipeline/resume` | Resume queue processing |
-| `POST` | `/api/pipeline/kill-all` | Kill all builds + pause |
 
 ### Real-Time
 
@@ -163,7 +170,24 @@ All admin endpoints require the `admin` role.
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
 | `POST` | `/api/factory-reset` | Wipe everything (requires `{"confirm": true}`) |
-| `POST` | `/api/admin/verify` | Verify admin credentials |
+| `POST` | `/api/pipeline/kill-all` | Kill all builds + pause |
+
+### Audit
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/api/audit` | Full audit log (last 500 entries) |
+| `GET` | `/api/audit/card/:id` | Audit trail for a specific card |
+
+### Single-Project Mode
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/api/mode` | Mode state and config |
+| `PUT` | `/api/mode` | Update mode config |
+| `POST` | `/api/discovery/run` | Trigger manual discovery scan |
+| `GET` | `/api/pending-actions` | User actions pending approval |
+| `POST` | `/api/pending-actions/:id/resolve` | Resolve a pending action |
 
 ---
 
@@ -173,12 +197,18 @@ The `/api/events` stream emits these event types:
 
 | Event | Payload | When |
 |-------|---------|------|
+| `card-created` | Full card object | New card created |
 | `card-updated` | Full card object | Any card state change |
 | `card-deleted` | `{ id }` | Card soft-deleted |
-| `log-output` | `{ cardId, type, data }` | Build/review log line |
-| `pipeline-state` | `{ paused, activeCount }` | Pipeline pause/resume |
-| `config-updated` | `{ key, value }` | Runtime config changed |
-| `queue-updated` | Queue snapshot | Queue state change |
+| `card-activity` | `{ cardId, step, detail }` | Pipeline step progress |
+| `toast` | `{ message, type }` | User-facing notification |
+| `error` | `{ cardId, message }` | Pipeline error |
+| `pipeline-state` | `{ paused }` | Pipeline pause/resume |
+| `config-updated` | Config object | Runtime config changed |
+| `queue-update` | Queue snapshot | Queue state change |
+| `mode-updated` | Mode state | Single-project mode config changed |
+| `discovery-state` | `{ running }` | Discovery scan start/stop |
+| `usage-update` | Usage stats | Claude usage changed |
 
 ## Error Response Format
 

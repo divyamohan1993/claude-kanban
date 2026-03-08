@@ -47,62 +47,16 @@ The start script installs Node.js, pnpm, and dependencies if missing. Safe to re
 
 **Operations** — Two-server architecture: public board on `0.0.0.0`, admin panel on `127.0.0.1` only (kernel-level TCP reject). Tiered backups (5min/hourly/daily). Factory reset. SSO auth with Argon2id + JWT. Health probes at `/health` and `/health/ready`.
 
-## Configuration
+## Documentation
 
-Copy `.env.example` to `.env`. Everything is also live-editable from the control panel (gear icon in header).
-
-Key settings: `PORT` (default 51777), `PROJECTS_ROOT` (default ~/Projects), `MAX_CONCURRENT_BUILDS` (default 1), `BUILD_TIMEOUT_MINS` (default 60), `ADMIN_PASSWORD` / `USER_PASSWORD` (required for production). See [.env.example](.env.example) for full reference.
-
-## Security
-
-Two audits, 41 findings, 35 fixed. Argon2id passwords, JWT auth, rate limiting, CSP/HSTS/CORS, path traversal protection, command injection blocking, SSRF protection, graceful shutdown. Full details in [SECURITY-AUDIT.md](SECURITY-AUDIT.md).
-
-## Stack
-
-Express 4 + SQLite (WAL) + Vanilla JS. No framework, no build step, no bundler. Pino structured logging. Cross-platform (Windows `.bat` / Unix `.sh` wrappers).
-
-## Requirements
-
-- Node.js 18+ (auto-installed by start scripts)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI, authenticated
-- pnpm (auto-installed by start scripts)
-
-<details>
-<summary><strong>API Reference</strong></summary>
-
-### Public Server (port 51777)
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `GET/POST` | `/api/cards` | List / create cards |
-| `PUT/DELETE` | `/api/cards/:id` | Update / soft-delete |
-| `POST` | `/api/cards/:id/brainstorm` | Generate spec |
-| `POST` | `/api/cards/:id/start-work` | Queue build |
-| `POST` | `/api/cards/:id/approve` | Approve + commit |
-| `POST` | `/api/cards/:id/reject` | Reject + rollback |
-| `POST` | `/api/cards/:id/retry` | Retry with feedback |
-| `POST` | `/api/cards/:id/stop` | Stop active build |
-| `GET` | `/api/cards/:id/diff` | Snapshot vs current |
-| `GET` | `/api/cards/:id/log-stream` | SSE live log |
-| `GET/POST` | `/api/pipeline/*` | Pipeline state + controls |
-| `GET` | `/api/events` | SSE event stream |
-| `GET` | `/api/search?q=` | Search cards |
-| `GET` | `/api/metrics` | Board metrics |
-| `GET` | `/health` | Liveness probe |
-| `GET` | `/health/ready` | Readiness probe |
-
-### Admin Server (localhost only)
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `GET/PUT` | `/api/config` | Runtime configuration |
-| `GET/PUT` | `/api/custom-prompts` | AI instructions |
-| `GET` | `/api/usage` | Claude Max usage |
-| `GET/POST` | `/api/backups/*` | Backup management |
-| `GET` | `/api/intelligence` | Learned patterns |
-| `POST` | `/api/factory-reset` | Full wipe |
-
-</details>
+| Document | What you'll learn |
+|----------|-------------------|
+| [Architecture](docs/architecture.md) | Two-server design, service layer, database schema, how it all fits together |
+| [Pipeline](docs/pipeline.md) | Build-review-ship cycle, auto-fix loop, queue mechanics, self-healing |
+| [API Reference](docs/api.md) | All 69 endpoints — public, admin, SSE, health checks |
+| [Configuration](docs/configuration.md) | Every environment variable, runtime config, custom prompts |
+| [Deployment](docs/deployment.md) | Start/stop scripts, platform support, production hardening |
+| [Security Audit](docs/security-audit.md) | Two audits, 41 findings, 35 fixed — full remediation log |
 
 ## License
 

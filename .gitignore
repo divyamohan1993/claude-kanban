@@ -4,6 +4,7 @@ node_modules/
 # All runtime data (db, logs, snapshots, pid, server.log)
 .data/
 .playwright-mcp/
+docs/security-audit.md
 
 # Environment (contains credentials)
 .env

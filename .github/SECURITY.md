@@ -23,7 +23,7 @@ Instead, please email **divyamohan1993** on GitHub or open a [private security a
 
 ## Security Posture
 
-This project has undergone two formal security audits (41 findings, 35 fixed). See [SECURITY-AUDIT.md](SECURITY-AUDIT.md) for full details.
+This project has undergone two formal security audits (41 findings, 35 fixed). See [docs/security-audit.md](../docs/security-audit.md) for full details.
 
 ### Key protections
 

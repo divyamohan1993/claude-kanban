@@ -50,8 +50,8 @@ Use the [feature request template](https://github.com/divyamohan1993/claude-kanb
 
 ## Security issues
 
-See [SECURITY.md](SECURITY.md). Do not open public issues for vulnerabilities.
+See [SECURITY.md](SECURITY.md) in this directory. Do not open public issues for vulnerabilities.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [Apache 2.0 License](LICENSE).
+By contributing, you agree that your contributions will be licensed under the [Apache 2.0 License](../LICENSE).

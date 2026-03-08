@@ -55,6 +55,60 @@ function autoCommit(cardId) {
   }
 }
 
+function baselineCommit(cardId) {
+  const card = cards.get(cardId);
+  if (!card || !card.project_path) return { success: false, reason: 'No project path' };
+
+  const projectPath = card.project_path;
+  const markerPath = path.join(projectPath, '.pre-automation-checkpoint');
+
+  // One baseline per project — skip if marker already exists
+  if (fs.existsSync(markerPath)) {
+    return { success: true, action: 'already-checkpointed' };
+  }
+
+  if (!fs.existsSync(projectPath)) {
+    fs.mkdirSync(projectPath, { recursive: true });
+  }
+
+  const execOpts = { cwd: projectPath, stdio: 'pipe', windowsHide: true, timeout: 30000 };
+
+  try {
+    // Init git if needed
+    const isGitRepo = fs.existsSync(path.join(projectPath, '.git'));
+    if (!isGitRepo) {
+      execFileSync('git', ['init'], execOpts);
+      const gitignorePath = path.join(projectPath, '.gitignore');
+      if (!fs.existsSync(gitignorePath)) {
+        fs.writeFileSync(gitignorePath, 'node_modules/\n.env\n.task-complete\n.brainstorm-output-*\n');
+      }
+    }
+
+    // Create 0-byte safety checkpoint marker
+    fs.writeFileSync(markerPath, '');
+
+    // Stage everything
+    execFileSync('git', ['add', '-A'], execOpts);
+
+    const msg = 'checkpoint: pre-automation baseline — card #' + cardId
+      + '\n\nSafety snapshot before kanban automation touches this project.'
+      + '\nCard: "' + card.title + '"'
+      + '\nRevert to this commit to restore the pre-automation state.';
+
+    // Commit — use allow-empty if nothing staged (marker already existed)
+    try {
+      execFileSync('git', ['diff', '--cached', '--quiet'], execOpts);
+      execFileSync('git', ['commit', '--allow-empty', '-m', msg], execOpts);
+    } catch (_) {
+      execFileSync('git', ['commit', '-m', msg], execOpts);
+    }
+
+    return { success: true, action: 'baseline-committed' };
+  } catch (err) {
+    return { success: false, reason: err.message };
+  }
+}
+
 function autoChangelog(cardId) {
   const card = cards.get(cardId);
   if (!card || !card.project_path) return { success: false, reason: 'No project path' };
@@ -131,4 +185,4 @@ function autoChangelog(cardId) {
   }
 }
 
-module.exports = { autoCommit: autoCommit, autoChangelog: autoChangelog };
+module.exports = { autoCommit: autoCommit, baselineCommit: baselineCommit, autoChangelog: autoChangelog };

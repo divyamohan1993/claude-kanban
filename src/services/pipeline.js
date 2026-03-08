@@ -538,6 +538,17 @@ function executeWork(cardId, projectPath) {
 
   setActivity(cardId, 'snapshot', 'Snapshot taken (' + snapInfo.fileCount + ' files)');
 
+  // Pre-build baseline commit — second safety checkpoint before files are modified
+  try {
+    const git = require('./git');
+    const baseline = git.baselineCommit(cardId);
+    if (baseline.success) {
+      setActivity(cardId, 'checkpoint', 'Pre-build baseline committed');
+    }
+  } catch (err) {
+    log.warn({ cardId, err: err.message }, 'Pre-build baseline commit failed (non-fatal)');
+  }
+
   // Build CLAUDE.md
   const claudeParts = ['# Task: ' + card.title, ''];
   if (isExisting) {

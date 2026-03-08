@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [2.0.0] - 2026-03-08
 
 ### Added
+- **Pre-automation baseline commit**: Creates a git safety checkpoint (with 0-byte `.pre-automation-checkpoint` marker) before the first build touches a project folder. One checkpoint per project lifetime — subsequent builds skip if marker exists. Gives user a clean revert point to the pre-automation state
 - **SSO identity provider** (`src/sso/`): Self-contained auth module — JWT (HS256), Argon2id password hashing (64MB memory, timing-safe), login/logout/session endpoints, HTML login page. Drop-in replaceable with real OIDC/SAML — same interface, zero kanban code changes
 - **Role-based access control**: `admin` and `user` roles. Admin-only endpoints enforced via `requireAdmin` middleware. SSO-protected admin panel redirect with role check
 - **Intelligence service** (`src/services/intelligence.js`): Self-learning pattern engine — auto-labels cards from keyword patterns, tracks build durations and review scores per project, learns from retry feedback, auto-tunes config on repeated timeouts. 30+ seed rules, user patterns overtake at higher confidence

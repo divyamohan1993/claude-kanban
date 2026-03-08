@@ -39,6 +39,21 @@ const runtime = {
   claudeEffort: process.env.CLAUDE_EFFORT || 'high',
   maxFixAttempts: 2,
   maxReviewFixAttempts: 3,
+
+  // --- Single-Project Mode ---
+  // 'global' = multi-project (existing), 'single-project' = autonomous single folder
+  mode: process.env.KANBAN_MODE || 'global',
+  // Locked project folder. Empty + single-project → parent of ROOT_DIR.
+  singleProjectPath: process.env.SINGLE_PROJECT_PATH || '',
+  // true = brainstorm auto-decomposes into todo and auto-queues (fully autonomous)
+  // false = brainstorm stays for human to manually approve/promote to todo
+  autoPromoteBrainstorm: (process.env.AUTO_PROMOTE_BRAINSTORM || 'true') === 'true',
+  // Max brainstorm cards queued/active at once in single-project mode
+  maxBrainstormQueue: Number(process.env.MAX_BRAINSTORM_QUEUE) || 3,
+  // Auto-discovery scan interval (minutes). 0 = disabled.
+  discoveryIntervalMins: Number(process.env.DISCOVERY_INTERVAL_MINS) || 30,
+  // Max child todo cards per brainstorm initiative
+  maxChildCards: Number(process.env.MAX_CHILD_CARDS) || 10,
 };
 
 // Housekeeping constants
@@ -47,27 +62,28 @@ const SNAPSHOT_ARCHIVE_RETENTION_DAYS = 14;
 const MAX_AUDIT_ROWS = 10000;
 const RUNTIME_STALE_HOURS = 24;
 
-// H3 fix: auto-generate ADMIN_PIN if not set
-var ADMIN_PIN = process.env.ADMIN_PIN || '';
-if (!ADMIN_PIN) {
-  // Ensure DATA_DIR exists for storing generated PIN
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  var pinFile = path.join(DATA_DIR, '.generated-pin');
-  try {
-    if (fs.existsSync(pinFile)) {
-      ADMIN_PIN = fs.readFileSync(pinFile, 'utf-8').trim();
-    }
-  } catch (_) {}
-  if (!ADMIN_PIN) {
-    ADMIN_PIN = crypto.randomInt(100000, 999999).toString();
-    try { fs.writeFileSync(pinFile, ADMIN_PIN); } catch (_) {}
-  }
-  // H1 fix: never print PIN to stdout — credentials leak to log aggregators in prod
-  console.log('\n  *** ADMIN_PIN auto-generated — see .data/.generated-pin ***');
-  console.log('  Set ADMIN_PIN in .env to use your own.\n');
+// Ensure DATA_DIR exists
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// Resolve effective project path for single-project mode
+function getEffectiveProjectPath() {
+  if (runtime.mode !== 'single-project') return null;
+  if (runtime.singleProjectPath) return path.resolve(runtime.singleProjectPath);
+  // Default: parent of ROOT_DIR (claude-kanban/ lives inside the project)
+  return path.resolve(ROOT_DIR, '..');
 }
 
-var PORT = Number(process.env.PORT) || 51777;
+const PORT = Number(process.env.PORT) || 51777;
+
+// Admin port: env override or random ephemeral port each start
+const ADMIN_PORT = process.env.ADMIN_PORT
+  ? Number(process.env.ADMIN_PORT)
+  : 49152 + crypto.randomInt(16383); // 49152–65535
+
+// Admin path: env override or random 52-char hex string each start
+const ADMIN_PATH = process.env.ADMIN_PATH
+  ? process.env.ADMIN_PATH.replace(/^\/+|\/+$/g, '')
+  : crypto.randomBytes(26).toString('hex'); // 52 hex chars
 
 module.exports = {
   IS_WIN,
@@ -93,6 +109,7 @@ module.exports = {
   MAX_AUDIT_ROWS,
   RUNTIME_STALE_HOURS,
   PORT: PORT,
-  ADMIN_PORT: Number(process.env.ADMIN_PORT) || PORT + 1,
-  ADMIN_PIN: ADMIN_PIN,
+  ADMIN_PORT: ADMIN_PORT,
+  ADMIN_PATH: ADMIN_PATH,
+  getEffectiveProjectPath: getEffectiveProjectPath,
 };

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?t=__BUST__">
 </head>
 <body>
   <header>
@@ -18,21 +18,59 @@
         <span class="subtitle">Autonomous AI Orchestrator &middot; by Claude &times; Divya Mohan</span>
       </div>
     </div>
-    <div class="header-search">
+    <div class="header-search" style="display:none">
       <input type="text" id="search-input" placeholder="Search cards..." aria-label="Search cards" autocomplete="off">
     </div>
-    <div class="header-stats" id="header-stats"></div>
-    <div class="pipeline-controls" id="pipeline-controls"></div>
-    <button class="btn btn-ghost btn-icon" id="admin-btn" title="Control Panel" aria-label="Control Panel">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6.7 1.2a1.2 1.2 0 0 1 2.4 0l.2 1.1a.6.6 0 0 0 .8.4l1-.5a1.2 1.2 0 0 1 1.7 1.2l-.3 1.1a.6.6 0 0 0 .4.7l1 .4a1.2 1.2 0 0 1 0 2.3l-1 .4a.6.6 0 0 0-.4.7l.3 1.1a1.2 1.2 0 0 1-1.7 1.2l-1-.5a.6.6 0 0 0-.8.4l-.2 1.1a1.2 1.2 0 0 1-2.4 0l-.2-1.1a.6.6 0 0 0-.8-.4l-1 .5a1.2 1.2 0 0 1-1.7-1.2l.3-1.1a.6.6 0 0 0-.4-.7l-1-.4a1.2 1.2 0 0 1 0-2.3l1-.4a.6.6 0 0 0 .4-.7l-.3-1.1a1.2 1.2 0 0 1 1.7-1.2l1 .5a.6.6 0 0 0 .8-.4l.2-1.1zM8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/></svg>
-    </button>
-    <button class="btn btn-ghost btn-icon" id="theme-toggle" title="Toggle theme" aria-label="Toggle dark mode">
-      <svg id="theme-icon-light" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-      <svg id="theme-icon-dark" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="display:none"><path d="M13.36 10.06A6 6 0 015.94 2.64 7 7 0 1013.36 10.06z"/></svg>
-    </button>
-    <button class="btn btn-ghost" id="archive-btn" style="font-size:12px" title="View archived/completed cards">Archive</button>
-    <button class="btn btn-primary" id="add-btn" title="Create a new kanban card (keyboard: N)">+ New Card</button>
+    <div class="header-right">
+      <div class="header-stats" id="header-stats" style="display:none"></div>
+      <div class="pipeline-controls" id="pipeline-controls" style="display:none"></div>
+      <button class="btn btn-ghost btn-icon" id="admin-btn" style="display:none" title="Control Panel" aria-label="Control Panel">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.07 7.07 0 0 0 .06-.94c0-.32-.02-.64-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.04 7.04 0 0 0-1.62-.94l-.36-2.54A.48.48 0 0 0 13.93 2h-3.84a.48.48 0 0 0-.48.41l-.36 2.54a7.04 7.04 0 0 0-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.47a.48.48 0 0 0 .12.61l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54a7.04 7.04 0 0 0 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
+      </button>
+      <button class="btn btn-ghost btn-icon" id="theme-toggle" title="Toggle theme" aria-label="Toggle dark mode">
+        <svg id="theme-icon-light" width="22" height="22" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        <svg id="theme-icon-dark" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <div class="mode-indicator" id="mode-indicator" style="display:none"></div>
+      <button class="btn btn-ghost" id="archive-btn" style="font-size:12px; display:none" title="View archived/completed cards">Archive</button>
+      <button class="btn btn-primary" id="add-btn" style="display:none" title="Create a new idea (keyboard: N)">+ New Idea</button>
+      <button class="btn btn-ghost" id="sign-in-btn" style="font-size:12px" title="Sign in">Sign In</button>
+      <button class="btn btn-ghost" id="sign-out-btn" style="font-size:12px; display:none" title="Sign out">Sign Out</button>
+    </div>
   </header>
+
+  <!-- Idea Modal — natural language input for ideas and feedback -->
+  <div class="modal-overlay" id="idea-modal" role="dialog" aria-labelledby="idea-modal-title">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <h2 id="idea-modal-title">New Idea</h2>
+        <button class="modal-close" id="idea-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="idea-hint" id="idea-hint">Describe what you want to build. A new project folder will be created automatically.</p>
+      <div class="idea-bar-inner">
+        <div class="idea-target-tag" id="idea-target-tag" style="display:none">
+          <span id="idea-target-name"></span>
+          <button class="idea-folder-clear" id="idea-target-clear" title="Cancel feedback">&times;</button>
+        </div>
+        <textarea id="idea-input" placeholder="I want to build a..." rows="3" maxlength="5000"></textarea>
+        <div class="idea-controls">
+          <div class="idea-controls-left">
+            <button class="idea-btn" id="idea-folder" title="Select existing project folder">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+            </button>
+            <div class="idea-folder-tag" id="idea-folder-tag" style="display:none">
+              <span id="idea-folder-name"></span>
+              <button class="idea-folder-clear" id="idea-folder-clear" title="Remove folder selection">&times;</button>
+            </div>
+            <button class="idea-btn idea-mic-btn" id="idea-mic" title="Voice input">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+            </button>
+          </div>
+          <button class="btn btn-primary" id="idea-send">Submit Idea</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Search Results Dropdown -->
   <div class="search-results" id="search-results" role="listbox" aria-label="Search results"></div>
@@ -124,20 +162,6 @@
     </div>
   </div>
 
-  <!-- Login Overlay (shown when session required) -->
-  <div class="login-overlay" id="login-overlay">
-    <div class="login-box">
-      <div class="login-logo" aria-hidden="true">&#9670;</div>
-      <div class="login-title">Claude Kanban</div>
-      <div class="login-sub">Enter PIN to continue</div>
-      <form id="login-form" autocomplete="off">
-        <input type="password" class="login-input" id="login-pin" placeholder="PIN" autocomplete="off" maxlength="64" aria-label="Admin PIN">
-        <div class="login-err" id="login-err"></div>
-        <button type="submit" class="login-btn" id="login-btn">Sign In</button>
-      </form>
-    </div>
-  </div>
-
   <!-- Toast container -->
   <div id="toasts" aria-live="polite"></div>
 
@@ -146,6 +170,6 @@
     Press <kbd>?</kbd> for shortcuts
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?t=__BUST__"></script>
 </body>
 </html>

@@ -6,12 +6,15 @@ var COLUMNS = [
   { id: 'done', label: 'Done' },
 ];
 
+var userRole = 'public'; // 'public' | 'user' | 'admin'
+var adminPath = '/admin'; // configurable via ADMIN_PATH env, returned in session for admins
 var state = { cards: [] };
 var dragCardId = null;
 var queueInfo = { queue: [], active: [] };
 var cardActivities = {};
 var selectedCardId = null;
 var pipelinePaused = false;
+var boardMode = { mode: 'global', autoPromoteBrainstorm: true, discoveryRunning: false };
 
 var lastVisitTime = (function() {
   var t = localStorage.getItem('claude-kanban-last-visit');
@@ -92,17 +95,9 @@ function labelClass(label) {
   return LABEL_CLASSES[label.toLowerCase().trim()] || 'label-default';
 }
 
-// --- Auth (server-side sessions — frontend never sees tokens) ---
+// --- Auth (SSO — login handled by /auth/login, owned by SSO module) ---
 function showLogin() {
-  var overlay = document.getElementById('login-overlay');
-  if (overlay) overlay.classList.remove('hidden');
-  var inp = document.getElementById('login-pin');
-  if (inp) inp.focus();
-}
-
-function hideLogin() {
-  var overlay = document.getElementById('login-overlay');
-  if (overlay) overlay.classList.add('hidden');
+  window.location.href = '/auth/login?return=' + encodeURIComponent(location.pathname);
 }
 
 // Check session on load — always init the board (reads are open).
@@ -110,49 +105,59 @@ function hideLogin() {
 // If not authenticated, server returns cards without actions — UI shows no buttons.
 async function checkSession() {
   try {
-    var res = await fetch('/api/auth/session');
+    var res = await fetch('/auth/session');
     var data = await res.json();
     if (data.authenticated) {
-      hideLogin();
+      userRole = data.user.role || 'user';
+      if (data.adminPath) adminPath = data.adminPath;
+    } else {
+      userRole = 'public';
     }
-    // Always init — board is viewable by everyone
-    init();
   } catch (_) {
-    // Even on auth error, load the board (read-only view)
-    init();
+    userRole = 'public';
   }
+  applyRoleUI();
+  init();
 }
 
-// Login form handler
+// Role-based UI — server decides actions, frontend decides chrome visibility
+function applyRoleUI() {
+  var isPublic = (userRole === 'public');
+  var isAdmin = (userRole === 'admin');
+
+  var searchEl = document.querySelector('.header-search');
+  var statsEl = document.getElementById('header-stats');
+  var pipelineEl = document.getElementById('pipeline-controls');
+  var adminBtn = document.getElementById('admin-btn');
+  var archiveBtn = document.getElementById('archive-btn');
+  var addBtn = document.getElementById('add-btn');
+  var signInBtn = document.getElementById('sign-in-btn');
+  var signOutBtn = document.getElementById('sign-out-btn');
+
+  if (searchEl) searchEl.style.display = isPublic ? 'none' : '';
+  if (statsEl) statsEl.style.display = isPublic ? 'none' : '';
+  if (pipelineEl) pipelineEl.style.display = isPublic ? 'none' : '';
+  if (adminBtn) adminBtn.style.display = isAdmin ? '' : 'none';
+  if (archiveBtn) archiveBtn.style.display = isPublic ? 'none' : '';
+  if (addBtn) addBtn.style.display = isPublic ? 'none' : '';
+  if (signInBtn) signInBtn.style.display = isPublic ? '' : 'none';
+  if (signOutBtn) signOutBtn.style.display = isPublic ? 'none' : '';
+}
+
+// Sign In button redirects to SSO login page
 (function() {
-  var form = document.getElementById('login-form');
-  if (!form) return;
-  form.onsubmit = function(e) {
-    e.preventDefault();
-    var pin = document.getElementById('login-pin').value;
-    var btn = document.getElementById('login-btn');
-    var err = document.getElementById('login-err');
-    btn.disabled = true;
-    err.textContent = '';
-    fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify({ pin: pin })
-    }).then(function(r) { return r.json(); }).then(function(d) {
-      btn.disabled = false;
-      if (d.ok) {
-        hideLogin();
-        init();
-      } else {
-        err.textContent = 'Invalid PIN. Try again.';
-        document.getElementById('login-pin').value = '';
-        document.getElementById('login-pin').focus();
-      }
-    }).catch(function() {
-      btn.disabled = false;
-      err.textContent = 'Connection error.';
+  var signInBtn = document.getElementById('sign-in-btn');
+  if (signInBtn) {
+    signInBtn.addEventListener('click', function() { showLogin(); });
+  }
+  var signOutBtn = document.getElementById('sign-out-btn');
+  if (signOutBtn) {
+    signOutBtn.addEventListener('click', function() {
+      fetch('/auth/logout', { method: 'POST' }).finally(function() {
+        window.location.reload();
+      });
     });
-  };
+  }
 })();
 
 // --- API ---
@@ -228,6 +233,18 @@ function connectSSE() {
   es.addEventListener('config-updated', function(e) {
     state.config = JSON.parse(e.data);
     render();
+  });
+
+  es.addEventListener('mode-updated', function(e) {
+    try { boardMode = JSON.parse(e.data); applyModeUI(); render(); } catch (_) {}
+  });
+
+  es.addEventListener('discovery-state', function(e) {
+    try {
+      var d = JSON.parse(e.data);
+      boardMode.discoveryRunning = d.running;
+      applyModeUI();
+    } catch (_) {}
   });
 
   es.addEventListener('toast', function(e) {
@@ -390,23 +407,64 @@ function renderColumn(col, colCards) {
     if (dragCardId != null) { moveCard(dragCardId, col.id); dragCardId = null; }
   });
 
+  // Group cards: standalone cards first, then initiative sub-task groups
+  var standalone = [];
+  var initiativeGroups = {}; // parentId -> [cards]
   for (var i = 0; i < colCards.length; i++) {
-    list.appendChild(renderCard(colCards[i]));
+    var disp = colCards[i].display || {};
+    if (disp.initiativeId) {
+      if (!initiativeGroups[disp.initiativeId]) initiativeGroups[disp.initiativeId] = [];
+      initiativeGroups[disp.initiativeId].push(colCards[i]);
+    } else {
+      standalone.push(colCards[i]);
+    }
   }
+
+  // Render standalone cards
+  for (var si = 0; si < standalone.length; si++) {
+    list.appendChild(renderCard(standalone[si]));
+  }
+
+  // Render initiative groups with visual connectors
+  var groupIds = Object.keys(initiativeGroups);
+  for (var gi = 0; gi < groupIds.length; gi++) {
+    var groupCards = initiativeGroups[groupIds[gi]];
+    var parentTitle = groupCards[0].display.parentTitle || 'Initiative #' + groupIds[gi];
+
+    var group = el('div', { className: 'initiative-group' });
+    group.appendChild(el('div', { className: 'initiative-group-header' }, [
+      el('span', { className: 'initiative-group-dot' }),
+      el('span', { className: 'initiative-group-label', textContent: parentTitle }),
+    ]));
+
+    for (var ci = 0; ci < groupCards.length; ci++) {
+      var isLast = (ci === groupCards.length - 1);
+      var wrapper = el('div', { className: 'initiative-card-wrapper' + (isLast ? ' last' : '') });
+      wrapper.appendChild(renderCard(groupCards[ci]));
+      group.appendChild(wrapper);
+    }
+
+    list.appendChild(group);
+  }
+
   colEl.appendChild(list);
   return colEl;
 }
 
 function renderCard(card) {
-  var cardEl = el('div', { className: 'card' + (card.id === selectedCardId ? ' card-selected' : ''), draggable: 'true', 'data-id': card.id });
-  cardEl.addEventListener('dragstart', function() { dragCardId = card.id; cardEl.classList.add('dragging'); });
+  var isAuthed = (userRole !== 'public');
+  var cardEl = el('div', { className: 'card' + (card.id === selectedCardId ? ' card-selected' : ''), draggable: isAuthed ? 'true' : 'false', 'data-id': card.id });
+  if (isAuthed) cardEl.addEventListener('dragstart', function() { dragCardId = card.id; cardEl.classList.add('dragging'); });
   cardEl.addEventListener('dragend', function() { cardEl.classList.remove('dragging'); dragCardId = null; });
 
   cardEl.appendChild(el('div', { className: 'card-accent' }));
 
-  var title = el('div', { className: 'card-title', textContent: card.title, style: 'cursor:pointer' });
-  title.addEventListener('click', function() { showDetail(card); });
-  cardEl.appendChild(title);
+  var titleRow = el('div', { className: 'card-title-row', style: 'cursor:pointer' }, [
+    el('span', { className: 'card-id', textContent: '#' + card.id }),
+    el('span', { className: 'card-title', textContent: card.title }),
+  ]);
+  titleRow.addEventListener('click', function() { showDetail(card); });
+  cardEl.appendChild(titleRow);
 
   if (card.description) {
     cardEl.appendChild(el('div', { className: 'card-desc', textContent: card.description }));
@@ -490,8 +548,10 @@ function renderCard(card) {
   var id = card.id;
   var ca = card.actions || [];
 
-  // Info button always visible
-  actions.appendChild(btn('Info', 'btn-sm btn-ghost btn-info', function() { showDetail(card); }, 'View full card details, spec, and logs'));
+  // Info button — only for authenticated users (public sees no interactive elements)
+  if (isAuthed) {
+    actions.appendChild(btn('Info', 'btn-sm btn-ghost btn-info', function() { showDetail(card); }, 'View full card details, spec, and logs'));
+  }
 
   // Action button map — server says which ones, we just render them
   var ACTION_MAP = {
@@ -507,16 +567,29 @@ function renderCard(card) {
     'reject': ['Reject', 'btn-sm btn-ghost', function() { doReject(id); }, 'Reject and rollback file changes'],
     'revert': ['Revert', 'btn-sm btn-ghost', function() { doRevert(id); }, 'Revert files to pre-build state'],
     'discard': ['Discard', 'btn-sm btn-ghost', function() { deleteCard(id); }, 'Permanently delete this card'],
+    'delete': ['Delete', 'btn-sm btn-ghost', function() { deleteCard(id); }, 'Delete this card'],
     'edit': ['Edit', 'btn-sm btn-ghost', function() { editCard(id); }, 'Edit card title and description'],
-    'open-vscode': ['VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(id); }, 'Open project in VS Code'],
-    'open-terminal': ['Terminal', 'btn-sm btn-ghost', function() { doOpenTerminal(id); }, 'Open terminal in project folder'],
-    'open-claude': ['Claude', 'btn-sm btn-ghost', function() { doOpenClaude(id); }, 'Open Claude CLI in project folder'],
+    'edit-spec': ['Spec', 'btn-sm btn-ghost', function() { showDetail(card); }, 'View and edit specification'],
+    'feedback': ['Feedback', 'btn-sm btn-ghost', function() { setIdeaFeedbackMode(id, card.title); }, 'Give feedback to refine this card'],
+    'retry-with-feedback': ['Feedback', 'btn-sm btn-ghost', function() {
+      var fb = prompt('What should be fixed specifically?');
+      if (!fb) return;
+      api('/cards/' + id + '/retry', { method: 'POST', body: { feedback: fb } })
+        .then(function() { toast('Retry with feedback started', 'success'); })
+        .catch(function(e) { toast(e.message, 'error'); });
+    }, 'Retry with specific instructions'],
+    'archive': ['Archive', 'btn-sm btn-ghost', function() {
+      api('/cards/' + id + '/move', { method: 'POST', body: { column: 'archive', source: 'human' } })
+        .then(function() { toast('Archived', 'success'); })
+        .catch(function(e) { toast(e.message, 'error'); });
+    }, 'Move to archive'],
     'preview': ['Preview', 'btn-sm btn-ghost', function() { doPreview(id); }, 'Run the project and preview it'],
     'diff': ['Diff', 'btn-sm btn-ghost', function() { showDiff(id); }, 'View file changes'],
     'view-findings': ['Findings', 'btn-sm btn-ghost', function() { showFindings(id); }, 'View AI review findings'],
     'view-log': ['Log', 'btn-sm btn-ghost btn-log', function() { showLiveLog(id, 'build'); }, 'Watch live build output'],
     'view-fix-log': ['Log', 'btn-sm btn-ghost btn-log', function() { showLiveLog(id, 'review-fix'); }, 'Watch auto-fix output'],
     'unarchive': ['Unarchive', 'btn-sm btn-ghost', function() { api('/cards/' + id + '/unarchive', { method: 'POST' }).then(function() { loadCards(); toast('Unarchived', 'success'); }).catch(function(e) { toast(e.message, 'error'); }); }, 'Restore from archive'],
+    'promote': ['Promote', 'btn-sm btn-primary', function() { doPromote(id); }, 'Approve and decompose into tasks'],
   };
 
   for (var ai = 0; ai < ca.length; ai++) {
@@ -599,6 +672,8 @@ async function doBrainstorm(id) {
     if (e.code === 'NEEDS_PROJECT') {
       // Server says project path required — show folder detection
       doDetect(id, 'brainstorm');
+    } else if (e.code === 'BRAINSTORM_BLOCKED') {
+      toast(e.message || 'Brainstorm blocked — complete current initiative first', 'warning');
     } else {
       toast(e.message || 'Brainstorm failed', 'error');
     }
@@ -664,6 +739,15 @@ async function doPreview(id) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+async function doPromote(id) {
+  try {
+    toast('Promoting brainstorm — decomposing into tasks...', 'info');
+    await api('/cards/' + id + '/promote', { method: 'POST' });
+    toast('Promoted! Child tasks being created.', 'success');
+    await loadCards();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 async function moveCard(id, column) {
   await api('/cards/' + id + '/move', { method: 'POST', body: { column: column, source: 'human' } });
 }
@@ -678,15 +762,7 @@ async function deleteCard(id) {
 var cardModal = document.getElementById('card-modal');
 var cardForm = document.getElementById('card-form');
 
-document.getElementById('add-btn').addEventListener('click', function() {
-  document.getElementById('card-id').value = '';
-  document.getElementById('card-title').value = '';
-  document.getElementById('card-desc').value = '';
-  document.getElementById('card-labels').value = '';
-  document.getElementById('modal-title').textContent = 'New Card';
-  cardModal.classList.add('active');
-  document.getElementById('card-title').focus();
-});
+// add-btn now wired in idea modal section above
 
 document.getElementById('modal-close').addEventListener('click', function() { cardModal.classList.remove('active'); });
 document.getElementById('modal-cancel').addEventListener('click', function() { cardModal.classList.remove('active'); });
@@ -831,9 +907,6 @@ function showDetail(card) {
   // Project actions
   if (card.project_path) {
     var acts = el('div', { className: 'detail-actions' });
-    acts.appendChild(btn('VSCode', 'btn-sm btn-ghost', function() { doOpenVSCode(card.id); }));
-    acts.appendChild(btn('Terminal', 'btn-sm btn-ghost', function() { doOpenTerminal(card.id); }));
-    acts.appendChild(btn('Claude', 'btn-sm btn-ghost', function() { doOpenClaude(card.id); }));
     acts.appendChild(btn('View Diff', 'btn-sm btn-ghost', function() { detailModal.classList.remove('active'); showDiff(card.id); }));
     body.appendChild(acts);
   }
@@ -1184,13 +1257,9 @@ function updateThemeIcon() {
 document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
 
 // --- Admin / Control Panel ---
-document.getElementById('admin-btn').addEventListener('click', async function() {
-  try {
-    var info = await api('/admin-info');
-    window.open('http://localhost:' + info.port, '_blank');
-  } catch (_) {
-    toast('Cannot reach admin server', 'error');
-  }
+document.getElementById('admin-btn').addEventListener('click', function() {
+  // Path from session (admin-only), redirects to admin server via DB-stored port
+  window.open(adminPath, '_blank');
 });
 
 // --- Archive ---
@@ -1486,6 +1555,231 @@ function updatePauseBtnContent(pauseBtn) {
   }
 }
 
+// --- Mode UI ---
+function applyModeUI() {
+  var addBtn = document.getElementById('add-btn');
+  var modeIndicator = document.getElementById('mode-indicator');
+
+  // Hide "New Card" button in single-project mode or for public users
+  if (addBtn) {
+    addBtn.style.display = (boardMode.mode === 'single-project' || userRole === 'public') ? 'none' : '';
+  }
+
+  // Mode indicator already exists in index.html
+  if (!modeIndicator) return;
+
+  if (boardMode.mode === 'single-project') {
+    var parts = [];
+    parts.push(el('span', { className: 'mode-badge mode-single', textContent: 'Single Project' }));
+    if (boardMode.discoveryRunning) {
+      parts.push(el('span', { className: 'spinner spinner-sm' }));
+      parts.push(el('span', { className: 'mode-discovery', textContent: 'Scanning...' }));
+    }
+    if (boardMode.hasActiveInitiative) {
+      parts.push(el('span', { className: 'mode-initiative', textContent: 'Initiative active' }));
+    }
+    modeIndicator.textContent = '';
+    for (var i = 0; i < parts.length; i++) modeIndicator.appendChild(parts[i]);
+    modeIndicator.style.display = '';
+  } else {
+    modeIndicator.style.display = 'none';
+  }
+}
+
+// --- Idea Modal — natural language input for ideas and feedback ---
+var ideaModal = document.getElementById('idea-modal');
+var ideaInput = document.getElementById('idea-input');
+var ideaSend = document.getElementById('idea-send');
+var ideaMic = document.getElementById('idea-mic');
+var ideaFolderBtn = document.getElementById('idea-folder');
+var ideaFolderTag = document.getElementById('idea-folder-tag');
+var ideaFolderName = document.getElementById('idea-folder-name');
+var ideaFolderClear = document.getElementById('idea-folder-clear');
+var ideaTargetTag = document.getElementById('idea-target-tag');
+var ideaTargetName = document.getElementById('idea-target-name');
+var ideaTargetClear = document.getElementById('idea-target-clear');
+var ideaClose = document.getElementById('idea-close');
+var ideaHint = document.getElementById('idea-hint');
+var ideaModalTitle = document.getElementById('idea-modal-title');
+var ideaSelectedFolder = null;
+var ideaFeedbackCardId = null;
+
+function openIdeaModal() {
+  clearIdeaFeedbackMode();
+  ideaInput.value = '';
+  ideaModal.classList.add('active');
+  ideaInput.focus();
+}
+
+function closeIdeaModal() {
+  ideaModal.classList.remove('active');
+  clearIdeaFeedbackMode();
+}
+
+if (ideaClose) ideaClose.addEventListener('click', closeIdeaModal);
+if (ideaModal) ideaModal.addEventListener('click', function(e) { if (e.target === ideaModal) closeIdeaModal(); });
+
+// Wire "+ New Idea" button to open idea modal
+document.getElementById('add-btn').addEventListener('click', function() {
+  openIdeaModal();
+});
+
+// Folder picker — lists project directories
+if (ideaFolderBtn) ideaFolderBtn.addEventListener('click', function() {
+  document.getElementById('folder-modal-title').textContent = 'Select Project Folder';
+  document.getElementById('folder-desc').textContent = 'Loading folders...';
+  var matchesDiv = document.getElementById('folder-matches');
+  var newDiv = document.getElementById('folder-new');
+  matchesDiv.textContent = '';
+  newDiv.textContent = '';
+  document.getElementById('folder-modal').classList.add('active');
+  api('/folders').then(function(result) {
+    var root = result.root || '';
+    var sep = root.indexOf('\\') >= 0 ? '\\' : '/';
+    if (result.folders && result.folders.length > 0) {
+      for (var i = 0; i < result.folders.length; i++) {
+        (function(name) {
+          var fullPath = root + sep + name;
+          var row = el('div', { className: 'folder-match', style: 'cursor:pointer;padding:8px 12px;border-radius:6px;margin-bottom:4px' }, [
+            el('span', { textContent: name, style: 'font-weight:600;font-size:13px' }),
+          ]);
+          row.addEventListener('click', function() {
+            ideaSelectedFolder = fullPath;
+            ideaFolderName.textContent = name;
+            ideaFolderTag.style.display = '';
+            document.getElementById('folder-modal').classList.remove('active');
+          });
+          matchesDiv.appendChild(row);
+        })(result.folders[i]);
+      }
+      var msg = result.folders.length + ' project folder(s) in ' + root + '. Pick one or cancel to auto-create new.';
+      if (result.hidden > 0) {
+        msg += ' (' + result.hidden + ' system/hidden folder' + (result.hidden > 1 ? 's' : '') + ' not shown)';
+      }
+      document.getElementById('folder-desc').textContent = msg;
+    } else {
+      var emptyMsg = 'No project folders found in ' + root + '. A new one will be created.';
+      if (result.hidden > 0) {
+        emptyMsg += ' (' + result.hidden + ' system/hidden folder' + (result.hidden > 1 ? 's' : '') + ' not shown)';
+      }
+      document.getElementById('folder-desc').textContent = emptyMsg;
+    }
+  }).catch(function() {
+    document.getElementById('folder-desc').textContent = 'Could not list folders. A new folder will be created automatically.';
+  });
+});
+
+if (ideaFolderClear) ideaFolderClear.addEventListener('click', function() {
+  ideaSelectedFolder = null;
+  ideaFolderTag.style.display = 'none';
+});
+
+// Feedback mode — activated by clicking Feedback button on a card
+function setIdeaFeedbackMode(cardId, cardTitle) {
+  ideaFeedbackCardId = cardId;
+  ideaModalTitle.textContent = 'Feedback';
+  ideaHint.textContent = 'Feedback for #' + cardId + ': ' + cardTitle;
+  ideaTargetName.textContent = '#' + cardId + ' ' + cardTitle;
+  ideaTargetTag.style.display = '';
+  ideaFolderBtn.style.display = 'none';
+  ideaFolderTag.style.display = 'none';
+  ideaInput.placeholder = 'What should be changed or improved?';
+  ideaInput.value = '';
+  ideaSend.textContent = 'Send Feedback';
+  ideaModal.classList.add('active');
+  ideaInput.focus();
+}
+
+function clearIdeaFeedbackMode() {
+  ideaFeedbackCardId = null;
+  if (ideaTargetTag) ideaTargetTag.style.display = 'none';
+  if (ideaFolderBtn) ideaFolderBtn.style.display = '';
+  if (ideaModalTitle) ideaModalTitle.textContent = 'New Idea';
+  if (ideaHint) ideaHint.textContent = 'Describe what you want to build. A new project folder will be created automatically.';
+  if (ideaInput) ideaInput.placeholder = 'I want to build a...';
+  if (ideaSend) ideaSend.textContent = 'Submit Idea';
+}
+
+if (ideaTargetClear) ideaTargetClear.addEventListener('click', function() {
+  clearIdeaFeedbackMode();
+});
+
+// Submit idea or feedback
+async function submitIdea() {
+  var text = ideaInput.value.trim();
+  if (!text) return;
+
+  if (ideaFeedbackCardId) {
+    try {
+      await api('/cards/' + ideaFeedbackCardId + '/feedback', { method: 'POST', body: { text: text } });
+      toast('Feedback sent for #' + ideaFeedbackCardId, 'success');
+      closeIdeaModal();
+    } catch (e) { toast(e.message, 'error'); }
+  } else {
+    try {
+      var body = { text: text };
+      if (ideaSelectedFolder) body.projectPath = ideaSelectedFolder;
+      var card = await api('/ideas', { method: 'POST', body: body });
+      toast('Idea #' + card.id + ' created — brainstorming...', 'success');
+      closeIdeaModal();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+}
+
+if (ideaSend) ideaSend.addEventListener('click', submitIdea);
+if (ideaInput) ideaInput.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    submitIdea();
+  }
+});
+
+// --- Voice Input (Web Speech API) ---
+var speechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+var isListening = false;
+var recognition = null;
+
+if (speechRecognition && ideaMic) {
+  recognition = new speechRecognition();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.lang = 'en-US';
+
+  recognition.onresult = function(event) {
+    var transcript = event.results[0][0].transcript;
+    ideaInput.value = (ideaInput.value ? ideaInput.value + ' ' : '') + transcript;
+  };
+
+  recognition.onend = function() {
+    isListening = false;
+    ideaMic.classList.remove('listening');
+  };
+
+  recognition.onerror = function(e) {
+    isListening = false;
+    ideaMic.classList.remove('listening');
+    if (e.error === 'not-allowed') toast('Microphone access denied', 'error');
+    else if (e.error !== 'aborted') toast('Voice input unavailable', 'error');
+  };
+
+  ideaMic.addEventListener('click', function() {
+    if (isListening) {
+      recognition.stop();
+    } else {
+      try {
+        recognition.start();
+        isListening = true;
+        ideaMic.classList.add('listening');
+        toast('Listening...', 'info');
+      } catch (e) { toast('Voice input failed: ' + e.message, 'error'); }
+    }
+  });
+} else if (ideaMic) {
+  ideaMic.addEventListener('click', function() {
+    toast('Voice input not supported in this browser', 'error');
+  });
+}
+
 // --- Init ---
 async function init() {
   initTheme();
@@ -1495,11 +1789,14 @@ async function init() {
   var activitiesP = fetch('/api/activities').then(function(r) { return r.json(); }).catch(function() { return {}; });
   var pipelineP = fetch('/api/pipeline').then(function(r) { return r.json(); }).catch(function() { return { paused: false }; });
   var configP = fetch('/api/config').then(function(r) { return r.json(); }).catch(function() { return null; });
-  var results = await Promise.all([cardsP, activitiesP, pipelineP, configP]);
+  var modeP = fetch('/api/mode').then(function(r) { return r.json(); }).catch(function() { return { mode: 'global' }; });
+  var results = await Promise.all([cardsP, activitiesP, pipelineP, configP, modeP]);
   state.cards = results[0];
   cardActivities = results[1];
   pipelinePaused = results[2].paused;
   state.config = results[3];
+  boardMode = results[4] || boardMode;
+  applyModeUI();
   initPipelineControls();
   render();
   connectSSE();

@@ -256,16 +256,12 @@ select.cfg-input { cursor: pointer; }
   </style>
 </head>
 <body>
-  <div class="pin-overlay" id="pin-overlay">
-    <div class="pin-box">
+  <div class="pin-overlay hidden" id="pin-overlay">
+    <div class="pin-box" id="access-denied-box" style="display:none">
       <div class="pin-logo" aria-hidden="true">&#9670;</div>
-      <div class="pin-title">Admin Access</div>
-      <div class="pin-sub">Enter PIN to access Control Panel</div>
-      <form id="pin-form" autocomplete="off">
-        <input type="password" class="pin-input" id="pin-input" placeholder="PIN" autocomplete="off" maxlength="64" aria-label="Admin PIN">
-        <div class="pin-err" id="pin-err"></div>
-        <button type="submit" class="pin-submit" id="pin-btn">Unlock</button>
-      </form>
+      <div class="pin-title">Access Denied</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-top:8px;text-align:center">Admin role required to access the control panel.</div>
+      <a href="#" id="denied-back-link" class="pin-submit" style="display:block;text-align:center;text-decoration:none;margin-top:16px">Back to Kanban Board</a>
     </div>
   </div>
   <div class="cp-header">
@@ -345,49 +341,34 @@ document.getElementById('theme-toggle').onclick = function() {
 // --- Session-based auth (HTTP-only cookies — no tokens in frontend) ---
 
 function checkSession() {
-  return fetch('/api/auth/session').then(function(r) { return r.json(); }).then(function(d) {
-    if (d.authenticated) {
+  return fetch('/auth/session').then(function(r) { return r.json(); }).then(function(d) {
+    if (d.authenticated && d.user.role === 'admin') {
       document.getElementById('pin-overlay').classList.add('hidden');
       initApp();
+    } else if (d.authenticated) {
+      // Authenticated but not admin — show access denied (not redirect loop)
+      showAccessDenied();
     } else {
-      showPinScreen();
+      // Not authenticated — redirect to SSO login
+      window.location.href = '/auth/login?return=' + encodeURIComponent(location.pathname);
     }
   }).catch(function() {
-    showPinScreen();
+    window.location.href = '/auth/login?return=' + encodeURIComponent(location.pathname);
   });
 }
 
-function showPinScreen() {
-  document.getElementById('pin-overlay').classList.remove('hidden');
-  document.getElementById('pin-input').focus();
+function showAccessDenied() {
+  var overlay = document.getElementById('pin-overlay');
+  overlay.classList.remove('hidden');
+  document.getElementById('access-denied-box').style.display = '';
+  var adminPort = parseInt(location.port, 10);
+  var boardPort = adminPort - 1;
+  document.getElementById('denied-back-link').href = location.protocol + '//localhost:' + boardPort;
 }
 
-document.getElementById('pin-form').onsubmit = function(e) {
-  e.preventDefault();
-  var pin = document.getElementById('pin-input').value;
-  var submitBtn = document.getElementById('pin-btn');
-  var err = document.getElementById('pin-err');
-  submitBtn.disabled = true;
-  err.textContent = '';
-  fetch('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-    body: JSON.stringify({ pin: pin })
-  }).then(function(r) { return r.json(); }).then(function(d) {
-    submitBtn.disabled = false;
-    if (d.ok) {
-      document.getElementById('pin-overlay').classList.add('hidden');
-      initApp();
-    } else {
-      err.textContent = 'Invalid PIN. Try again.';
-      document.getElementById('pin-input').value = '';
-      document.getElementById('pin-input').focus();
-    }
-  }).catch(function() {
-    submitBtn.disabled = false;
-    err.textContent = 'Connection error.';
-  });
-};
+function showLoginPage() {
+  window.location.href = '/auth/login?return=' + encodeURIComponent(location.pathname);
+}
 
 // --- API (no tokens — session cookie sent automatically by browser) ---
 function api(method, url, body) {
@@ -395,11 +376,11 @@ function api(method, url, body) {
   if (body) opts.body = JSON.stringify(body);
   return fetch(url, opts).then(function(r) {
     if (r.status === 401) {
-      showPinScreen();
+      showLoginPage();
       throw new Error('Auth required');
     }
     if (r.status === 403) {
-      toast('Access denied', 'error');
+      toast('Admin access required', 'error');
       throw new Error('Forbidden');
     }
     return r.json();
@@ -447,6 +428,7 @@ function section(id, dotColor, title, badgeId, open) {
 var _appInited = false;
 function buildPageSections() {
   var cpBody = document.getElementById('cp-body');
+  cpBody.appendChild(section('mode', '#8B5CF6', 'Mode & Discovery', 'mode-badge', true));
   cpBody.appendChild(section('usage', 'var(--primary)', 'Claude Max Usage', 'usage-badge', true));
   cpBody.appendChild(section('pipeline', 'var(--success)', 'Pipeline & Queue', 'pipeline-badge', true));
   cpBody.appendChild(section('build', 'var(--warning)', 'Build Configuration', null, true));
@@ -576,6 +558,76 @@ function saveSection(sectionId) {
   api('PUT', '/api/config', updates).then(function(res) { toast('Updated: ' + Object.keys(res.changed || {}).join(', '), 'success'); });
 }
 
+// --- Mode & Discovery ---
+var _modeState = {};
+
+function cfgCheckbox(key, label, checked, help) {
+  var cb = el('input', { type: 'checkbox', 'data-key': key, checked: checked, style: 'width:auto;margin-right:6px' });
+  return el('div', 'cfg-item', [el('label', { style: 'display:flex;align-items:center;font-size:12px;font-weight:500;cursor:pointer' }, [cb, label]), el('div', 'cfg-help', help)]);
+}
+
+function renderMode(d) {
+  _modeState = d;
+  var body = document.getElementById('mode-body');
+  var badge = document.getElementById('mode-badge');
+  clear(body);
+
+  if (badge) {
+    badge.textContent = d.mode === 'single-project' ? 'Single' : 'Global';
+    badge.style.background = d.mode === 'single-project' ? 'rgba(139,92,246,0.1)' : 'var(--primary-soft)';
+    badge.style.color = d.mode === 'single-project' ? '#8B5CF6' : 'var(--primary)';
+  }
+
+  var grid = el('div', 'cfg-grid', [
+    cfgSelect('mode', 'Operating Mode', d.mode, ['global', 'single-project'], 'Global: multi-project. Single: autonomous CI/CD for one project'),
+    cfgText('singleProjectPath', 'Project Path', d.singleProjectPath, 'Absolute path to the project folder (single-project mode)'),
+    cfgCheckbox('autoPromoteBrainstorm', 'Auto-Promote Brainstorm', d.autoPromoteBrainstorm, 'Automatically decompose brainstorm ideas into todo tasks'),
+    cfgNumber('maxBrainstormQueue', 'Max Brainstorm Queue', d.maxBrainstormQueue || 3, 'Max brainstorm cards queued at once (1-10)'),
+    cfgNumber('discoveryIntervalMins', 'Discovery Interval (min)', d.discoveryIntervalMins || 30, 'How often to scan project for improvements (0 = disabled)'),
+    cfgNumber('maxChildCards', 'Max Child Cards', d.maxChildCards || 10, 'Max todo tasks per brainstorm initiative (1-20)'),
+  ]);
+  body.appendChild(grid);
+
+  // Status info
+  var statusParts = [];
+  if (d.discoveryRunning) statusParts.push('Discovery scan running');
+  if (d.hasActiveInitiative) statusParts.push('Active initiative in progress');
+  if (d.activeBrainstorms > 0) statusParts.push(d.activeBrainstorms + ' brainstorm card(s) queued');
+  if (d.lastDiscoveryAt) statusParts.push('Last scan: ' + timeAgo(d.lastDiscoveryAt));
+  if (statusParts.length > 0) {
+    body.appendChild(el('div', { style: 'font-size:11px;color:var(--text-tertiary);margin-top:10px;line-height:1.6' }, statusParts.join(' \u00B7 ')));
+  }
+
+  body.appendChild(el('div', { style: 'display:flex;gap:8px;margin-top:14px;justify-content:flex-end' }, [
+    el('button', { class: 'cp-btn', onclick: function() {
+      api('POST', '/api/discovery/run').then(function() { toast('Discovery scan started', 'success'); loadMode(); });
+    } }, 'Run Discovery Now'),
+    el('button', { class: 'cp-btn cp-btn-primary', onclick: function() { saveMode(); } }, 'Save Mode Config'),
+  ]));
+}
+
+function saveMode() {
+  var container = document.getElementById('mode-body');
+  var inputs = container.querySelectorAll('.cfg-input');
+  var checkboxes = container.querySelectorAll('input[type="checkbox"]');
+  var updates = {};
+  inputs.forEach(function(inp) {
+    var key = inp.getAttribute('data-key');
+    updates[key] = inp.type === 'number' ? Number(inp.value) : inp.value;
+  });
+  checkboxes.forEach(function(cb) {
+    updates[cb.getAttribute('data-key')] = cb.checked;
+  });
+  api('PUT', '/api/mode', updates).then(function(res) {
+    toast('Mode updated: ' + Object.keys(res.changed || {}).join(', '), 'success');
+    if (res.state) renderMode(res.state);
+  });
+}
+
+function loadMode() {
+  api('GET', '/api/mode').then(renderMode);
+}
+
 function renderBuildConfig(r) {
   var body = document.getElementById('build-body');
   clear(body);
@@ -679,6 +731,83 @@ function loadProcesses() {
   });
 }
 
+// --- Factory Reset Overlay ---
+function showResetOverlay(port) {
+  var style = document.createElement('style');
+  style.textContent = '@keyframes kspin{to{transform:rotate(360deg)}}';
+  document.head.appendChild(style);
+
+  var overlay = el('div', { style: 'position:fixed;inset:0;z-index:10000;background:var(--bg);display:flex;align-items:center;justify-content:center' });
+  var box = el('div', { style: 'max-width:420px;text-align:center;padding:32px' });
+
+  var spinner = el('div', { style: 'width:44px;height:44px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:kspin .8s linear infinite;margin:0 auto 20px' });
+  box.appendChild(spinner);
+  box.appendChild(el('div', { style: 'font-size:18px;font-weight:700;color:var(--text);margin-bottom:6px' }, 'Factory Reset'));
+
+  var statusEl = el('div', { style: 'font-size:13px;color:var(--text-secondary);margin-bottom:20px' }, 'Shutting down server...');
+  box.appendChild(statusEl);
+
+  var stepsEl = el('div', { style: 'text-align:left;font-family:var(--mono);font-size:12px;line-height:2.2;color:var(--text-secondary)' });
+  box.appendChild(stepsEl);
+
+  box.appendChild(el('div', { style: 'margin-top:20px;font-size:11px;color:var(--text-tertiary)' }, 'Do not close this tab.'));
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  var steps = ['Shutting down server', 'Deleting old files', 'Cloning repository', 'Installing dependencies', 'Starting server'];
+  var current = 0;
+
+  function render() {
+    clear(stepsEl);
+    for (var i = 0; i < steps.length; i++) {
+      var done = i < current;
+      var active = i === current;
+      var color = done ? 'var(--success)' : active ? 'var(--primary)' : 'var(--text-tertiary)';
+      var icon = done ? '[done] ' : active ? '[....] ' : '[    ] ';
+      stepsEl.appendChild(el('div', { style: 'color:' + color + (active ? ';font-weight:600' : '') }, icon + steps[i]));
+    }
+    if (current < steps.length) statusEl.textContent = steps[current] + '...';
+  }
+  render();
+
+  // Timer-based progress (approximate — actual work runs in detached script)
+  setTimeout(function() { current = 1; render(); }, 4000);
+  setTimeout(function() { current = 2; render(); }, 10000);
+  setTimeout(function() { current = 3; render(); }, 25000);
+  setTimeout(function() { current = 4; render(); }, 50000);
+
+  // Poll health starting after 15s
+  var startTime = Date.now();
+  var maxWait = 300000; // 5 min
+  setTimeout(function() {
+    var poll = setInterval(function() {
+      if (Date.now() - startTime > maxWait) {
+        clearInterval(poll);
+        spinner.style.animation = 'none';
+        spinner.style.borderColor = 'var(--error)';
+        statusEl.textContent = 'Taking too long. Check _kanban_reset.log in parent folder.';
+        return;
+      }
+      fetch('http://localhost:' + port + '/health', { mode: 'no-cors' })
+        .then(function() {
+          clearInterval(poll);
+          current = 5;
+          clear(stepsEl);
+          for (var i = 0; i < steps.length; i++) {
+            stepsEl.appendChild(el('div', { style: 'color:var(--success)' }, '[done] ' + steps[i]));
+          }
+          stepsEl.appendChild(el('div', { style: 'color:var(--success);font-weight:600' }, '[done] Ready'));
+          spinner.style.animation = 'none';
+          spinner.style.borderColor = 'var(--success)';
+          spinner.style.borderTopColor = 'var(--success)';
+          statusEl.textContent = 'Reset complete! Redirecting...';
+          setTimeout(function() { window.location.href = 'http://localhost:' + port + '/'; }, 2000);
+        })
+        .catch(function() {}); // still down, keep polling
+    }, 3000);
+  }, 15000);
+}
+
 // --- System Info ---
 function renderSystem(d) {
   var body = document.getElementById('system-body');
@@ -705,18 +834,15 @@ function renderSystem(d) {
   var resetBox = el('div', { style: 'padding:14px 16px;background:var(--error-soft);border:1px solid var(--error);border-radius:var(--radius-sm);display:flex;align-items:center;gap:12px' }, [
     el('div', { style: 'flex:1' }, [
       el('div', { style: 'font-size:13px;font-weight:600;color:var(--error)' }, 'Factory Reset'),
-      el('div', { style: 'font-size:11px;color:var(--text-secondary);margin-top:2px' }, 'Wipe all data: DB, logs, snapshots, backups, config. Server stops. Restart for a fresh instance.'),
+      el('div', { style: 'font-size:11px;color:var(--text-secondary);margin-top:2px' }, 'Delete entire project folder, git clone fresh, install deps, restart server. Your .env is preserved.'),
     ]),
     el('button', { class: 'cp-btn cp-btn-danger', style: 'white-space:nowrap', onclick: function() {
-      var pass1 = confirm('FACTORY RESET\n\nThis will permanently delete:\n- All cards and sessions\n- All logs and snapshots\n- All backups\n- Custom prompts and config\n\nThis cannot be undone. Continue?');
+      var pass1 = confirm('FACTORY RESET\n\nThis will:\n- Delete the entire project folder\n- Git clone a fresh copy from remote\n- Install dependencies\n- Restart the server automatically\n\nYour .env file will be preserved.\nThis cannot be undone. Continue?');
       if (!pass1) return;
-      var pass2 = prompt('Type RESET to confirm factory reset:');
+      var pass2 = prompt('Type RESET to confirm:');
       if (pass2 !== 'RESET') { toast('Factory reset cancelled', 'info'); return; }
-      api('POST', '/api/factory-reset').then(function(r) {
-        if (r.success) {
-          toast('Factory reset complete. Server shutting down...', 'success');
-          setTimeout(function() { location.reload(); }, 3000);
-        }
+      api('POST', '/api/factory-reset', { confirm: true }).then(function(r) {
+        if (r.success) showResetOverlay(r.port);
       });
     } }, 'Factory Reset'),
   ]);
@@ -938,6 +1064,8 @@ var es = new EventSource('/api/events');
 es.addEventListener('toast', function(e) { var d = JSON.parse(e.data); toast(d.message, d.type); });
 es.addEventListener('pipeline-state', function() { loadPipeline(); });
 es.addEventListener('config-updated', function() { loadConfig(); });
+es.addEventListener('mode-updated', function(e) { try { renderMode(JSON.parse(e.data)); } catch (_) { loadMode(); } });
+es.addEventListener('discovery-state', function() { loadMode(); });
 es.addEventListener('usage-update', function(e) { renderUsage(JSON.parse(e.data)); });
 es.addEventListener('queue-update', function() { loadPipeline(); });
 es.addEventListener('card-activity', function() { loadProcesses(); });
@@ -947,6 +1075,7 @@ function initApp() {
   if (_appInited) return;
   _appInited = true;
   buildPageSections();
+  loadMode();
   api('GET', '/api/usage').then(renderUsage);
   loadPipeline();
   loadConfig();

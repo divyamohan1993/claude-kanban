@@ -3,33 +3,33 @@ const path = require('path');
 const os = require('os');
 const { runtime, CUSTOM_PROMPTS_FILE, PROJECTS_ROOT } = require('../config');
 const { broadcast } = require('../lib/broadcast');
-const { usage, backups } = require('../db');
+const { usage, backups, config: dbConfig } = require('../db');
 const { sendWebhook, isBlockedWebhookUrl } = require('../lib/helpers');
 
 // --- Claude Max Usage (real plan limits from API) ---
 
-var _usageCache = { data: null, fetchedAt: 0 };
-var USAGE_CACHE_TTL = 55 * 60 * 1000; // ~1 hour
+let _usageCache = { data: null, fetchedAt: 0 };
+const USAGE_CACHE_TTL = 55 * 60 * 1000; // ~1 hour
 
 function fetchClaudeUsage(force) {
   if (!force && _usageCache.data && (Date.now() - _usageCache.fetchedAt < USAGE_CACHE_TTL)) {
     return Promise.resolve(_usageCache.data);
   }
 
-  var credPath = path.join(os.homedir(), '.claude', '.credentials.json');
-  var creds;
+  const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
+  let creds;
   try {
     creds = JSON.parse(fs.readFileSync(credPath, 'utf-8'));
   } catch (_) {
     return Promise.resolve(null);
   }
 
-  var token = creds && creds.claudeAiOauth && creds.claudeAiOauth.accessToken;
+  const token = creds && creds.claudeAiOauth && creds.claudeAiOauth.accessToken;
   if (!token) return Promise.resolve(null);
 
   return new Promise(function(resolve) {
-    var https = require('https');
-    var req = https.request({
+    const https = require('https');
+    const req = https.request({
       hostname: 'api.anthropic.com',
       path: '/api/oauth/usage',
       method: 'GET',
@@ -38,11 +38,11 @@ function fetchClaudeUsage(force) {
         'anthropic-beta': 'oauth-2025-04-20',
       },
     }, function(res) {
-      var body = '';
+      let body = '';
       res.on('data', function(chunk) { body += chunk; });
       res.on('end', function() {
         try {
-          var data = JSON.parse(body);
+          const data = JSON.parse(body);
           _usageCache.data = data;
           _usageCache.fetchedAt = Date.now();
           resolve(data);
@@ -58,13 +58,13 @@ function fetchClaudeUsage(force) {
 // Check self-imposed + plan usage limits. Returns { allowed, reason? }.
 // Accepts pipelineState object from pipeline to avoid circular dep.
 function checkUsageLimits(pipelineState) {
-  var hourly = usage.hourly();
-  var weekly = usage.weekly();
-  var hitHourly = runtime.maxHourlySessions > 0 && hourly >= runtime.maxHourlySessions;
-  var hitWeekly = runtime.maxWeeklySessions > 0 && weekly >= runtime.maxWeeklySessions;
+  const hourly = usage.hourly();
+  const weekly = usage.weekly();
+  const hitHourly = runtime.maxHourlySessions > 0 && hourly >= runtime.maxHourlySessions;
+  const hitWeekly = runtime.maxWeeklySessions > 0 && weekly >= runtime.maxWeeklySessions;
 
   if (hitHourly || hitWeekly) {
-    var reason = hitHourly
+    const reason = hitHourly
       ? 'Session limit reached (' + hourly + '/' + runtime.maxHourlySessions + '/hr)'
       : 'Weekly session limit reached (' + weekly + '/' + runtime.maxWeeklySessions + '/wk)';
     if (pipelineState && !pipelineState.paused) {
@@ -75,15 +75,15 @@ function checkUsageLimits(pipelineState) {
     return { allowed: false, reason: reason };
   }
 
-  var cached = _usageCache.data;
+  const cached = _usageCache.data;
   if (cached) {
-    var sessionPct = cached.five_hour ? cached.five_hour.utilization : 0;
-    var weeklyPct = cached.seven_day ? cached.seven_day.utilization : 0;
-    var overSession = sessionPct >= runtime.usagePausePct;
-    var overWeekly = weeklyPct >= runtime.usagePausePct;
+    const sessionPct = cached.five_hour ? cached.five_hour.utilization : 0;
+    const weeklyPct = cached.seven_day ? cached.seven_day.utilization : 0;
+    const overSession = sessionPct >= runtime.usagePausePct;
+    const overWeekly = weeklyPct >= runtime.usagePausePct;
 
     if (overSession || overWeekly) {
-      var reason = overSession
+      const reason = overSession
         ? 'Claude Max session at ' + sessionPct + '% (limit: ' + runtime.usagePausePct + '%)'
         : 'Claude Max weekly at ' + weeklyPct + '% (limit: ' + runtime.usagePausePct + '%)';
       if (pipelineState && !pipelineState.paused) {
@@ -99,7 +99,7 @@ function checkUsageLimits(pipelineState) {
 }
 
 function getUsageStats() {
-  var planData = _usageCache.data;
+  const planData = _usageCache.data;
   return {
     plan: planData ? {
       session: { utilization: planData.five_hour ? planData.five_hour.utilization : null, resetsAt: planData.five_hour ? planData.five_hour.resets_at : null },
@@ -123,8 +123,8 @@ function getUsageStats() {
 // H2 fix: getConfig returns only what the caller needs.
 // Public callers get runtime config only. Admin callers get full env/status.
 function getConfig(pipelineState, opts) {
-  var isAdmin = opts && opts.admin;
-  var result = {
+  const isAdmin = opts && opts.admin;
+  const result = {
     runtime: {
       maxConcurrentBuilds: runtime.maxConcurrentBuilds,
       buildTimeoutMins: Math.round(runtime.buildTimeoutPolls / 12),
@@ -165,7 +165,7 @@ function getConfig(pipelineState, opts) {
 }
 
 function setConfig(updates) {
-  var changed = {};
+  const changed = {};
   if (updates.maxConcurrentBuilds !== undefined) { runtime.maxConcurrentBuilds = Math.max(1, Number(updates.maxConcurrentBuilds)); changed.maxConcurrentBuilds = runtime.maxConcurrentBuilds; }
   if (updates.buildTimeoutMins !== undefined) { runtime.buildTimeoutPolls = Math.max(1, Number(updates.buildTimeoutMins)) * 12; changed.buildTimeoutMins = Math.round(runtime.buildTimeoutPolls / 12); }
   if (updates.idleTimeoutMins !== undefined) { runtime.idleTimeoutMs = Math.max(1, Number(updates.idleTimeoutMins)) * 60000; changed.idleTimeoutMins = Math.round(runtime.idleTimeoutMs / 60000); }
@@ -178,15 +178,15 @@ function setConfig(updates) {
   if (updates.maxArchiveVisible !== undefined) { runtime.maxArchiveVisible = Math.max(0, Number(updates.maxArchiveVisible)); changed.maxArchiveVisible = runtime.maxArchiveVisible; }
   if (updates.backupRetentionDays !== undefined) { backups.setRetentionDays(updates.backupRetentionDays); changed.backupRetentionDays = backups.getRetentionDays(); }
   if (updates.claudeModel !== undefined) {
-    var model = String(updates.claudeModel);
+    const model = String(updates.claudeModel);
     if (/^[a-z0-9][a-z0-9._-]{0,63}$/.test(model)) { runtime.claudeModel = model; changed.claudeModel = model; }
   }
   if (updates.claudeEffort !== undefined) {
-    var effort = String(updates.claudeEffort);
+    const effort = String(updates.claudeEffort);
     if (['low', 'medium', 'high'].includes(effort)) { runtime.claudeEffort = effort; changed.claudeEffort = effort; }
   }
   if (updates.webhookUrl !== undefined) {
-    var newUrl = String(updates.webhookUrl);
+    const newUrl = String(updates.webhookUrl);
     if (newUrl && isBlockedWebhookUrl(newUrl)) { changed._webhookError = 'Webhook URL blocked: internal/private IP addresses not allowed'; }
     else { runtime.webhookUrl = newUrl; changed.webhookUrl = runtime.webhookUrl; }
   }
@@ -194,23 +194,32 @@ function setConfig(updates) {
   return changed;
 }
 
-// --- Custom Prompts ---
+// --- Custom Prompts (stored in DB config table) ---
+
+const CUSTOM_PROMPT_DEFAULTS = { buildInstructions: '', reviewCriteria: '', brainstormInstructions: '', qualityGates: '' };
 
 function getCustomPrompts() {
-  try {
-    return JSON.parse(fs.readFileSync(CUSTOM_PROMPTS_FILE, 'utf-8'));
-  } catch (_) {
-    return { buildInstructions: '', reviewCriteria: '', brainstormInstructions: '', qualityGates: '' };
+  // Migrate from legacy JSON file to DB on first read
+  const raw = dbConfig.get('custom_prompts');
+  if (raw) {
+    try { return JSON.parse(raw); } catch (_) {}
   }
+  // One-time migration from file → DB
+  try {
+    const fileData = JSON.parse(fs.readFileSync(CUSTOM_PROMPTS_FILE, 'utf-8'));
+    dbConfig.set('custom_prompts', JSON.stringify(fileData));
+    return fileData;
+  } catch (_) {}
+  return Object.assign({}, CUSTOM_PROMPT_DEFAULTS);
 }
 
 function setCustomPrompts(prompts) {
-  var data = getCustomPrompts();
+  const data = getCustomPrompts();
   if (prompts.buildInstructions !== undefined) data.buildInstructions = prompts.buildInstructions;
   if (prompts.reviewCriteria !== undefined) data.reviewCriteria = prompts.reviewCriteria;
   if (prompts.brainstormInstructions !== undefined) data.brainstormInstructions = prompts.brainstormInstructions;
   if (prompts.qualityGates !== undefined) data.qualityGates = prompts.qualityGates;
-  fs.writeFileSync(CUSTOM_PROMPTS_FILE, JSON.stringify(data, null, 2));
+  dbConfig.set('custom_prompts', JSON.stringify(data));
   return data;
 }
 

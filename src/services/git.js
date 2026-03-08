@@ -5,18 +5,18 @@ const { cards } = require('../db');
 const { logPath } = require('../lib/helpers');
 
 function autoCommit(cardId) {
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card || !card.project_path) return { success: false, reason: 'No project path' };
 
-  var projectPath = card.project_path;
-  var log = logPath(cardId, 'build');
-  var execOpts = { cwd: projectPath, stdio: 'pipe', windowsHide: true, timeout: 30000 };
+  const projectPath = card.project_path;
+  const log = logPath(cardId, 'build');
+  const execOpts = { cwd: projectPath, stdio: 'pipe', windowsHide: true, timeout: 30000 };
 
   try {
-    var isGitRepo = fs.existsSync(path.join(projectPath, '.git'));
+    const isGitRepo = fs.existsSync(path.join(projectPath, '.git'));
     if (!isGitRepo) {
       execFileSync('git', ['init'], execOpts);
-      var gitignorePath = path.join(projectPath, '.gitignore');
+      const gitignorePath = path.join(projectPath, '.gitignore');
       if (!fs.existsSync(gitignorePath)) {
         fs.writeFileSync(gitignorePath, 'node_modules/\n.env\n.task-complete\n.brainstorm-output-*\n');
       }
@@ -32,14 +32,14 @@ function autoCommit(cardId) {
       // There are staged changes — continue
     }
 
-    var msg = 'feat: ' + card.title + '\n\nKanban card #' + cardId + ' — approved and auto-committed.\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>';
+    const msg = 'feat: ' + card.title + '\n\nKanban card #' + cardId + ' — approved and auto-committed.\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>';
     execFileSync('git', ['commit', '-m', msg], execOpts);
     try { fs.appendFileSync(log, '\n[AUTO-GIT] Committed: ' + card.title + '\n'); } catch (_) {}
 
     try {
-      var remotes = execFileSync('git', ['remote'], execOpts).toString().trim();
+      const remotes = execFileSync('git', ['remote'], execOpts).toString().trim();
       if (remotes) {
-        var branch = execFileSync('git', ['branch', '--show-current'], execOpts).toString().trim() || 'main';
+        const branch = execFileSync('git', ['branch', '--show-current'], execOpts).toString().trim() || 'main';
         execFileSync('git', ['push', 'origin', branch], execOpts);
         try { fs.appendFileSync(log, '[AUTO-GIT] Pushed to origin/' + branch + '\n'); } catch (_) {}
         return { success: true, action: 'committed-and-pushed', branch: branch };
@@ -56,20 +56,20 @@ function autoCommit(cardId) {
 }
 
 function autoChangelog(cardId) {
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card || !card.project_path) return { success: false, reason: 'No project path' };
 
-  var projectPath = card.project_path;
-  var changelogPath = path.join(projectPath, 'CHANGELOG.md');
-  var today = new Date().toISOString().slice(0, 10);
-  var title = card.title || 'Untitled';
+  const projectPath = card.project_path;
+  const changelogPath = path.join(projectPath, 'CHANGELOG.md');
+  const today = new Date().toISOString().slice(0, 10);
+  const title = card.title || 'Untitled';
 
-  var summary = '';
-  var completionFile = path.join(projectPath, '.task-complete');
+  let summary = '';
+  const completionFile = path.join(projectPath, '.task-complete');
   try {
     if (fs.existsSync(completionFile)) {
-      var raw = fs.readFileSync(completionFile, 'utf-8').trim();
-      var data = JSON.parse(raw);
+      const raw = fs.readFileSync(completionFile, 'utf-8').trim();
+      const data = JSON.parse(raw);
       if (data.summary) summary = data.summary;
       else if (data.message) summary = data.message;
     }
@@ -77,45 +77,45 @@ function autoChangelog(cardId) {
 
   if (!summary) summary = card.description ? card.description.split('\n')[0] : title;
 
-  var changeType = 'Changed';
-  var lowerTitle = title.toLowerCase();
-  var labels = (card.labels || '').toLowerCase();
+  let changeType = 'Changed';
+  const lowerTitle = title.toLowerCase();
+  const labels = (card.labels || '').toLowerCase();
   if (labels.includes('bug') || lowerTitle.startsWith('fix') || lowerTitle.includes('bug')) changeType = 'Fixed';
   else if (labels.includes('feature') || lowerTitle.startsWith('add') || lowerTitle.startsWith('new') || lowerTitle.startsWith('create')) changeType = 'Added';
   else if (lowerTitle.startsWith('remove') || lowerTitle.startsWith('delete')) changeType = 'Removed';
 
-  var entry = '- ' + title + (summary !== title ? ' — ' + summary : '');
+  const entry = '- ' + title + (summary !== title ? ' — ' + summary : '');
 
   try {
-    var existing = '';
+    let existing = '';
     if (fs.existsSync(changelogPath)) {
       existing = fs.readFileSync(changelogPath, 'utf-8');
     }
 
-    var dateHeader = '## [' + today + ']';
-    var typeHeader = '### ' + changeType;
+    const dateHeader = '## [' + today + ']';
+    const typeHeader = '### ' + changeType;
 
     if (existing.includes(dateHeader)) {
-      var dateIdx = existing.indexOf(dateHeader);
-      var afterDate = existing.indexOf('\n', dateIdx) + 1;
-      var nextDateIdx = existing.indexOf('\n## [', afterDate);
-      var dateSection = nextDateIdx === -1 ? existing.slice(afterDate) : existing.slice(afterDate, nextDateIdx);
+      const dateIdx = existing.indexOf(dateHeader);
+      const afterDate = existing.indexOf('\n', dateIdx) + 1;
+      const nextDateIdx = existing.indexOf('\n## [', afterDate);
+      const dateSection = nextDateIdx === -1 ? existing.slice(afterDate) : existing.slice(afterDate, nextDateIdx);
 
       if (dateSection.includes(typeHeader)) {
-        var typeIdx = existing.indexOf(typeHeader, dateIdx);
-        var afterType = existing.indexOf('\n', typeIdx) + 1;
+        const typeIdx = existing.indexOf(typeHeader, dateIdx);
+        const afterType = existing.indexOf('\n', typeIdx) + 1;
         existing = existing.slice(0, afterType) + entry + '\n' + existing.slice(afterType);
       } else {
         existing = existing.slice(0, afterDate) + '\n' + typeHeader + '\n' + entry + '\n' + existing.slice(afterDate);
       }
       fs.writeFileSync(changelogPath, existing);
     } else {
-      var newSection = dateHeader + '\n\n' + typeHeader + '\n' + entry + '\n';
+      const newSection = dateHeader + '\n\n' + typeHeader + '\n' + entry + '\n';
       if (existing) {
-        var insertIdx = existing.indexOf('\n## [');
+        let insertIdx = existing.indexOf('\n## [');
         if (insertIdx === -1) insertIdx = existing.indexOf('\n---');
         if (insertIdx === -1) {
-          var firstNewline = existing.indexOf('\n');
+          const firstNewline = existing.indexOf('\n');
           insertIdx = firstNewline === -1 ? existing.length : firstNewline + 1;
         }
         existing = existing.slice(0, insertIdx) + '\n' + newSection + '\n' + existing.slice(insertIdx);

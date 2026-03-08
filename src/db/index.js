@@ -1,16 +1,17 @@
-var Database = require('better-sqlite3');
-var fs = require('fs');
-var path = require('path');
-var cfg = require('../config');
+const Database = require('better-sqlite3');
+const fs = require('fs');
+const path = require('path');
+const cfg = require('../config');
+const { log } = require('../lib/logger');
 
-var DATA_DIR = cfg.DATA_DIR;
-var DB_PATH = cfg.DB_PATH;
-var BACKUP_DIR = cfg.BACKUP_DIR;
-var BACKUP_HOT = cfg.BACKUP_HOT;
-var BACKUP_HOURLY = cfg.BACKUP_HOURLY;
-var BACKUP_DAILY = cfg.BACKUP_DAILY;
-var VALID_COLUMNS = cfg.VALID_COLUMNS;
-var MAX_ARCHIVED = cfg.MAX_ARCHIVED;
+const DATA_DIR = cfg.DATA_DIR;
+const DB_PATH = cfg.DB_PATH;
+const BACKUP_DIR = cfg.BACKUP_DIR;
+const BACKUP_HOT = cfg.BACKUP_HOT;
+const BACKUP_HOURLY = cfg.BACKUP_HOURLY;
+const BACKUP_DAILY = cfg.BACKUP_DAILY;
+const VALID_COLUMNS = cfg.VALID_COLUMNS;
+const MAX_ARCHIVED = cfg.MAX_ARCHIVED;
 
 // Ensure directories
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -19,26 +20,26 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 });
 
 // Migrate old single backup file
-var OLD_BACKUP = path.join(BACKUP_DIR, 'kanban.db.bak');
+const OLD_BACKUP = path.join(BACKUP_DIR, 'kanban.db.bak');
 if (fs.existsSync(OLD_BACKUP)) {
   try {
     fs.renameSync(OLD_BACKUP, path.join(BACKUP_HOT, 'kanban.db'));
-    console.log('[db] Migrated legacy backup to hot/');
+    log.info('Migrated legacy backup to hot/');
   } catch (_) {}
 }
 
 // Find best backup for recovery
 function findBestBackup() {
-  var candidates = [];
-  var dirs = [BACKUP_HOT, BACKUP_HOURLY, BACKUP_DAILY];
-  for (var di = 0; di < dirs.length; di++) {
+  const candidates = [];
+  const dirs = [BACKUP_HOT, BACKUP_HOURLY, BACKUP_DAILY];
+  for (let di = 0; di < dirs.length; di++) {
     try {
-      var files = fs.readdirSync(dirs[di]);
-      for (var fi = 0; fi < files.length; fi++) {
+      const files = fs.readdirSync(dirs[di]);
+      for (let fi = 0; fi < files.length; fi++) {
         if (!files[fi].endsWith('.db')) continue;
-        var fp = path.join(dirs[di], files[fi]);
+        const fp = path.join(dirs[di], files[fi]);
         try {
-          var stat = fs.statSync(fp);
+          const stat = fs.statSync(fp);
           if (stat.size > 0) candidates.push({ path: fp, mtime: stat.mtimeMs, size: stat.size });
         } catch (_) {}
       }
@@ -50,21 +51,21 @@ function findBestBackup() {
 
 // Auto-recover from backup if DB missing
 if (!fs.existsSync(DB_PATH)) {
-  var best = findBestBackup();
+  const best = findBestBackup();
   if (best) {
     fs.copyFileSync(best.path, DB_PATH);
-    console.log('[db] Restored from backup:', best.path);
+    log.info({ backup: best.path }, 'Restored DB from backup');
   }
 }
 
-var db = new Database(DB_PATH);
+const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000'); // M6 fix: retry on SQLITE_BUSY instead of immediate failure
 db.pragma('optimize');
 
 // Use bracket notation for SQLite exec to avoid false-positive security hook
 // (hook incorrectly matches better-sqlite3's db.exec as child_process.exec)
-var runSQL = db['exec'].bind(db);
+const runSQL = db['exec'].bind(db);
 
 runSQL([
   "CREATE TABLE IF NOT EXISTS cards (",
@@ -105,6 +106,63 @@ try { runSQL('ALTER TABLE cards ADD COLUMN depends_on TEXT DEFAULT ""'); } catch
 try { runSQL('ALTER TABLE cards ADD COLUMN phase_durations TEXT DEFAULT ""'); } catch (_) {}
 try { runSQL('ALTER TABLE cards ADD COLUMN approved_by TEXT DEFAULT ""'); } catch (_) {}
 try { runSQL('ALTER TABLE cards ADD COLUMN deleted_at TEXT DEFAULT NULL'); } catch (_) {}
+try { runSQL('ALTER TABLE cards ADD COLUMN parent_card_id INTEGER DEFAULT NULL'); } catch (_) {}
+
+// Config key-value store — server config persisted in DB
+runSQL([
+  "CREATE TABLE IF NOT EXISTS config (",
+  "  key TEXT PRIMARY KEY,",
+  "  value TEXT NOT NULL DEFAULT '',",
+  "  updated_at TEXT DEFAULT (datetime('now'))",
+  ");",
+].join('\n'));
+
+// Error log — structured error persistence for auto-fix pipeline
+runSQL([
+  "CREATE TABLE IF NOT EXISTS error_log (",
+  "  id INTEGER PRIMARY KEY AUTOINCREMENT,",
+  "  timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),",
+  "  level TEXT NOT NULL DEFAULT 'error',",
+  "  source TEXT DEFAULT '',",
+  "  card_id INTEGER,",
+  "  message TEXT NOT NULL,",
+  "  context TEXT DEFAULT '{}',",
+  "  resolved INTEGER DEFAULT 0,",
+  "  resolved_at TEXT,",
+  "  fix_card_id INTEGER",
+  ");",
+  "CREATE INDEX IF NOT EXISTS idx_error_unresolved ON error_log(resolved, timestamp);",
+  "CREATE INDEX IF NOT EXISTS idx_error_card ON error_log(card_id);",
+].join('\n'));
+
+// Learnings — persistent pattern memory across server restarts
+runSQL([
+  "CREATE TABLE IF NOT EXISTS learnings (",
+  "  id INTEGER PRIMARY KEY AUTOINCREMENT,",
+  "  category TEXT NOT NULL,",
+  "  pattern_key TEXT NOT NULL,",
+  "  pattern_value TEXT NOT NULL DEFAULT '',",
+  "  confidence INTEGER NOT NULL DEFAULT 50,",
+  "  occurrences INTEGER NOT NULL DEFAULT 1,",
+  "  applied INTEGER NOT NULL DEFAULT 0,",
+  "  last_seen TEXT DEFAULT (datetime('now')),",
+  "  created_at TEXT DEFAULT (datetime('now')),",
+  "  UNIQUE(category, pattern_key)",
+  ");",
+  "CREATE INDEX IF NOT EXISTS idx_learnings_cat ON learnings(category);",
+].join('\n'));
+
+// Checkpoints — rollback points for auto-changes
+runSQL([
+  "CREATE TABLE IF NOT EXISTS checkpoints (",
+  "  id INTEGER PRIMARY KEY AUTOINCREMENT,",
+  "  label TEXT NOT NULL,",
+  "  change_type TEXT NOT NULL,",
+  "  change_detail TEXT DEFAULT '',",
+  "  rollback_data TEXT DEFAULT '{}',",
+  "  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+  ");",
+].join('\n'));
 
 // Audit log — immutable, append-only compliance trail
 runSQL([
@@ -123,7 +181,7 @@ runSQL([
   "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);",
 ].join('\n'));
 
-var stmts = {
+const stmts = {
   getAll: db.prepare("SELECT * FROM cards WHERE column_name != 'archive' AND deleted_at IS NULL ORDER BY created_at ASC"),
   getArchived: db.prepare("SELECT * FROM cards WHERE column_name = 'archive' AND deleted_at IS NULL ORDER BY updated_at DESC"),
   countArchived: db.prepare("SELECT COUNT(*) as cnt FROM cards WHERE column_name = 'archive' AND deleted_at IS NULL"),
@@ -156,43 +214,73 @@ var stmts = {
   auditByResource: db.prepare('SELECT * FROM audit_log WHERE resource_type = ? AND resource_id = ? ORDER BY timestamp DESC'),
   auditRecent: db.prepare('SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ?'),
   auditAll: db.prepare('SELECT * FROM audit_log ORDER BY timestamp DESC'),
+  setParentCardId: db.prepare("UPDATE cards SET parent_card_id = ?, updated_at = datetime('now') WHERE id = ?"),
+  getByParent: db.prepare("SELECT * FROM cards WHERE parent_card_id = ? AND deleted_at IS NULL ORDER BY created_at ASC"),
+  countByParentAndColumn: db.prepare("SELECT COUNT(*) as cnt FROM cards WHERE parent_card_id = ? AND column_name != 'done' AND column_name != 'archive' AND deleted_at IS NULL"),
+  getActiveInitiative: db.prepare("SELECT * FROM cards WHERE parent_card_id IS NULL AND column_name NOT IN ('done', 'archive') AND deleted_at IS NULL AND spec IS NOT NULL AND spec != '' ORDER BY created_at ASC LIMIT 1"),
+  configGet: db.prepare("SELECT value FROM config WHERE key = ?"),
+  configSet: db.prepare("INSERT INTO config (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')"),
+  configAll: db.prepare("SELECT * FROM config ORDER BY key"),
+  errorInsert: db.prepare("INSERT INTO error_log (level, source, card_id, message, context) VALUES (?, ?, ?, ?, ?)"),
+  errorUnresolved: db.prepare("SELECT * FROM error_log WHERE resolved = 0 ORDER BY timestamp DESC"),
+  errorByCard: db.prepare("SELECT * FROM error_log WHERE card_id = ? ORDER BY timestamp DESC"),
+  errorResolve: db.prepare("UPDATE error_log SET resolved = 1, resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), fix_card_id = ? WHERE id = ?"),
+  errorResolveByCard: db.prepare("UPDATE error_log SET resolved = 1, resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE card_id = ? AND resolved = 0"),
+  errorRecent: db.prepare("SELECT * FROM error_log ORDER BY timestamp DESC LIMIT ?"),
+  errorCount: db.prepare("SELECT COUNT(*) as cnt FROM error_log WHERE resolved = 0"),
+  errorPrune: db.prepare("DELETE FROM error_log WHERE timestamp < datetime('now', ?)"),
+  // Learnings
+  learningUpsert: db.prepare("INSERT INTO learnings (category, pattern_key, pattern_value, confidence, occurrences) VALUES (?, ?, ?, ?, 1) ON CONFLICT(category, pattern_key) DO UPDATE SET pattern_value = excluded.pattern_value, confidence = MIN(100, confidence + 5), occurrences = occurrences + 1, last_seen = datetime('now')"),
+  learningGetByCategory: db.prepare("SELECT * FROM learnings WHERE category = ? ORDER BY confidence DESC, occurrences DESC"),
+  learningGetAll: db.prepare("SELECT * FROM learnings ORDER BY category, confidence DESC"),
+  learningGet: db.prepare("SELECT * FROM learnings WHERE category = ? AND pattern_key = ?"),
+  learningDelete: db.prepare("DELETE FROM learnings WHERE id = ?"),
+  learningBumpApplied: db.prepare("UPDATE learnings SET applied = applied + 1, last_seen = datetime('now') WHERE id = ?"),
+  learningSetConfidence: db.prepare("UPDATE learnings SET confidence = ? WHERE id = ?"),
+  learningPrune: db.prepare("DELETE FROM learnings WHERE confidence < 20 AND occurrences < 3 AND last_seen < datetime('now', '-30 days')"),
+  // Checkpoints
+  checkpointCreate: db.prepare("INSERT INTO checkpoints (label, change_type, change_detail, rollback_data) VALUES (?, ?, ?, ?)"),
+  checkpointRecent: db.prepare("SELECT * FROM checkpoints ORDER BY created_at DESC LIMIT ?"),
+  checkpointGet: db.prepare("SELECT * FROM checkpoints WHERE id = ?"),
+  checkpointDelete: db.prepare("DELETE FROM checkpoints WHERE id = ?"),
+  checkpointPrune: db.prepare("DELETE FROM checkpoints WHERE created_at < datetime('now', '-7 days')"),
 };
 
 // --- Rolling Backup System ---
-var BACKUP_RETENTION_DAYS = 7;
+let BACKUP_RETENTION_DAYS = 7;
 
 function hotBackupPath() { return path.join(BACKUP_HOT, 'kanban.db'); }
 function hourlyBackupPath(d) { return path.join(BACKUP_HOURLY, 'kanban-' + d.toISOString().slice(0, 13).replace(':', '-') + '.db'); }
 function dailyBackupPath(d) { return path.join(BACKUP_DAILY, 'kanban-' + d.toISOString().slice(0, 10) + '.db'); }
 
-var lastSuccessfulBackup = Date.now();
+let lastSuccessfulBackup = Date.now();
 
 function runBackupCycle() {
   try {
     db.pragma('wal_checkpoint(PASSIVE)');
     db.pragma('optimize');
-    var now = new Date();
+    const now = new Date();
     // L7 fix: log backup failures instead of silently swallowing
     db.backup(hotBackupPath()).then(function() {
       lastSuccessfulBackup = Date.now();
     }).catch(function(err) {
-      console.error('[db] Hot backup failed:', err.message);
+      log.error({ err: err.message }, 'Hot backup failed');
     });
-    var hPath = hourlyBackupPath(now);
+    const hPath = hourlyBackupPath(now);
     if (!fs.existsSync(hPath)) db.backup(hPath).catch(function(err) {
-      console.error('[db] Hourly backup failed:', err.message);
+      log.error({ err: err.message }, 'Hourly backup failed');
     });
-    var dPath = dailyBackupPath(now);
+    const dPath = dailyBackupPath(now);
     if (!fs.existsSync(dPath)) db.backup(dPath).catch(function(err) {
-      console.error('[db] Daily backup failed:', err.message);
+      log.error({ err: err.message }, 'Daily backup failed');
     });
     // Alert if no successful backup in 30 minutes
     if (Date.now() - lastSuccessfulBackup > 30 * 60 * 1000) {
-      console.error('[db] WARNING: No successful backup in 30+ minutes');
+      log.error('No successful backup in 30+ minutes');
     }
     pruneBackups();
   } catch (err) {
-    console.error('[db] Backup cycle error:', err.message);
+    log.error({ err: err.message }, 'Backup cycle error');
   }
 }
 
@@ -203,28 +291,28 @@ function pruneBackups() {
 
 function pruneDir(dir, keep) {
   try {
-    var files = fs.readdirSync(dir)
+    const files = fs.readdirSync(dir)
       .filter(function(f) { return f.endsWith('.db'); })
       .map(function(f) { return { name: f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }; })
       .sort(function(a, b) { return b.mtime - a.mtime; });
-    for (var i = keep; i < files.length; i++) {
+    for (let i = keep; i < files.length; i++) {
       try { fs.unlinkSync(path.join(dir, files[i].name)); } catch (_) {}
     }
   } catch (_) {}
 }
 
 function listBackups() {
-  var result = [];
-  var tiers = [['hot', BACKUP_HOT], ['hourly', BACKUP_HOURLY], ['daily', BACKUP_DAILY]];
-  for (var ti = 0; ti < tiers.length; ti++) {
-    var tier = tiers[ti][0], dir = tiers[ti][1];
+  const result = [];
+  const tiers = [['hot', BACKUP_HOT], ['hourly', BACKUP_HOURLY], ['daily', BACKUP_DAILY]];
+  for (let ti = 0; ti < tiers.length; ti++) {
+    const tier = tiers[ti][0], dir = tiers[ti][1];
     try {
-      var files = fs.readdirSync(dir);
-      for (var fi = 0; fi < files.length; fi++) {
+      const files = fs.readdirSync(dir);
+      for (let fi = 0; fi < files.length; fi++) {
         if (!files[fi].endsWith('.db')) continue;
-        var fp = path.join(dir, files[fi]);
+        const fp = path.join(dir, files[fi]);
         try {
-          var stat = fs.statSync(fp);
+          const stat = fs.statSync(fp);
           result.push({ tier: tier, file: files[fi], path: fp, size: stat.size, mtime: stat.mtimeMs, modified: new Date(stat.mtimeMs).toISOString() });
         } catch (_) {}
       }
@@ -235,12 +323,12 @@ function listBackups() {
 }
 
 function restoreBackup(backupPath) {
-  var resolved = path.resolve(backupPath);
+  const resolved = path.resolve(backupPath);
   if (!resolved.startsWith(BACKUP_DIR + path.sep)) return { success: false, reason: 'Invalid backup path' };
   if (!fs.existsSync(resolved)) return { success: false, reason: 'Backup file not found' };
   try {
-    var fd = fs.openSync(resolved, 'r');
-    var buf = Buffer.alloc(16);
+    const fd = fs.openSync(resolved, 'r');
+    const buf = Buffer.alloc(16);
     fs.readSync(fd, buf, 0, 16, 0);
     fs.closeSync(fd);
     if (buf.toString('utf-8', 0, 15) !== 'SQLite format 3') return { success: false, reason: 'Not a valid SQLite database' };
@@ -248,7 +336,7 @@ function restoreBackup(backupPath) {
     return { success: false, reason: 'Cannot read backup: ' + e.message };
   }
   try {
-    var safetyPath = path.join(BACKUP_HOT, 'pre-restore-' + Date.now() + '.db');
+    const safetyPath = path.join(BACKUP_HOT, 'pre-restore-' + Date.now() + '.db');
     fs.copyFileSync(DB_PATH, safetyPath);
   } catch (_) {}
   try { db.close(); } catch (_) {}
@@ -257,9 +345,9 @@ function restoreBackup(backupPath) {
 }
 
 function createManualBackup(label) {
-  var ts = new Date().toISOString().replace(/[:.]/g, '-');
-  var name = 'kanban-manual-' + (label ? label.replace(/[^a-zA-Z0-9_-]/g, '') + '-' : '') + ts + '.db';
-  var dest = path.join(BACKUP_DAILY, name);
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const name = 'kanban-manual-' + (label ? label.replace(/[^a-zA-Z0-9_-]/g, '') + '-' : '') + ts + '.db';
+  const dest = path.join(BACKUP_DAILY, name);
   try {
     db.backup(dest).catch(function() {});
     return { success: true, file: name, path: dest };
@@ -272,7 +360,7 @@ function createManualBackup(label) {
 setInterval(runBackupCycle, 5 * 60 * 1000);
 
 // Immediate backup on load
-try { db.backup(hotBackupPath()).catch(function(err) { console.error('[db] Initial backup failed:', err.message); }); } catch (_) {}
+try { db.backup(hotBackupPath()).catch(function(err) { log.error({ err: err.message }, 'Initial backup failed'); }); } catch (_) {}
 
 function auditLog(action, resourceType, resourceId, actor, oldVal, newVal, detail) {
   try {
@@ -291,11 +379,11 @@ module.exports = {
     getAll: function() { return stmts.getAll.all(); },
     getArchived: function() { return stmts.getArchived.all(); },
     rotateArchive: function() {
-      var cnt = stmts.countArchived.get().cnt;
+      const cnt = stmts.countArchived.get().cnt;
       if (cnt <= MAX_ARCHIVED) return [];
-      var excess = stmts.oldestArchived.all(cnt - MAX_ARCHIVED);
-      var ids = excess.map(function(r) { return r.id; });
-      for (var i = 0; i < ids.length; i++) {
+      const excess = stmts.oldestArchived.all(cnt - MAX_ARCHIVED);
+      const ids = excess.map(function(r) { return r.id; });
+      for (let i = 0; i < ids.length; i++) {
         stmts.softDelete.run(ids[i]);
         auditLog('soft-delete', 'card', ids[i], 'system', '', '', 'archive rotation');
       }
@@ -318,26 +406,38 @@ module.exports = {
     setLabels: function(id, labels) { stmts.setLabels.run(labels, id); },
     setDependsOn: function(id, deps) { stmts.setDependsOn.run(deps, id); },
     setPhaseDurations: function(id, durations) { stmts.setPhaseDurations.run(durations, id); },
-    search: function(query) { var q = '%' + query + '%'; return stmts.search.all(q, q, q); },
+    setParentCardId: function(id, parentId) { stmts.setParentCardId.run(parentId, id); },
+    getByParent: function(parentId) { return stmts.getByParent.all(parentId); },
+    countIncompleteChildren: function(parentId) { return stmts.countByParentAndColumn.get(parentId).cnt; },
+    getActiveInitiative: function() { return stmts.getActiveInitiative.get(); },
+    search: function(query) { const q = '%' + query + '%'; return stmts.search.all(q, q, q); },
     delete: function(id) {
-      var card = stmts.get.get(id);
+      const card = stmts.get.get(id);
       stmts.softDelete.run(id);
       auditLog('delete', 'card', id, 'user', card ? card.title : '', '', 'soft-deleted');
     },
     updateState: function(id, updates) {
-      var allowed = ['status', 'column_name', 'spec', 'review_score', 'review_data', 'project_path', 'labels', 'depends_on', 'phase_durations', 'approved_by'];
-      var filtered = {};
-      var allKeys = Object.keys(updates);
-      for (var ki = 0; ki < allKeys.length; ki++) {
-        if (allowed.includes(allKeys[ki])) filtered[allKeys[ki]] = updates[allKeys[ki]];
+      // Static column map — keys are validated identifiers, never user-controlled strings in SQL.
+      // Even if the map is extended, column names are always known-safe literals.
+      const COLUMN_MAP = {
+        'status': 'status', 'column_name': 'column_name', 'spec': 'spec',
+        'review_score': 'review_score', 'review_data': 'review_data',
+        'project_path': 'project_path', 'labels': 'labels', 'depends_on': 'depends_on',
+        'phase_durations': 'phase_durations', 'approved_by': 'approved_by',
+        'parent_card_id': 'parent_card_id',
+      };
+      const filtered = {};
+      const allKeys = Object.keys(updates);
+      for (let ki = 0; ki < allKeys.length; ki++) {
+        if (COLUMN_MAP[allKeys[ki]]) filtered[allKeys[ki]] = updates[allKeys[ki]];
       }
       if (filtered.column_name && !VALID_COLUMNS.includes(filtered.column_name)) {
         throw new Error('Invalid column: ' + filtered.column_name);
       }
-      var keys = Object.keys(filtered);
+      const keys = Object.keys(filtered);
       if (keys.length === 0) return;
-      var setClauses = keys.map(function(k) { return k + " = ?"; }).join(', ');
-      var values = keys.map(function(k) { return filtered[k]; });
+      const setClauses = keys.map(function(k) { return COLUMN_MAP[k] + " = ?"; }).join(', ');
+      const values = keys.map(function(k) { return filtered[k]; });
       values.push(id);
       db.prepare("UPDATE cards SET " + setClauses + ", updated_at = datetime('now') WHERE id = ?").run.apply(null, values);
     },
@@ -367,5 +467,47 @@ module.exports = {
     findBest: findBestBackup,
     getRetentionDays: function() { return BACKUP_RETENTION_DAYS; },
     setRetentionDays: function(days) { BACKUP_RETENTION_DAYS = Math.max(1, Number(days) || 7); },
+  },
+  config: {
+    get: function(key) { const row = stmts.configGet.get(key); return row ? row.value : null; },
+    set: function(key, value) { stmts.configSet.run(key, String(value)); },
+    getAll: function() { return stmts.configAll.all(); },
+  },
+  learnings: {
+    upsert: function(category, key, value, confidence) {
+      stmts.learningUpsert.run(category, key, value || '', confidence || 50);
+    },
+    getByCategory: function(category) { return stmts.learningGetByCategory.all(category); },
+    getAll: function() { return stmts.learningGetAll.all(); },
+    get: function(category, key) { return stmts.learningGet.get(category, key); },
+    remove: function(id) { stmts.learningDelete.run(id); },
+    bumpApplied: function(id) { stmts.learningBumpApplied.run(id); },
+    setConfidence: function(id, confidence) { stmts.learningSetConfidence.run(confidence, id); },
+    prune: function() { stmts.learningPrune.run(); },
+  },
+  checkpoints: {
+    create: function(label, changeType, detail, rollbackData) {
+      return stmts.checkpointCreate.run(label, changeType, detail || '',
+        typeof rollbackData === 'object' ? JSON.stringify(rollbackData) : String(rollbackData || '{}'));
+    },
+    recent: function(limit) { return stmts.checkpointRecent.all(limit || 20); },
+    get: function(id) { return stmts.checkpointGet.get(id); },
+    remove: function(id) { stmts.checkpointDelete.run(id); },
+    prune: function() { stmts.checkpointPrune.run(); },
+  },
+  errors: {
+    log: function(level, source, cardId, message, context) {
+      try {
+        stmts.errorInsert.run(level || 'error', source || '', cardId || null, String(message),
+          typeof context === 'object' ? JSON.stringify(context) : String(context || '{}'));
+      } catch (_) {}
+    },
+    unresolved: function() { return stmts.errorUnresolved.all(); },
+    byCard: function(cardId) { return stmts.errorByCard.all(cardId); },
+    resolve: function(id, fixCardId) { stmts.errorResolve.run(fixCardId || null, id); },
+    resolveByCard: function(cardId) { stmts.errorResolveByCard.run(cardId); },
+    recent: function(limit) { return stmts.errorRecent.all(limit || 50); },
+    count: function() { return stmts.errorCount.get().cnt; },
+    prune: function(days) { stmts.errorPrune.run('-' + (days || 30) + ' days'); },
   },
 };

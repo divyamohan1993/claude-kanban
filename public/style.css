@@ -168,6 +168,14 @@ h1 {
 
 .header-search input::placeholder { color: var(--text-tertiary); }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .search-results {
   display: none;
   position: fixed;
@@ -449,6 +457,76 @@ h1 {
 }
 
 /* ----------------------------------------------------------------
+   Initiative Groups — visual tree connecting parent idea to sub-tasks
+   ---------------------------------------------------------------- */
+.initiative-group {
+  position: relative;
+  margin: 4px 0 2px;
+}
+
+.initiative-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 8px;
+  font-size: 10px;
+  color: var(--brainstorm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.initiative-group-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brainstorm);
+  flex-shrink: 0;
+}
+
+.initiative-group-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.initiative-card-wrapper {
+  position: relative;
+  padding-left: 18px;
+  margin-bottom: 4px;
+}
+
+.initiative-card-wrapper::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--brainstorm);
+  opacity: 0.25;
+}
+
+.initiative-card-wrapper::after {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 7px;
+  height: 2px;
+  background: var(--brainstorm);
+  opacity: 0.25;
+}
+
+.initiative-card-wrapper.last::before {
+  bottom: 50%;
+}
+
+.initiative-card-wrapper .card {
+  border-left: 2px solid rgba(168, 85, 247, 0.35);
+}
+
+/* ----------------------------------------------------------------
    Cards
    ---------------------------------------------------------------- */
 .card {
@@ -484,11 +562,25 @@ h1 {
   background: var(--col-color);
 }
 
+.card-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-bottom: 2px;
+  padding-left: 8px;
+}
+
+.card-id {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .card-title {
   font-size: 12px;
   font-weight: 600;
-  margin-bottom: 2px;
-  padding-left: 8px;
   line-height: 1.4;
   word-break: break-word;
   color: var(--text);
@@ -580,6 +672,9 @@ h1 {
 .badge-has-spec { background: rgba(59, 130, 246, 0.08); color: var(--todo); }
 .badge-complete { background: var(--success-soft); color: var(--done); }
 .badge-blocked { background: var(--error-soft); color: var(--error); font-style: italic; }
+.badge-main-idea { background: var(--brainstorm); color: #fff; font-weight: 700; letter-spacing: 0.4px; }
+.badge-subtask { background: rgba(168, 85, 247, 0.1); color: var(--brainstorm); border: 1px solid rgba(168, 85, 247, 0.25); }
+.badge-initiative-progress { background: var(--success-soft); color: var(--done); font-variant-numeric: tabular-nums; }
 
 .badge-new {
   background: var(--primary);
@@ -694,6 +789,29 @@ h1 {
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
 }
+
+/* ----------------------------------------------------------------
+   Mode Indicator (header)
+   ---------------------------------------------------------------- */
+.mode-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.mode-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.mode-single { background: var(--primary); color: #fff; }
+.mode-discovery { color: var(--primary); font-weight: 500; }
+.mode-initiative { color: var(--text-secondary); font-style: italic; }
+.spinner-sm { width: 8px; height: 8px; }
 
 /* ----------------------------------------------------------------
    Card Actions
@@ -1452,6 +1570,127 @@ kbd {
 }
 .login-btn:hover { background: var(--primary-hover); }
 .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ----------------------------------------------------------------
+   Idea Modal — natural language input for ideas and feedback
+   ---------------------------------------------------------------- */
+.idea-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: -4px 0 16px;
+  line-height: 1.4;
+}
+.idea-bar-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.idea-bar-inner textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100px;
+  max-height: 240px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.idea-bar-inner textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.idea-bar-inner textarea::placeholder {
+  color: var(--text-tertiary);
+}
+.idea-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 4px;
+}
+.idea-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.idea-controls .btn-primary {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.idea-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.idea-btn:hover {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+.folder-match:hover {
+  background: var(--primary-soft);
+}
+.idea-mic-btn.listening {
+  background: var(--error);
+  border-color: var(--error);
+  color: #fff;
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+.idea-folder-tag, .idea-target-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--primary-soft);
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary-text);
+  white-space: nowrap;
+  max-width: 180px;
+  flex-shrink: 0;
+}
+.idea-target-tag {
+  background: rgba(168, 85, 247, 0.1);
+  border-color: rgba(168, 85, 247, 0.4);
+  color: var(--brainstorm);
+}
+.idea-folder-tag span, .idea-target-tag span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.idea-folder-clear {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0.7;
+}
+.idea-folder-clear:hover { opacity: 1; }
 
 /* --- Reduced motion --- */
 @media (prefers-reduced-motion: reduce) {

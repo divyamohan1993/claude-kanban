@@ -7,38 +7,59 @@ const snapshot = require('./snapshot');
 const { suggestName } = require('../lib/helpers');
 
 // --- Security: Project path validation (C3 fix) ---
-var resolvedProjectsRoot = path.resolve(PROJECTS_ROOT);
-var SHELL_METACHAR_RE = /[;&|`$%^<>!(){}[\]"'#~]/;
+const resolvedProjectsRoot = path.resolve(PROJECTS_ROOT);
+const SHELL_METACHAR_RE = /[;&|`$%^<>!(){}[\]"'#~]/;
+
+// System/OS directories that must never be used as project folders (cross-platform)
+const SYSTEM_DIR_RE = /^(System Volume Information|Recovery|PerfLogs|MSOCache|Config\.Msi|Documents and Settings|Boot|Windows|Program Files( \(x86\))?|ProgramData|Intel|AMD|Library|System|Volumes|cores|private|proc|sys|dev|run|boot|lost\+found|snap|mnt|media|tmp|var|etc|usr|bin|sbin|lib|lib32|lib64|libx32|opt|root|srv)$/i;
 
 function validateProjectPath(p) {
   if (!p || typeof p !== 'string') return 'Project path is required';
   if (!path.isAbsolute(p)) return 'Project path must be absolute';
   if (SHELL_METACHAR_RE.test(p)) return 'Project path contains disallowed characters';
-  var resolved = path.resolve(p);
-  if (resolved !== resolvedProjectsRoot && !resolved.startsWith(resolvedProjectsRoot + path.sep)) {
+  const resolved = path.resolve(p);
+  const prefix = resolvedProjectsRoot.endsWith(path.sep) ? resolvedProjectsRoot : resolvedProjectsRoot + path.sep;
+  if (resolved !== resolvedProjectsRoot && !resolved.startsWith(prefix)) {
     return 'Project path must be under PROJECTS_ROOT (' + PROJECTS_ROOT + ')';
+  }
+  // Block system/OS directories — check every segment of the path under PROJECTS_ROOT
+  // e.g. R:\..\Windows\System32 resolves to R:\Windows\System32 — "Windows" must be caught
+  const relative = resolved.slice(resolvedProjectsRoot.length).replace(/^[/\\]/, '');
+  const segments = relative.split(/[/\\]/).filter(Boolean);
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (seg.startsWith('.') || seg.startsWith('$') || seg.startsWith('~')) {
+      return 'Cannot use hidden or system directory as project folder';
+    }
+    if (SYSTEM_DIR_RE.test(seg)) {
+      return 'Cannot use OS system directory as project folder: ' + seg;
+    }
+  }
+  // Must be exactly one level deep under PROJECTS_ROOT (no nested paths like R:\foo\bar)
+  if (segments.length !== 1) {
+    return 'Project path must be a direct subfolder of ' + PROJECTS_ROOT;
   }
   return null; // valid
 }
 
 // --- Security: Allowed preview commands (C4 fix) ---
-var ALLOWED_RUN_RE = /^(pnpm|npm|node)\s/;
+const ALLOWED_RUN_RE = /^(pnpm|npm|node)\s/;
 function isAllowedRunCommand(cmd) {
   if (!cmd || typeof cmd !== 'string') return false;
   if (!ALLOWED_RUN_RE.test(cmd)) return false;
-  // Block shell metacharacters in run commands
-  if (/[;&|`$<>!]/.test(cmd)) return false;
+  // Block shell metacharacters in run commands — includes quotes that break shell context
+  if (/[;&|`$<>!()"'\\]/.test(cmd)) return false;
   return true;
 }
 
 // --- Project Detection ---
 
 function detectProject(title) {
-  var name = suggestName(title);
-  var nameNoHyphens = name.replace(/-/g, '');
-  var words = title.toLowerCase().split(/\s+/).filter(function(w) { return w.length > 2; });
+  const name = suggestName(title);
+  const nameNoHyphens = name.replace(/-/g, '');
+  const words = title.toLowerCase().split(/\s+/).filter(function(w) { return w.length > 2; });
 
-  var entries;
+  let entries;
   try {
     entries = fs.readdirSync(PROJECTS_ROOT, { withFileTypes: true })
       .filter(function(e) { return e.isDirectory(); })
@@ -46,26 +67,26 @@ function detectProject(title) {
       .filter(function(e) { return e !== '$RECYCLE.BIN' && e !== 'System Volume Information'; });
   } catch (_) { return { matches: [], suggestedName: name, meaningfulWords: words }; }
 
-  var matches = [];
+  const matches = [];
 
-  for (var i = 0; i < entries.length; i++) {
-    var entry = entries[i];
-    var lower = entry.toLowerCase();
-    var lowerNoHyphens = lower.replace(/-/g, '');
-    var score = 0;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const lower = entry.toLowerCase();
+    const lowerNoHyphens = lower.replace(/-/g, '');
+    let score = 0;
 
     if (lower === name || lowerNoHyphens === nameNoHyphens) score = 100;
     else if (lower.includes(name) || name.includes(lower)) score = 80;
     else {
-      var matched = words.filter(function(w) { return lower.includes(w); }).length;
+      const matched = words.filter(function(w) { return lower.includes(w); }).length;
       if (words.length > 0 && matched >= Math.ceil(words.length * 0.5)) {
         score = Math.round((matched / words.length) * 60);
       }
     }
 
     if (score > 0) {
-      var fullPath = path.join(PROJECTS_ROOT, entry);
-      var fileCount = 0;
+      const fullPath = path.join(PROJECTS_ROOT, entry);
+      let fileCount = 0;
       try { fileCount = snapshot.walkDir(fullPath).length; } catch (_) {}
       matches.push({ name: entry, path: fullPath, score: score, files: fileCount });
     }
@@ -76,24 +97,24 @@ function detectProject(title) {
 }
 
 function analyzeProject(projectPath) {
-  var files = snapshot.walkDir(projectPath);
-  var analysis = ['Project: ' + path.basename(projectPath)];
+  const files = snapshot.walkDir(projectPath);
+  const analysis = ['Project: ' + path.basename(projectPath)];
   analysis.push('Location: ' + projectPath);
   analysis.push('Files: ' + files.length);
   analysis.push('');
   analysis.push('File tree:');
-  var treeFiles = files.slice(0, 100);
-  for (var i = 0; i < treeFiles.length; i++) {
+  const treeFiles = files.slice(0, 100);
+  for (let i = 0; i < treeFiles.length; i++) {
     analysis.push('  ' + treeFiles[i]);
   }
   if (files.length > 100) analysis.push('  ... and ' + (files.length - 100) + ' more');
 
-  var keyFiles = ['package.json', 'README.md', 'CLAUDE.md', '.env.example', 'tsconfig.json'];
-  for (var k = 0; k < keyFiles.length; k++) {
-    var fp = path.join(projectPath, keyFiles[k]);
+  const keyFiles = ['package.json', 'README.md', 'CLAUDE.md', '.env.example', 'tsconfig.json'];
+  for (let k = 0; k < keyFiles.length; k++) {
+    const fp = path.join(projectPath, keyFiles[k]);
     if (fs.existsSync(fp)) {
       try {
-        var content = fs.readFileSync(fp, 'utf-8');
+        const content = fs.readFileSync(fp, 'utf-8');
         analysis.push('');
         analysis.push('--- ' + keyFiles[k] + ' ---');
         analysis.push(content.slice(0, 2000));
@@ -107,27 +128,33 @@ function analyzeProject(projectPath) {
 // --- Editor Actions ---
 
 function openInVSCode(cardId) {
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card || !card.project_path) throw new Error('No project path assigned');
-  var err = validateProjectPath(card.project_path);
+  const err = validateProjectPath(card.project_path);
   if (err) throw new Error(err);
-  var child = spawn('code', [card.project_path], { shell: true, detached: true, stdio: 'ignore' });
-  child.on('error', function(err) { console.error('VSCode spawn error:', err.message); });
-  child.unref();
+  const p = card.project_path;
+  if (IS_WIN) {
+    // `start` brings process to foreground; empty string is required title param
+    spawn('cmd', ['/c', 'start', '', 'code', '--new-window', p], { stdio: 'ignore' }).unref();
+  } else if (IS_MAC) {
+    spawn('open', ['-a', 'Visual Studio Code', '--args', '--new-window', p], { stdio: 'ignore' }).unref();
+  } else {
+    spawn('code', ['--new-window', p], { stdio: 'ignore' }).unref();
+  }
 }
 
 function openTerminal(cardId) {
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card || !card.project_path) throw new Error('No project path');
-  var err = validateProjectPath(card.project_path);
+  const err = validateProjectPath(card.project_path);
   if (err) throw new Error(err);
-  var p = card.project_path;
+  const p = card.project_path;
   if (IS_WIN) {
     spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + p + '"'], { detached: true, stdio: 'ignore' }).unref();
   } else if (IS_MAC) {
     spawn('open', ['-a', 'Terminal', p], { detached: true, stdio: 'ignore' }).unref();
   } else {
-    var child = spawn('gnome-terminal', ['--working-directory=' + p], { detached: true, stdio: 'ignore' });
+    const child = spawn('gnome-terminal', ['--working-directory=' + p], { detached: true, stdio: 'ignore' });
     child.on('error', function() {
       spawn('xterm', ['-e', 'bash'], { cwd: p, detached: true, stdio: 'ignore' }).unref();
     });
@@ -136,20 +163,20 @@ function openTerminal(cardId) {
 }
 
 function openClaude(cardId) {
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card || !card.project_path) throw new Error('No project path');
-  var err = validateProjectPath(card.project_path);
+  const err = validateProjectPath(card.project_path);
   if (err) throw new Error(err);
-  var p = card.project_path;
+  const p = card.project_path;
   if (IS_WIN) {
     // Path validated by validateProjectPath — no shell metacharacters possible
     spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + p + '" && set CLAUDECODE= && claude'], { detached: true, stdio: 'ignore' }).unref();
   } else if (IS_MAC) {
-    var script = "cd '" + p.replace(/'/g, "'\\''") + "' && unset CLAUDECODE && claude";
+    const script = "cd '" + p.replace(/'/g, "'\\''") + "' && unset CLAUDECODE && claude";
     spawn('osascript', ['-e', 'tell app "Terminal" to do script "' + script.replace(/"/g, '\\"') + '"'], { detached: true, stdio: 'ignore' }).unref();
   } else {
-    var bashCmd = "cd '" + p.replace(/'/g, "'\\''") + "' && unset CLAUDECODE && claude; exec bash";
-    var child = spawn('gnome-terminal', ['--', 'bash', '-c', bashCmd], { detached: true, stdio: 'ignore' });
+    const bashCmd = "cd '" + p.replace(/'/g, "'\\''") + "' && unset CLAUDECODE && claude; exec bash";
+    const child = spawn('gnome-terminal', ['--', 'bash', '-c', bashCmd], { detached: true, stdio: 'ignore' });
     child.on('error', function() {
       spawn('xterm', ['-e', 'bash', '-c', bashCmd], { detached: true, stdio: 'ignore' }).unref();
     });
@@ -160,27 +187,27 @@ function openClaude(cardId) {
 // --- Diff Viewer ---
 
 function getDiff(cardId) {
-  var snapDir = path.join(DATA_DIR, 'snapshots', 'card-' + cardId);
-  var manifestPath = path.join(snapDir, '_manifest.json');
+  const snapDir = path.join(DATA_DIR, 'snapshots', 'card-' + cardId);
+  const manifestPath = path.join(snapDir, '_manifest.json');
   if (!fs.existsSync(manifestPath)) return { error: 'No snapshot available' };
 
-  var manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-  var projectPath = manifest.projectPath;
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+  const projectPath = manifest.projectPath;
 
   if (!fs.existsSync(projectPath)) return { error: 'Project directory not found' };
 
-  var originalFiles = new Set(manifest.files);
-  var currentFiles;
+  const originalFiles = new Set(manifest.files);
+  let currentFiles;
   try { currentFiles = new Set(snapshot.walkDir(projectPath)); } catch (_) { currentFiles = new Set(); }
 
-  var diff = { added: [], removed: [], modified: [], unchanged: 0, projectPath: projectPath };
+  const diff = { added: [], removed: [], modified: [], unchanged: 0, projectPath: projectPath };
 
-  for (var f of currentFiles) {
+  for (const f of currentFiles) {
     if (!originalFiles.has(f)) {
-      var addedPath = path.join(projectPath, f);
+      const addedPath = path.join(projectPath, f);
       try {
-        var buf = fs.readFileSync(addedPath);
-        var isText = !buf.includes(0);
+        const buf = fs.readFileSync(addedPath);
+        const isText = !buf.includes(0);
         if (isText) {
           diff.added.push({ file: f, content: buf.toString('utf-8').slice(0, 50000), lines: buf.toString('utf-8').split('\n').length });
         } else {
@@ -192,22 +219,22 @@ function getDiff(cardId) {
     }
   }
 
-  for (var f of originalFiles) {
+  for (const f of originalFiles) {
     if (!currentFiles.has(f)) diff.removed.push(f);
   }
 
-  for (var f of originalFiles) {
+  for (const f of originalFiles) {
     if (!currentFiles.has(f)) continue;
-    var origPath = path.join(snapDir, 'files', f);
-    var currPath = path.join(projectPath, f);
+    const origPath = path.join(snapDir, 'files', f);
+    const currPath = path.join(projectPath, f);
     try {
-      var origBuf = fs.readFileSync(origPath);
-      var currBuf = fs.readFileSync(currPath);
+      const origBuf = fs.readFileSync(origPath);
+      const currBuf = fs.readFileSync(currPath);
       if (!origBuf.equals(currBuf)) {
-        var isText = !origBuf.includes(0) && !currBuf.includes(0);
+        const isText = !origBuf.includes(0) && !currBuf.includes(0);
         if (isText) {
-          var origText = origBuf.toString('utf-8');
-          var currText = currBuf.toString('utf-8');
+          const origText = origBuf.toString('utf-8');
+          const currText = currBuf.toString('utf-8');
           diff.modified.push({
             file: f,
             original: origText.slice(0, 50000),
@@ -232,27 +259,27 @@ function getDiff(cardId) {
 // --- Preview / Run ---
 
 function previewProject(cardId) {
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card || !card.project_path) throw new Error('No project path');
-  var pathErr = validateProjectPath(card.project_path);
+  const pathErr = validateProjectPath(card.project_path);
   if (pathErr) throw new Error(pathErr);
 
-  var projectPath = card.project_path;
-  var completionFile = path.join(projectPath, '.task-complete');
-  var runCommand = null;
+  const projectPath = card.project_path;
+  const completionFile = path.join(projectPath, '.task-complete');
+  let runCommand = null;
 
   try {
     if (fs.existsSync(completionFile)) {
-      var data = JSON.parse(fs.readFileSync(completionFile, 'utf-8'));
+      const data = JSON.parse(fs.readFileSync(completionFile, 'utf-8'));
       runCommand = data.run_command;
     }
   } catch (_) {}
 
   if (!runCommand) {
-    var pkgPath = path.join(projectPath, 'package.json');
+    const pkgPath = path.join(projectPath, 'package.json');
     try {
       if (fs.existsSync(pkgPath)) {
-        var pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
         if (pkg.scripts) {
           if (pkg.scripts.dev) runCommand = 'pnpm dev';
           else if (pkg.scripts.start) runCommand = 'pnpm start';
@@ -265,14 +292,14 @@ function previewProject(cardId) {
   if (!runCommand) throw new Error('No run command found in .task-complete or package.json');
   if (!isAllowedRunCommand(runCommand)) throw new Error('Run command not allowed: ' + runCommand + '. Must start with pnpm/npm/node and contain no shell metacharacters.');
 
-  var fullCmd = 'pnpm install && ' + runCommand;
+  const fullCmd = 'pnpm install && ' + runCommand;
   if (IS_WIN) {
     spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + projectPath + '" && ' + fullCmd], { detached: true, stdio: 'ignore' }).unref();
   } else if (IS_MAC) {
-    var safeP = projectPath.replace(/'/g, "'\\''");
+    const safeP = projectPath.replace(/'/g, "'\\''");
     spawn('osascript', ['-e', 'tell app "Terminal" to do script "cd \'' + safeP + '\' && ' + fullCmd + '"'], { detached: true, stdio: 'ignore' }).unref();
   } else {
-    var safeP = projectPath.replace(/'/g, "'\\''");
+    const safeP = projectPath.replace(/'/g, "'\\''");
     spawn('gnome-terminal', ['--', 'bash', '-c', "cd '" + safeP + "' && " + fullCmd + '; exec bash'], { detached: true, stdio: 'ignore' }).unref();
   }
 
@@ -283,9 +310,9 @@ function previewProject(cardId) {
 
 // H3 fix: export only card data by default. Sessions + audit only when opts.full (admin).
 function exportBoard(opts) {
-  var all = cards.getAll();
-  var archived = cards.getArchived();
-  var result = {
+  const all = cards.getAll();
+  const archived = cards.getArchived();
+  const result = {
     exportedAt: new Date().toISOString(),
     version: '1.8.1',
     cards: all.map(function(c) {
@@ -314,18 +341,18 @@ function exportBoard(opts) {
 // --- Metrics ---
 
 function getMetrics() {
-  var all = cards.getAll().concat(cards.getArchived());
-  var scores = [];
-  var durations = { brainstorm: [], build: [], review: [] };
-  var projectCounts = {};
-  var completedByDay = {};
-  var labelCounts = {};
+  const all = cards.getAll().concat(cards.getArchived());
+  const scores = [];
+  const durations = { brainstorm: [], build: [], review: [] };
+  const projectCounts = {};
+  const completedByDay = {};
+  const labelCounts = {};
 
-  for (var i = 0; i < all.length; i++) {
-    var card = all[i];
+  for (let i = 0; i < all.length; i++) {
+    const card = all[i];
 
     if (card.project_path) {
-      var proj = path.basename(card.project_path);
+      const proj = path.basename(card.project_path);
       projectCounts[proj] = (projectCounts[proj] || 0) + 1;
     }
 
@@ -333,23 +360,23 @@ function getMetrics() {
 
     if (card.phase_durations) {
       try {
-        var pd = JSON.parse(card.phase_durations);
-        var phases = ['brainstorm', 'build', 'review'];
-        for (var pi = 0; pi < phases.length; pi++) {
+        const pd = JSON.parse(card.phase_durations);
+        const phases = ['brainstorm', 'build', 'review'];
+        for (let pi = 0; pi < phases.length; pi++) {
           if (pd[phases[pi]] && pd[phases[pi]].duration) durations[phases[pi]].push(pd[phases[pi]].duration);
         }
       } catch (_) {}
     }
 
     if (card.column_name === 'done' || card.column_name === 'archive') {
-      var day = (card.updated_at || '').slice(0, 10);
+      const day = (card.updated_at || '').slice(0, 10);
       if (day) completedByDay[day] = (completedByDay[day] || 0) + 1;
     }
 
     if (card.labels) {
-      var labelArr = card.labels.split(',');
-      for (var li = 0; li < labelArr.length; li++) {
-        var l = labelArr[li].trim();
+      const labelArr = card.labels.split(',');
+      for (let li = 0; li < labelArr.length; li++) {
+        const l = labelArr[li].trim();
         if (l) labelCounts[l] = (labelCounts[l] || 0) + 1;
       }
     }

@@ -1,17 +1,22 @@
 const fs = require('fs');
 const path = require('path');
-const { IS_WIN, RUNTIME_DIR, ROOT_DIR } = require('../config');
+const { IS_WIN, RUNTIME_DIR, ROOT_DIR, runtime, getEffectiveProjectPath } = require('../config');
 const { cards, sessions } = require('../db');
 const { broadcast } = require('../lib/broadcast');
+const { log } = require('../lib/logger');
 const { logPath, sendWebhook } = require('../lib/helpers');
 const { runClaudeSilent } = require('./claude-runner');
 const { getCustomPrompts } = require('./usage');
 
+// --- Brainstorm Queue (concurrency control) ---
+let brainstormQueue = [];    // [{cardId, enqueuedAt}]
+let activeBrainstorms = 0;   // count of running brainstorms
+
 function buildBrainstormPrompt(card) {
   // Lazy require to avoid circular dep
-  var support = require('./support');
-  var isExisting = card.project_path && fs.existsSync(card.project_path);
-  var parts = [];
+  const support = require('./support');
+  const isExisting = card.project_path && fs.existsSync(card.project_path);
+  const parts = [];
   parts.push('You are a senior software architect working through a Kanban board system.');
   parts.push('Your job: analyze this task and produce a detailed, buildable specification.');
   parts.push('');
@@ -63,7 +68,7 @@ function buildBrainstormPrompt(card) {
   parts.push('You have full access to all tools — read files, search code, explore the project. Use them to understand the codebase deeply before writing the spec.');
   parts.push('Output the complete specification as your final response text.');
 
-  var cp = getCustomPrompts();
+  const cp = getCustomPrompts();
   if (cp.brainstormInstructions) {
     parts.push('');
     parts.push('## Additional Brainstorm Instructions');
@@ -78,30 +83,116 @@ function buildBrainstormPrompt(card) {
   return parts.join('\n');
 }
 
-function brainstorm(cardId) {
-  // Lazy require pipeline for setActivity, trackPhase, enqueue, buildPids
-  var pipeline = require('./pipeline');
+function processBrainstormQueue() {
+  const pipeline = require('./pipeline');
+  if (pipeline.isPaused()) return;
+  if (activeBrainstorms >= runtime.maxConcurrentBuilds) return;
+  if (brainstormQueue.length === 0) return;
 
-  var card = cards.get(cardId);
+  const next = brainstormQueue.shift();
+  const card = cards.get(next.cardId);
+  if (!card || card.status !== 'brainstorm-queued') {
+    processBrainstormQueue();
+    return;
+  }
+
+  executeBrainstorm(next.cardId);
+}
+
+// Pre-check: is brainstorming allowed? (Single-project mode enforces one at a time)
+function canBrainstorm(cardId) {
+  if (runtime.mode !== 'single-project') return { allowed: true };
+
+  const allCards = cards.getAll();
+  for (let i = 0; i < allCards.length; i++) {
+    const c = allCards[i];
+    if (c.id === cardId) continue;
+
+    // Block if another brainstorm is actively running
+    if (c.status === 'brainstorming' || c.status === 'brainstorm-queued') {
+      return { allowed: false, reason: 'Another brainstorm is running: "' + c.title + '". Wait for it to finish.' };
+    }
+
+    // Block if an initiative has incomplete children
+    if (c.status === 'initiative-active') {
+      const incomplete = cards.countIncompleteChildren(c.id);
+      if (incomplete > 0) {
+        return {
+          allowed: false,
+          reason: 'Initiative "' + c.title + '" has ' + incomplete + ' incomplete task(s). Complete them first so the next brainstorm sees the latest codebase.',
+        };
+      }
+    }
+  }
+
+  // Check for orphaned in-progress child cards
+  for (let i = 0; i < allCards.length; i++) {
+    const c = allCards[i];
+    if (c.parent_card_id && c.id !== cardId && c.column_name !== 'done' && c.column_name !== 'archive') {
+      return {
+        allowed: false,
+        reason: 'Sub-task "' + c.title + '" is still in progress. Complete all tasks before starting a new brainstorm.',
+      };
+    }
+  }
+
+  return { allowed: true };
+}
+
+function brainstorm(cardId) {
+  const pipeline = require('./pipeline');
+
+  const card = cards.get(cardId);
   if (!card) throw new Error('Card not found');
 
+  // Check if already brainstorming or queued
+  if (card.status === 'brainstorming' || card.status === 'brainstorm-queued') {
+    return Promise.resolve({ success: false, reason: 'already in progress' });
+  }
+
+  // Single-project mode: enforce one brainstorm at a time
+  const check = canBrainstorm(cardId);
+  if (!check.allowed) {
+    return Promise.resolve({ success: false, reason: check.reason });
+  }
+
+  // Check concurrency — queue if at limit
+  if (activeBrainstorms >= runtime.maxConcurrentBuilds) {
+    cards.setStatus(cardId, 'brainstorm-queued');
+    pipeline.setActivity(cardId, 'spec', 'Queued for brainstorm (' + (brainstormQueue.length + 1) + ' in line)...');
+    broadcast('card-updated', cards.get(cardId));
+    brainstormQueue.push({ cardId: cardId, enqueuedAt: Date.now() });
+    return Promise.resolve({ success: true, queued: true, position: brainstormQueue.length });
+  }
+
+  return executeBrainstorm(cardId);
+}
+
+function executeBrainstorm(cardId) {
+  // Lazy require pipeline for setActivity, trackPhase, enqueue, buildPids
+  const pipeline = require('./pipeline');
+
+  const card = cards.get(cardId);
+  if (!card) throw new Error('Card not found');
+
+  activeBrainstorms++;
   cards.setStatus(cardId, 'brainstorming');
   broadcast('card-updated', cards.get(cardId));
   pipeline.setActivity(cardId, 'spec', 'Generating specification...');
   pipeline.trackPhase(cardId, 'brainstorm', 'start');
 
-  var workDir = (card.project_path && fs.existsSync(card.project_path)) ? card.project_path : ROOT_DIR;
-  var prompt = buildBrainstormPrompt(card);
-  var outputFile = path.join(RUNTIME_DIR, '.brainstorm-output-' + cardId);
-  var log = logPath(cardId, 'brainstorm');
+  const workDir = (card.project_path && fs.existsSync(card.project_path)) ? card.project_path : ROOT_DIR;
+  const prompt = buildBrainstormPrompt(card);
+  const outputFile = path.join(RUNTIME_DIR, '.brainstorm-output-' + cardId);
+  const log = logPath(cardId, 'brainstorm');
 
   try { fs.unlinkSync(outputFile); } catch (_) {}
 
-  var header = '[' + new Date().toISOString() + '] Brainstorm started\n'
+  const header = '[' + new Date().toISOString() + '] Brainstorm started\n'
     + 'Card: ' + card.title + '\nWorkDir: ' + workDir + '\n---\n';
   fs.writeFileSync(log, header);
 
-  var run = runClaudeSilent({
+  const run = runClaudeSilent({
     id: 'brainstorm-' + cardId,
     cardId: cardId,
     cwd: workDir,
@@ -112,30 +203,32 @@ function brainstorm(cardId) {
 
   pipeline.trackPid(cardId, run.pid);
 
-  var session = sessions.create(cardId, 'brainstorm', run.pid);
-  var sessionId = Number(session.lastInsertRowid);
+  const session = sessions.create(cardId, 'brainstorm', run.pid);
+  const sessionId = Number(session.lastInsertRowid);
 
   return new Promise(function(resolve) {
-    var attempts = 0;
-    var maxAttempts = 360;
-    var lastMirroredSize = 0;
+    let attempts = 0;
+    const maxAttempts = 360;
+    let lastMirroredSize = 0;
 
-    var interval = setInterval(function() {
+    const interval = setInterval(function() {
       attempts++;
       try {
-        var cardNow = cards.get(cardId);
+        const cardNow = cards.get(cardId);
         if (!cardNow || cardNow.status !== 'brainstorming') {
           clearInterval(interval);
+          activeBrainstorms = Math.max(0, activeBrainstorms - 1);
+          processBrainstormQueue();
           return resolve({ success: false, reason: 'cancelled' });
         }
 
         // Mirror stdout to log on Windows (Linux uses tee)
         if (IS_WIN && fs.existsSync(outputFile)) {
           try {
-            var outStat = fs.statSync(outputFile);
+            const outStat = fs.statSync(outputFile);
             if (outStat.size > lastMirroredSize) {
-              var fd = fs.openSync(outputFile, 'r');
-              var buf = Buffer.alloc(outStat.size - lastMirroredSize);
+              const fd = fs.openSync(outputFile, 'r');
+              const buf = Buffer.alloc(outStat.size - lastMirroredSize);
               fs.readSync(fd, buf, 0, buf.length, lastMirroredSize);
               fs.closeSync(fd);
               fs.appendFileSync(log, buf.toString('utf-8'));
@@ -145,7 +238,7 @@ function brainstorm(cardId) {
         }
 
         if (fs.existsSync(outputFile)) {
-          var content = fs.readFileSync(outputFile, 'utf-8').trim();
+          const content = fs.readFileSync(outputFile, 'utf-8').trim();
           if (content.length > 50) {
             clearInterval(interval);
             pipeline.trackPhase(cardId, 'brainstorm', 'end');
@@ -160,14 +253,37 @@ function brainstorm(cardId) {
             try { fs.unlinkSync(outputFile); } catch (_) {}
             try { fs.unlinkSync(run.scriptPath); } catch (_) {}
 
-            // Auto-start work — zero-touch pipeline
-            try {
-              pipeline.setActivity(cardId, 'queue', 'Spec complete — auto-starting build...');
-              pipeline.enqueue(cardId, 0);
-              broadcast('toast', { message: 'Auto-starting build for: ' + cards.get(cardId).title, type: 'info' });
-            } catch (autoErr) {
-              console.error('Auto-start work failed for card', cardId, ':', autoErr.message);
-              pipeline.clearActivity(cardId);
+            activeBrainstorms = Math.max(0, activeBrainstorms - 1);
+
+            // Single-project mode: decompose spec into child tasks or hold for manual approval
+            if (runtime.mode === 'single-project') {
+              if (runtime.autoPromoteBrainstorm) {
+                // Fully autonomous: decompose and auto-queue
+                pipeline.setActivity(cardId, 'decompose', 'Decomposing spec into tasks...');
+                decomposeSpec(cardId).then(function() {
+                  processBrainstormQueue();
+                }).catch(function(err) {
+                  log.error({ cardId, err: err.message }, 'decomposeSpec failed');
+                  pipeline.clearActivity(cardId);
+                  processBrainstormQueue();
+                });
+              } else {
+                // Manual approval: brainstorm stays, user promotes to todo
+                pipeline.setActivity(cardId, 'spec', 'Spec ready — awaiting manual approval to promote');
+                broadcast('toast', { message: 'Brainstorm complete: ' + cards.get(cardId).title + ' — approve to start work', type: 'info' });
+                processBrainstormQueue();
+              }
+            } else {
+              // Global mode: existing behavior — auto-start work
+              try {
+                pipeline.setActivity(cardId, 'queue', 'Spec complete — auto-starting build...');
+                pipeline.enqueue(cardId, 0);
+                broadcast('toast', { message: 'Auto-starting build for: ' + cards.get(cardId).title, type: 'info' });
+              } catch (autoErr) {
+                log.error({ cardId, err: autoErr.message }, 'Auto-start work failed');
+                pipeline.clearActivity(cardId);
+              }
+              processBrainstormQueue();
             }
 
             resolve({ success: true });
@@ -176,6 +292,7 @@ function brainstorm(cardId) {
 
         if (attempts >= maxAttempts) {
           clearInterval(interval);
+          activeBrainstorms = Math.max(0, activeBrainstorms - 1);
           pipeline.trackPhase(cardId, 'brainstorm', 'end');
           sessions.update(sessionId, 'failed', 'Timeout');
           cards.setStatus(cardId, 'idle');
@@ -183,6 +300,7 @@ function brainstorm(cardId) {
           pipeline.setActivity(cardId, 'spec', 'Timed out after 30 minutes');
           broadcast('card-updated', cards.get(cardId));
           try { fs.appendFileSync(log, '\n---\n[' + new Date().toISOString() + '] TIMEOUT\n'); } catch (_) {}
+          processBrainstormQueue();
           resolve({ success: false, reason: 'timeout' });
         }
       } catch (_) {}
@@ -190,4 +308,184 @@ function brainstorm(cardId) {
   });
 }
 
-module.exports = { brainstorm: brainstorm, buildBrainstormPrompt: buildBrainstormPrompt };
+// --- Decompose Spec into Child Todo Cards (Single-Project Mode) ---
+// Takes a brainstorm card with a spec and spawns Claude to break it into actionable child tasks.
+
+function decomposeSpec(parentCardId) {
+  const pipeline = require('./pipeline');
+  const parentCard = cards.get(parentCardId);
+  if (!parentCard || !parentCard.spec) return Promise.resolve();
+
+  const projectPath = parentCard.project_path || getEffectiveProjectPath();
+  if (!projectPath) return Promise.resolve();
+
+  const outputFile = path.join(RUNTIME_DIR, '.decompose-output-' + parentCardId);
+  const log = path.join(RUNTIME_DIR, '.decompose-log-' + parentCardId + '.log');
+
+  try { fs.unlinkSync(outputFile); } catch (_) {}
+
+  const header = '[' + new Date().toISOString() + '] Decomposing spec for card #' + parentCardId + '\n---\n';
+  fs.writeFileSync(log, header);
+
+  const prompt = [
+    'You are a task decomposition agent. Break this specification into concrete, independently buildable implementation tasks.',
+    '',
+    '## Specification',
+    parentCard.spec,
+    '',
+    '## Rules',
+    '- Each task must be independently buildable and testable',
+    '- Tasks should be ordered by dependency (first task has no deps)',
+    '- Each task works towards the end-to-end solution described in the spec',
+    '- Maximum ' + runtime.maxChildCards + ' tasks',
+    '- Each task title should be a clear imperative (e.g., "Add user authentication endpoint")',
+    '- Mark interdependencies: a task can depend on previous tasks by index (0-based)',
+    '',
+    '## Devil\'s Advocate',
+    '- Is each task truly necessary, or can two be merged?',
+    '- Does each task deliver standalone value, or is it just a step?',
+    '- Are you over-decomposing? 3 solid tasks beat 10 tiny ones.',
+    '',
+    '## Output Format',
+    'Output ONLY valid JSON (no markdown fences):',
+    '[{"title": "Task title", "description": "What to build and how", "depends_on_index": null or number}]',
+    '',
+    'Order matters: task 0 runs first, task 1 can depend on 0, etc.',
+  ].join('\n');
+
+  const run = runClaudeSilent({
+    id: 'decompose-' + parentCardId,
+    cardId: parentCardId,
+    cwd: projectPath,
+    prompt: prompt,
+    stdoutFile: outputFile,
+    logFile: log,
+  });
+
+  return new Promise(function(resolve) {
+    let pollCount = 0;
+    const maxPolls = 180; // 15 min
+
+    const interval = setInterval(function() {
+      pollCount++;
+      try {
+        if (fs.existsSync(outputFile)) {
+          const content = fs.readFileSync(outputFile, 'utf-8').trim();
+          if (content.length > 20) {
+            clearInterval(interval);
+            try {
+              createChildCards(parentCardId, content, projectPath);
+            } catch (err) {
+              log.error({ parentCardId, err: err.message }, 'Decompose failed');
+              // Fallback: treat the brainstorm card itself as the single task
+              cards.move(parentCardId, 'todo');
+              pipeline.setActivity(parentCardId, 'queue', 'Decompose failed — using spec directly');
+              try { pipeline.enqueue(parentCardId, 0); } catch (_) {}
+            }
+            try { fs.unlinkSync(outputFile); } catch (_) {}
+            try { fs.unlinkSync(run.scriptPath); } catch (_) {}
+            resolve();
+          }
+        }
+        if (pollCount >= maxPolls) {
+          clearInterval(interval);
+          log.error({ parentCardId }, 'Decompose timeout');
+          // Fallback: use spec directly
+          cards.move(parentCardId, 'todo');
+          try { pipeline.enqueue(parentCardId, 0); } catch (_) {}
+          resolve();
+        }
+      } catch (err) {
+        log.error({ err: err.message }, 'Decompose poll error');
+      }
+    }, 5000);
+  });
+}
+
+function createChildCards(parentCardId, rawOutput, projectPath) {
+  const pipeline = require('./pipeline');
+  const jsonMatch = rawOutput.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) throw new Error('No JSON array in decompose output');
+
+  let tasks = JSON.parse(jsonMatch[0]);
+  if (!Array.isArray(tasks) || tasks.length === 0) throw new Error('Empty task list');
+
+  // Cap at maxChildCards
+  tasks = tasks.slice(0, runtime.maxChildCards);
+
+  const childIds = [];
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i];
+    if (!task.title) continue;
+
+    const result = cards.create(task.title, task.description || '', 'todo');
+    const childCard = cards.get(Number(result.lastInsertRowid));
+    if (!childCard) continue;
+
+    cards.setParentCardId(childCard.id, parentCardId);
+    cards.setProjectPath(childCard.id, projectPath);
+    cards.setSpec(childCard.id, task.description || task.title);
+
+    // Set dependencies — map index-based deps to actual card IDs
+    if (task.depends_on_index !== null && task.depends_on_index !== undefined && childIds[task.depends_on_index]) {
+      cards.setDependsOn(childCard.id, String(childIds[task.depends_on_index]));
+    }
+
+    childIds.push(childCard.id);
+    broadcast('card-created', cards.get(childCard.id));
+  }
+
+  // Mark parent as "initiative active" — stays in brainstorm with children tracked
+  cards.setStatus(parentCardId, 'initiative-active');
+  pipeline.setActivity(parentCardId, 'decompose', 'Decomposed into ' + childIds.length + ' tasks');
+  broadcast('card-updated', cards.get(parentCardId));
+  broadcast('toast', { message: 'Decomposed "' + cards.get(parentCardId).title + '" into ' + childIds.length + ' tasks', type: 'success' });
+
+  // Auto-enqueue the first child (others wait on dependencies)
+  if (childIds.length > 0) {
+    try {
+      pipeline.enqueue(childIds[0], 0);
+    } catch (err) {
+      log.error({ err: err.message }, 'Decompose enqueue first child failed');
+    }
+  }
+
+  return childIds;
+}
+
+// Manual promote — user approves a brainstorm card to start working
+function promoteToTodo(cardId) {
+  const pipeline = require('./pipeline');
+  const card = cards.get(cardId);
+  if (!card) throw new Error('Card not found');
+  if (!card.spec) throw new Error('No spec — brainstorm not complete');
+  if (card.column_name !== 'brainstorm') throw new Error('Card is not in brainstorm column');
+
+  if (runtime.mode === 'single-project') {
+    // Decompose and auto-queue
+    pipeline.setActivity(cardId, 'decompose', 'Approved — decomposing spec into tasks...');
+    broadcast('card-updated', cards.get(cardId));
+    return decomposeSpec(cardId);
+  } else {
+    // Global mode: just move to todo and enqueue
+    cards.move(cardId, 'todo');
+    broadcast('card-updated', cards.get(cardId));
+    return Promise.resolve(pipeline.enqueue(cardId, 1));
+  }
+}
+
+function getActiveBrainstorms() { return activeBrainstorms; }
+function getBrainstormQueue() { return brainstormQueue.map(function(q) { return q.cardId; }); }
+function resetBrainstormState() { activeBrainstorms = 0; brainstormQueue = []; }
+
+module.exports = {
+  brainstorm: brainstorm,
+  canBrainstorm: canBrainstorm,
+  buildBrainstormPrompt: buildBrainstormPrompt,
+  processBrainstormQueue: processBrainstormQueue,
+  getActiveBrainstorms: getActiveBrainstorms,
+  getBrainstormQueue: getBrainstormQueue,
+  resetBrainstormState: resetBrainstormState,
+  decomposeSpec: decomposeSpec,
+  promoteToTodo: promoteToTodo,
+};

@@ -1,25 +1,20 @@
-var express = require('express');
-var fs = require('fs');
-var path = require('path');
-var { cards, audit, auditLog, backups, db } = require('../db');
-var { broadcast, adminClients } = require('../lib/broadcast');
-var { DATA_DIR, ADMIN_PIN, LOG_RETENTION_DAYS, SNAPSHOT_ARCHIVE_RETENTION_DAYS, MAX_AUDIT_ROWS, RUNTIME_STALE_HOURS, ROOT_DIR } = require('../config');
-var { requireAdmin } = require('../lib/session');
-var { PinAuthProvider, createSessionHandler, createLoginHandler, logoutHandler } = require('../middleware/auth');
-var pipeline = require('../services/pipeline');
-var support = require('../services/support');
-var usageSvc = require('../services/usage');
-var snapshot = require('../services/snapshot');
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const { cards, audit, auditLog, backups, db, errors: dbErrors } = require('../db');
+const { broadcast, adminClients } = require('../lib/broadcast');
+const { DATA_DIR, LOG_RETENTION_DAYS, SNAPSHOT_ARCHIVE_RETENTION_DAYS, MAX_AUDIT_ROWS, RUNTIME_STALE_HOURS, ROOT_DIR, IS_WIN, PORT } = require('../config');
+const { requireAdmin } = require('../sso');
+const { log } = require('../lib/logger');
+const pipeline = require('../services/pipeline');
+const support = require('../services/support');
+const usageSvc = require('../services/usage');
+const snapshot = require('../services/snapshot');
+const autoDiscover = require('../services/auto-discover');
+const brainstormSvc = require('../services/brainstorm');
+const intelligence = require('../services/intelligence');
 
-var router = express.Router();
-
-// --- Auth Provider ---
-var authProvider = new PinAuthProvider(ADMIN_PIN);
-
-// --- Auth Routes (session-based, HTTP-only cookies) ---
-router.get('/api/auth/session', createSessionHandler(authProvider));
-router.post('/api/auth/login', createLoginHandler(authProvider));
-router.post('/api/auth/logout', logoutHandler);
+const router = express.Router();
 
 // --- Admin SSE (C2 fix: require auth) ---
 router.get('/api/events', requireAdmin, function(req, res) {
@@ -35,7 +30,11 @@ router.get('/api/events', requireAdmin, function(req, res) {
 
 // --- Control Panel ---
 router.get('/', function(_req, res) {
-  res.sendFile(path.join(ROOT_DIR, 'public', 'control-panel.html'));
+  // Inject CSP nonce into the inline script tag
+  let html = fs.readFileSync(path.join(ROOT_DIR, 'public', 'control-panel.html'), 'utf-8');
+  const nonce = res.locals.cspNonce || '';
+  html = html.replace('<script>', '<script nonce="' + nonce + '">');
+  res.type('html').send(html);
 });
 
 // --- Read-only Board Data (C3 fix: require auth on all admin reads) ---
@@ -55,8 +54,8 @@ router.get('/api/backups', requireAdmin, function(_req, res) {
 });
 
 router.post('/api/backups/create', requireAdmin, function(req, res) {
-  var label = (req.body && req.body.label) || '';
-  var result = backups.create(label);
+  const label = (req.body && req.body.label) || '';
+  const result = backups.create(label);
   if (result.success) {
     auditLog('backup-create', 'backup', null, req.user.id, '', result.file, 'manual backup');
     broadcast('toast', { message: 'Manual backup created: ' + result.file, type: 'success' });
@@ -66,6 +65,7 @@ router.post('/api/backups/create', requireAdmin, function(req, res) {
 
 router.post('/api/backups/restore', requireAdmin, function(req, res) {
   if (!req.body.backupPath) return res.status(400).json({ error: 'backupPath required' });
+  if (req.body.confirm !== true) return res.status(400).json({ error: 'Backup restore requires { "confirm": true }' });
   auditLog('backup-restore', 'backup', null, req.user.id, '', req.body.backupPath, 'restore initiated');
   res.json(backups.restore(req.body.backupPath));
 });
@@ -83,8 +83,8 @@ router.post('/api/usage/refresh', requireAdmin, function(_req, res) {
 router.get('/api/config', requireAdmin, function(_req, res) { res.json(usageSvc.getConfig(pipeline.getPipelineState(), { admin: true })); });
 
 router.put('/api/config', requireAdmin, function(req, res) {
-  var oldConfig = usageSvc.getConfig(pipeline.getPipelineState(), { admin: true }).runtime;
-  var changed = usageSvc.setConfig(req.body);
+  const oldConfig = usageSvc.getConfig(pipeline.getPipelineState(), { admin: true }).runtime;
+  const changed = usageSvc.setConfig(req.body);
   auditLog('config-change', 'config', null, req.user.id, oldConfig, changed, Object.keys(changed).join(', '));
   broadcast('toast', { message: 'Config updated: ' + Object.keys(changed).join(', '), type: 'success' });
   res.json({ changed: changed, config: usageSvc.getConfig(pipeline.getPipelineState(), { admin: true }) });
@@ -94,8 +94,8 @@ router.put('/api/config', requireAdmin, function(req, res) {
 router.get('/api/custom-prompts', requireAdmin, function(_req, res) { res.json(usageSvc.getCustomPrompts()); });
 
 router.put('/api/custom-prompts', requireAdmin, function(req, res) {
-  var oldPrompts = usageSvc.getCustomPrompts();
-  var data = usageSvc.setCustomPrompts(req.body);
+  const oldPrompts = usageSvc.getCustomPrompts();
+  const data = usageSvc.setCustomPrompts(req.body);
   auditLog('prompts-change', 'config', null, req.user.id, oldPrompts, data, 'custom prompts updated');
   broadcast('toast', { message: 'Custom prompts updated', type: 'success' });
   res.json(data);
@@ -123,14 +123,16 @@ router.post('/api/cards/:id/stop', requireAdmin, function(req, res) {
 
 // --- Bulk Import (protected) ---
 router.post('/api/bulk-create', requireAdmin, function(req, res) {
-  var items = req.body.items;
+  const items = req.body.items;
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items array required' });
-  var created = [];
-  var batch = items.slice(0, 50);
-  for (var i = 0; i < batch.length; i++) {
+  const created = [];
+  const batch = items.slice(0, 50);
+  for (let i = 0; i < batch.length; i++) {
     if (!batch[i].title) continue;
-    var result = cards.create(batch[i].title, batch[i].description || '', batch[i].column || 'brainstorm');
-    var card = cards.get(Number(result.lastInsertRowid));
+    const itemTitle = String(batch[i].title).slice(0, 500);
+    const itemDesc = batch[i].description ? String(batch[i].description).slice(0, 10000) : '';
+    const result = cards.create(itemTitle, itemDesc, batch[i].column || 'brainstorm');
+    const card = cards.get(Number(result.lastInsertRowid));
     if (batch[i].labels) cards.setLabels(card.id, batch[i].labels);
     broadcast('card-created', cards.get(card.id));
     created.push(cards.get(card.id));
@@ -138,26 +140,281 @@ router.post('/api/bulk-create', requireAdmin, function(req, res) {
   res.json({ created: created.length, cards: created });
 });
 
-// --- Factory Reset ---
-router.post('/api/factory-reset', requireAdmin, function(_req, res) {
-  auditLog('factory-reset', 'system', null, 'admin', '', '', 'full factory reset initiated');
+// --- Mode & Auto-Discovery ---
+router.get('/api/mode', requireAdmin, function(_req, res) {
+  res.json(autoDiscover.getState());
+});
+
+router.put('/api/mode', requireAdmin, function(req, res) {
+  const { runtime } = require('../config');
+  const changed = {};
+
+  if (req.body.mode !== undefined) {
+    const newMode = String(req.body.mode);
+    if (newMode === 'global' || newMode === 'single-project') {
+      const oldMode = runtime.mode;
+      runtime.mode = newMode;
+      changed.mode = newMode;
+      auditLog('mode-change', 'config', null, req.user.id, oldMode, newMode, '');
+      if (newMode === 'single-project') autoDiscover.init();
+      else autoDiscover.stopPeriodicDiscovery();
+    }
+  }
+  if (req.body.singleProjectPath !== undefined) {
+    runtime.singleProjectPath = String(req.body.singleProjectPath);
+    changed.singleProjectPath = runtime.singleProjectPath;
+  }
+  if (req.body.autoPromoteBrainstorm !== undefined) {
+    runtime.autoPromoteBrainstorm = !!req.body.autoPromoteBrainstorm;
+    changed.autoPromoteBrainstorm = runtime.autoPromoteBrainstorm;
+  }
+  if (req.body.maxBrainstormQueue !== undefined) {
+    runtime.maxBrainstormQueue = Math.max(1, Math.min(10, Number(req.body.maxBrainstormQueue)));
+    changed.maxBrainstormQueue = runtime.maxBrainstormQueue;
+  }
+  if (req.body.discoveryIntervalMins !== undefined) {
+    runtime.discoveryIntervalMins = Math.max(0, Number(req.body.discoveryIntervalMins));
+    changed.discoveryIntervalMins = runtime.discoveryIntervalMins;
+    autoDiscover.startPeriodicDiscovery();
+  }
+  if (req.body.maxChildCards !== undefined) {
+    runtime.maxChildCards = Math.max(1, Math.min(20, Number(req.body.maxChildCards)));
+    changed.maxChildCards = runtime.maxChildCards;
+  }
+
+  broadcast('mode-updated', autoDiscover.getState());
+  broadcast('toast', { message: 'Mode config updated: ' + Object.keys(changed).join(', '), type: 'success' });
+  res.json({ changed: changed, state: autoDiscover.getState() });
+});
+
+router.post('/api/discovery/run', requireAdmin, function(_req, res) {
+  autoDiscover.runDiscovery();
+  res.json({ started: true });
+});
+
+router.get('/api/pending-actions', requireAdmin, function(_req, res) {
+  res.json(autoDiscover.getPendingActions());
+});
+
+router.post('/api/pending-actions/:id/resolve', requireAdmin, function(req, res) {
+  const resolved = autoDiscover.resolvePendingAction(Number(req.params.id));
+  res.json({ resolved: resolved });
+});
+
+// --- Promote brainstorm to todo (manual approval mode) ---
+router.post('/api/cards/:id/promote', requireAdmin, function(req, res) {
+  brainstormSvc.promoteToTodo(Number(req.params.id)).then(function(result) {
+    res.json({ success: true, result: result });
+  }).catch(function(err) {
+    res.status(400).json({ error: err.message });
+  });
+});
+
+// --- Error Log API ---
+router.get('/api/errors', requireAdmin, function(_req, res) {
+  res.json({
+    unresolved: dbErrors.unresolved(),
+    unresolvedCount: dbErrors.count(),
+  });
+});
+
+router.get('/api/errors/recent', requireAdmin, function(req, res) {
+  const limit = Math.min(Number(req.query.limit) || 50, 500);
+  res.json(dbErrors.recent(limit));
+});
+
+router.post('/api/errors/:id/resolve', requireAdmin, function(req, res) {
+  const id = Number(req.params.id);
+  dbErrors.resolve(id, null);
+  auditLog('resolve-error', 'error', id, 'admin', '', 'resolved', 'manual resolution');
+  res.json({ success: true });
+});
+
+// --- Intelligence / Learnings ---
+router.get('/api/intelligence', requireAdmin, function(_req, res) {
+  res.json(intelligence.getInsights());
+});
+
+router.post('/api/intelligence/analyze', requireAdmin, function(_req, res) {
+  const changes = intelligence.analyzeAndTune();
+  res.json({ changes: changes, insights: intelligence.getInsights() });
+});
+
+router.delete('/api/intelligence/learnings/:id', requireAdmin, function(req, res) {
+  intelligence.removeLearning(Number(req.params.id));
+  auditLog('delete-learning', 'learning', Number(req.params.id), req.user.id, '', '', 'manual removal');
+  res.json({ success: true });
+});
+
+// --- Checkpoints / Rollback ---
+router.get('/api/checkpoints', requireAdmin, function(req, res) {
+  const limit = Math.min(Number(req.query.limit) || 20, 100);
+  res.json(intelligence.getCheckpoints(limit));
+});
+
+router.post('/api/checkpoints/:id/rollback', requireAdmin, function(req, res) {
+  const result = intelligence.rollback(Number(req.params.id));
+  if (result.success) {
+    auditLog('rollback', 'checkpoint', Number(req.params.id), req.user.id, '', result.label, result.reverted.join('; '));
+  }
+  res.json(result);
+});
+
+// --- Factory Reset (nuke folder + fresh clone) ---
+router.post('/api/factory-reset', requireAdmin, function(req, res) {
+  if (!req.body || req.body.confirm !== true) {
+    return res.status(400).json({ error: 'Factory reset requires { "confirm": true }' });
+  }
+
+  var execFileSync = require('child_process').execFileSync;
+  var cpSpawn = require('child_process').spawn;
+
+  // Get git remote URL (execFileSync = no shell, safe from injection)
+  var repoUrl;
+  try {
+    repoUrl = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: ROOT_DIR, encoding: 'utf-8' }).trim();
+  } catch (err) {
+    return res.status(500).json({ error: 'Cannot determine git remote: ' + err.message });
+  }
+
+  auditLog('factory-reset', 'system', null, req.user.id, '', repoUrl, 'nuke + clone reset');
   try { pipeline.killAll(); } catch (_) {}
-  res.json({ success: true, note: 'Server will shut down. Restart to get a fresh instance.' });
+
+  var parentDir = path.resolve(ROOT_DIR, '..');
+  var folderName = path.basename(ROOT_DIR);
+  var envFile = path.join(ROOT_DIR, '.env');
+  var envBackup = path.join(parentDir, '._kanban_env_backup');
+  var resetLog = path.join(parentDir, '_kanban_reset.log');
+
+  // Backup .env if it exists
+  try { if (fs.existsSync(envFile)) fs.copyFileSync(envFile, envBackup); } catch (_) {}
+
+  if (IS_WIN) {
+    var batPath = path.join(parentDir, '_kanban_reset.bat');
+    var batLines = [
+      '@echo off',
+      'setlocal enabledelayedexpansion',
+      'set "LOGFILE=' + resetLog + '"',
+      'echo [%date% %time%] Factory reset started >> "%LOGFILE%"',
+      '',
+      ':: Wait for server to exit (max 60s)',
+      'set "waits=0"',
+      ':waitloop',
+      'timeout /t 2 /nobreak >nul 2>nul',
+      'set /a waits+=1',
+      'if !waits! gtr 30 goto waited',
+      'tasklist /FI "PID eq ' + process.pid + '" 2>nul | findstr "' + process.pid + '" >nul 2>nul',
+      'if %errorlevel% equ 0 goto waitloop',
+      ':waited',
+      'echo [%date% %time%] Server exited >> "%LOGFILE%"',
+      'timeout /t 3 /nobreak >nul 2>nul',
+      '',
+      ':: Delete folder (retry up to 5x for file locks)',
+      'cd /d "' + parentDir + '"',
+      'set "retries=0"',
+      ':delloop',
+      'rd /s /q "' + ROOT_DIR + '" 2>nul',
+      'if exist "' + ROOT_DIR + '" (',
+      '  set /a retries+=1',
+      '  if !retries! lss 5 (',
+      '    echo [%date% %time%] Delete retry !retries!/5 >> "%LOGFILE%"',
+      '    timeout /t 3 /nobreak >nul 2>nul',
+      '    goto delloop',
+      '  )',
+      '  echo [%date% %time%] ERROR: Could not delete folder >> "%LOGFILE%"',
+      '  goto :eof',
+      ')',
+      'echo [%date% %time%] Folder deleted >> "%LOGFILE%"',
+      '',
+      ':: Clone fresh',
+      'git clone "' + repoUrl + '" "' + folderName + '" >> "%LOGFILE%" 2>&1',
+      'if errorlevel 1 (',
+      '  echo [%date% %time%] ERROR: git clone failed >> "%LOGFILE%"',
+      '  goto :eof',
+      ')',
+      'echo [%date% %time%] Clone complete >> "%LOGFILE%"',
+      '',
+      ':: Restore .env',
+      'if exist "' + envBackup + '" (',
+      '  copy /y "' + envBackup + '" "' + path.join(ROOT_DIR, '.env') + '" >nul 2>nul',
+      '  del /f "' + envBackup + '" >nul 2>nul',
+      '  echo [%date% %time%] .env restored >> "%LOGFILE%"',
+      ')',
+      '',
+      ':: Install dependencies',
+      'cd /d "' + ROOT_DIR + '"',
+      'call pnpm install >> "%LOGFILE%" 2>&1',
+      'echo [%date% %time%] Dependencies installed >> "%LOGFILE%"',
+      '',
+      ':: Start server (hidden window)',
+      'node -e "require(\'child_process\').spawn(process.execPath,[\'src/server.js\'],{detached:true,stdio:\'ignore\',windowsHide:true}).unref()"',
+      'echo [%date% %time%] Server started >> "%LOGFILE%"',
+    ];
+    fs.writeFileSync(batPath, batLines.join('\r\n'));
+
+    var child = cpSpawn('cmd', ['/c', batPath], {
+      cwd: parentDir, detached: true, stdio: 'ignore', windowsHide: true,
+    });
+    child.unref();
+  } else {
+    var shPath = path.join(parentDir, '_kanban_reset.sh');
+    var shLines = [
+      '#!/bin/bash',
+      'LOGFILE="' + resetLog + '"',
+      'echo "$(date) Factory reset started" >> "$LOGFILE"',
+      '',
+      '# Wait for server to exit',
+      'for i in $(seq 1 30); do kill -0 ' + process.pid + ' 2>/dev/null || break; sleep 2; done',
+      'sleep 2',
+      'echo "$(date) Server exited" >> "$LOGFILE"',
+      '',
+      '# Delete folder',
+      'cd "' + parentDir + '"',
+      'rm -rf "' + ROOT_DIR + '"',
+      'echo "$(date) Folder deleted" >> "$LOGFILE"',
+      '',
+      '# Clone fresh',
+      'git clone "' + repoUrl + '" "' + folderName + '" >> "$LOGFILE" 2>&1',
+      'echo "$(date) Clone complete" >> "$LOGFILE"',
+      '',
+      '# Restore .env',
+      '[ -f "' + envBackup + '" ] && cp "' + envBackup + '" "' + path.join(ROOT_DIR, '.env') + '" && rm -f "' + envBackup + '"',
+      '',
+      '# Install dependencies',
+      'cd "' + ROOT_DIR + '"',
+      'pnpm install >> "$LOGFILE" 2>&1',
+      'echo "$(date) Dependencies installed" >> "$LOGFILE"',
+      '',
+      '# Start server',
+      'nohup node src/server.js > /dev/null 2>&1 &',
+      'echo "$(date) Server started (PID $!)" >> "$LOGFILE"',
+      '',
+      '# Self-cleanup',
+      'rm -f "$0"',
+    ];
+    fs.writeFileSync(shPath, shLines.join('\n'), { mode: 0o755 });
+
+    var child = cpSpawn('bash', [shPath], {
+      cwd: parentDir, detached: true, stdio: 'ignore',
+    });
+    child.unref();
+  }
+
+  log.info({ repoUrl: repoUrl, parentDir: parentDir }, 'Factory reset — nuke script spawned');
+  res.json({ success: true, port: PORT, note: 'Full reset in progress. Server will restart automatically.' });
+
   setTimeout(function() {
-    try { fs.rmSync(DATA_DIR, { recursive: true, force: true }); } catch (_) {}
-    console.log('[factory-reset] All data wiped. Exiting.');
-    // L6 fix: use SIGTERM for graceful shutdown instead of process.exit(0)
     process.kill(process.pid, 'SIGTERM');
   }, 500);
 });
 
 // --- Housekeeping ---
 function dirSize(dir) {
-  var total = 0;
+  let total = 0;
   try {
-    var entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (var i = 0; i < entries.length; i++) {
-      var fp = path.join(dir, entries[i].name);
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (let i = 0; i < entries.length; i++) {
+      const fp = path.join(dir, entries[i].name);
       if (entries[i].isDirectory()) total += dirSize(fp);
       else try { total += fs.statSync(fp).size; } catch (_) {}
     }
@@ -167,9 +424,9 @@ function dirSize(dir) {
 
 function countFiles(dir) {
   try {
-    var count = 0;
-    var entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (var i = 0; i < entries.length; i++) {
+    let count = 0;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (let i = 0; i < entries.length; i++) {
       if (entries[i].isDirectory()) count += countFiles(path.join(dir, entries[i].name));
       else count++;
     }
@@ -178,11 +435,11 @@ function countFiles(dir) {
 }
 
 function getHousekeepingStats() {
-  var logsDir = path.join(DATA_DIR, 'logs');
-  var snapshotsDir = path.join(DATA_DIR, 'snapshots');
-  var archiveDir = path.join(DATA_DIR, 'archive');
-  var runtimeDir = path.join(DATA_DIR, 'runtime');
-  var backupsDir = path.join(DATA_DIR, 'backups');
+  const logsDir = path.join(DATA_DIR, 'logs');
+  const snapshotsDir = path.join(DATA_DIR, 'snapshots');
+  const archiveDir = path.join(DATA_DIR, 'archive');
+  const runtimeDir = path.join(DATA_DIR, 'runtime');
+  const backupsDir = path.join(DATA_DIR, 'backups');
   return {
     logs: { path: logsDir, size: dirSize(logsDir), files: countFiles(logsDir) },
     snapshots: { path: snapshotsDir, size: dirSize(snapshotsDir), files: countFiles(snapshotsDir) },
@@ -195,7 +452,7 @@ function getHousekeepingStats() {
 
 function isPipelineIdle() {
   try {
-    var all = cards.getAll();
+    const all = cards.getAll();
     return !all.some(function(c) {
       return c.column_name === 'working' ||
         ['building', 'brainstorming', 'reviewing', 'fixing'].includes(c.status);
@@ -205,15 +462,15 @@ function isPipelineIdle() {
 
 function runHousekeeping(force) {
   if (!force && !isPipelineIdle()) return { skipped: true, reason: 'pipeline active' };
-  var now = Date.now();
-  var cleaned = { logs: 0, markers: 0, runtime: 0, snapshotArchive: 0, audit: 0 };
+  const now = Date.now();
+  const cleaned = { logs: 0, markers: 0, runtime: 0, snapshotArchive: 0, audit: 0 };
 
-  var logsDir = path.join(DATA_DIR, 'logs');
-  var logCutoff = now - LOG_RETENTION_DAYS * 86400000;
+  const logsDir = path.join(DATA_DIR, 'logs');
+  const logCutoff = now - LOG_RETENTION_DAYS * 86400000;
   try {
-    var logFiles = fs.readdirSync(logsDir);
-    for (var i = 0; i < logFiles.length; i++) {
-      var fp = path.join(logsDir, logFiles[i]);
+    const logFiles = fs.readdirSync(logsDir);
+    for (let i = 0; i < logFiles.length; i++) {
+      const fp = path.join(logsDir, logFiles[i]);
       try {
         if (fs.statSync(fp).mtimeMs < logCutoff) { fs.unlinkSync(fp); cleaned.logs++; }
       } catch (_) {}
@@ -221,34 +478,34 @@ function runHousekeeping(force) {
   } catch (_) {}
 
   try {
-    var markerFiles = fs.readdirSync(logsDir);
-    for (var j = 0; j < markerFiles.length; j++) {
+    const markerFiles = fs.readdirSync(logsDir);
+    for (let j = 0; j < markerFiles.length; j++) {
       if (!markerFiles[j].endsWith('.scanned')) continue;
-      var logFile = markerFiles[j].replace('.scanned', '');
+      const logFile = markerFiles[j].replace('.scanned', '');
       if (!fs.existsSync(path.join(logsDir, logFile))) {
         try { fs.unlinkSync(path.join(logsDir, markerFiles[j])); cleaned.markers++; } catch (_) {}
       }
     }
   } catch (_) {}
 
-  var runtimeDir = path.join(DATA_DIR, 'runtime');
-  var rtCutoff = now - RUNTIME_STALE_HOURS * 3600000;
+  const runtimeDir = path.join(DATA_DIR, 'runtime');
+  const rtCutoff = now - RUNTIME_STALE_HOURS * 3600000;
   try {
-    var rtFiles = fs.readdirSync(runtimeDir);
-    for (var k = 0; k < rtFiles.length; k++) {
-      var rfp = path.join(runtimeDir, rtFiles[k]);
+    const rtFiles = fs.readdirSync(runtimeDir);
+    for (let k = 0; k < rtFiles.length; k++) {
+      const rfp = path.join(runtimeDir, rtFiles[k]);
       try {
         if (fs.statSync(rfp).mtimeMs < rtCutoff) { fs.unlinkSync(rfp); cleaned.runtime++; }
       } catch (_) {}
     }
   } catch (_) {}
 
-  var archiveDir = path.join(DATA_DIR, 'archive', 'snapshots');
-  var archCutoff = now - SNAPSHOT_ARCHIVE_RETENTION_DAYS * 86400000;
+  const archiveDir = path.join(DATA_DIR, 'archive', 'snapshots');
+  const archCutoff = now - SNAPSHOT_ARCHIVE_RETENTION_DAYS * 86400000;
   try {
-    var archDirs = fs.readdirSync(archiveDir);
-    for (var m = 0; m < archDirs.length; m++) {
-      var dp = path.join(archiveDir, archDirs[m]);
+    const archDirs = fs.readdirSync(archiveDir);
+    for (let m = 0; m < archDirs.length; m++) {
+      const dp = path.join(archiveDir, archDirs[m]);
       try {
         if (fs.statSync(dp).mtimeMs < archCutoff) {
           fs.rmSync(dp, { recursive: true, force: true });
@@ -259,9 +516,9 @@ function runHousekeeping(force) {
   } catch (_) {}
 
   try {
-    var total = audit.all().length;
+    const total = audit.all().length;
     if (total > MAX_AUDIT_ROWS) {
-      var excess = total - MAX_AUDIT_ROWS;
+      const excess = total - MAX_AUDIT_ROWS;
       db.prepare('DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log ORDER BY timestamp ASC LIMIT ?)').run(excess);
       cleaned.audit = excess;
     }

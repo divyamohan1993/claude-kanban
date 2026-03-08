@@ -1,6 +1,6 @@
 {
   "name": "claude-kanban",
-  "version": "1.8.1",
+  "version": "2.0.0",
   "description": "AI-powered Kanban board that orchestrates autonomous Claude Code sessions",
   "main": "src/server.js",
   "scripts": {
@@ -8,10 +8,15 @@
     "dev": "node --watch src/server.js"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3"]
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "argon2"
+    ]
   },
   "dependencies": {
+    "argon2": "^0.44.0",
     "better-sqlite3": "^11.7.0",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "pino": "^10.3.1"
   }
 }

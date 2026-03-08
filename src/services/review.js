@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
-const { runtime } = require('../config');
+const { runtime, getEffectiveProjectPath } = require('../config');
 const { cards } = require('../db');
 const { broadcast } = require('../lib/broadcast');
+const { log } = require('../lib/logger');
 const snapshot = require('./snapshot');
 const { logPath, sendWebhook } = require('../lib/helpers');
 const { runClaudeSilent } = require('./claude-runner');
@@ -11,22 +12,22 @@ const git = require('./git');
 
 function autoReview(cardId) {
   // Lazy require pipeline to avoid circular dep
-  var pipeline = require('./pipeline');
+  const pipeline = require('./pipeline');
 
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card || !card.project_path) {
-    console.error('autoReview: card', cardId, 'not found or no project_path');
+    log.error({ cardId }, 'autoReview: card not found or no project_path');
     return;
   }
 
-  var projectPath = card.project_path;
+  const projectPath = card.project_path;
   if (!fs.existsSync(projectPath)) {
-    console.error('autoReview: project path does not exist:', projectPath);
+    log.error({ cardId, projectPath }, 'autoReview: project path does not exist');
     return;
   }
 
-  var reviewLog = logPath(cardId, 'review');
-  var reviewFile = path.join(projectPath, '.review-complete');
+  const reviewLog = logPath(cardId, 'review');
+  const reviewFile = path.join(projectPath, '.review-complete');
 
   try { fs.unlinkSync(reviewFile); } catch (_) {}
 
@@ -35,20 +36,20 @@ function autoReview(cardId) {
   pipeline.setActivity(cardId, 'review', 'AI reviewer analyzing code...');
   pipeline.trackPhase(cardId, 'review', 'start');
 
-  var header = '[' + new Date().toISOString() + '] AI Review started\n'
+  const header = '[' + new Date().toISOString() + '] AI Review started\n'
     + 'Card: ' + card.title + '\nProject: ' + projectPath + '\n---\n';
   fs.writeFileSync(reviewLog, header);
-  console.log('autoReview: started for card', cardId, '(' + card.title + ')');
+  log.info({ cardId, title: card.title }, 'autoReview started');
 
-  var customCriteria = '';
-  var customReviewPath = path.join(projectPath, '.kanban-review.md');
+  let customCriteria = '';
+  const customReviewPath = path.join(projectPath, '.kanban-review.md');
   try {
     if (fs.existsSync(customReviewPath)) {
       customCriteria = fs.readFileSync(customReviewPath, 'utf-8').trim();
     }
   } catch (_) {}
 
-  var promptParts = [
+  const promptParts = [
     'You are a senior code reviewer. Review ALL code in this project thoroughly.',
     '',
     '## Check For',
@@ -81,14 +82,14 @@ function autoReview(cardId) {
   promptParts.push('Set needsHumanApproval to true ONLY for genuinely dangerous operations: destructive file deletions affecting production data, mass database changes, rm -rf of important directories, removing security controls. Normal code issues, missing features, or low scores do NOT need human approval — those get auto-fixed.');
   promptParts.push('You have full access to all tools — read every file, search for patterns, run checks. Be thorough but fair. Focus your review ONLY on what this specific card was supposed to build — do not penalize for features belonging to other cards/phases.');
 
-  var cp = getCustomPrompts();
+  const cp = getCustomPrompts();
   if (cp.reviewCriteria) {
     promptParts.push('');
     promptParts.push('## Additional Review Criteria');
     promptParts.push(cp.reviewCriteria);
   }
 
-  var run = runClaudeSilent({
+  const run = runClaudeSilent({
     id: 'review-' + cardId,
     cardId: cardId,
     cwd: projectPath,
@@ -98,13 +99,13 @@ function autoReview(cardId) {
 
   pipeline.trackPid(cardId, run.pid);
 
-  var pollCount = 0;
-  var maxPoll = 180; // 15 minutes
+  let pollCount = 0;
+  const maxPoll = 180; // 15 minutes
 
-  var reviewInterval = setInterval(function() {
+  const reviewInterval = setInterval(function() {
     pollCount++;
     try {
-      var cardNow = cards.get(cardId);
+      const cardNow = cards.get(cardId);
       if (!cardNow) { clearInterval(reviewInterval); return; }
       if (cardNow.status !== 'reviewing' && !fs.existsSync(reviewFile)) {
         clearInterval(reviewInterval);
@@ -114,19 +115,19 @@ function autoReview(cardId) {
       if (fs.existsSync(reviewFile)) {
         clearInterval(reviewInterval);
         pipeline.trackPhase(cardId, 'review', 'end');
-        var content = fs.readFileSync(reviewFile, 'utf-8').trim();
+        const content = fs.readFileSync(reviewFile, 'utf-8').trim();
 
         try { fs.appendFileSync(reviewLog, '\n---\n[' + new Date().toISOString() + '] Review completed\n' + content + '\n'); } catch (_) {}
 
         try {
-          var data = JSON.parse(content);
-          var score = data.score || 0;
-          var criticals = (data.findings || []).filter(function(f) { return f.severity === 'critical'; }).length;
+          const data = JSON.parse(content);
+          const score = data.score || 0;
+          const criticals = (data.findings || []).filter(function(f) { return f.severity === 'critical'; }).length;
 
           cards.setReviewData(cardId, score, content);
 
-          var fixCount = pipeline.getReviewFixCount(cardId);
-          var needsHuman = data.needsHumanApproval === true;
+          const fixCount = pipeline.getReviewFixCount(cardId);
+          const needsHuman = data.needsHumanApproval === true;
 
           if (score >= 8 && criticals === 0 && !needsHuman) {
             // Auto-approve
@@ -135,6 +136,8 @@ function autoReview(cardId) {
             cards.setStatus(cardId, 'complete');
             cards.setApprovedBy(cardId, 'ai');
             cards.move(cardId, 'done');
+            // Intelligence: learn from successful build
+            try { require('./intelligence').learnFromBuild(cardId); } catch (_) {}
             snapshot.clear(cardId);
             broadcast('card-updated', cards.get(cardId));
             broadcast('toast', { message: 'AI Review: ' + score + '/10 — Auto-approved!', type: 'success' });
@@ -147,6 +150,9 @@ function autoReview(cardId) {
             pipeline.setActivity(cardId, 'done', 'Complete — score ' + score + '/10');
             pipeline.releaseProjectLock(cardId);
             pipeline.checkUnblock();
+
+            // Single-project mode: check if all siblings done → complete parent initiative
+            checkParentInitiativeComplete(cardId);
           } else if (needsHuman) {
             // Dangerous ops — human approval required
             pipeline.deleteReviewFixCount(cardId);
@@ -159,7 +165,7 @@ function autoReview(cardId) {
           } else if (fixCount < runtime.maxReviewFixAttempts) {
             // Score < 8 — auto-fix and re-review
             pipeline.setReviewFixCount(cardId, fixCount + 1);
-            var findingCount = (data.findings || []).length;
+            const findingCount = (data.findings || []).length;
             pipeline.setActivity(cardId, 'fix', 'Score ' + score + '/10 (attempt ' + (fixCount + 1) + '/' + runtime.maxReviewFixAttempts + ') — auto-fixing ' + findingCount + ' findings...');
             cards.setStatus(cardId, 'fixing');
             broadcast('card-updated', cards.get(cardId));
@@ -176,7 +182,7 @@ function autoReview(cardId) {
             pipeline.releaseProjectLock(cardId);
           }
         } catch (parseErr) {
-          console.error('Review parse error:', parseErr.message);
+          log.error({ cardId, err: parseErr.message }, 'Review parse error');
           cards.setStatus(cardId, 'idle');
           broadcast('card-updated', cards.get(cardId));
           try { fs.appendFileSync(reviewLog, '\n[REVIEW] Failed to parse review JSON: ' + parseErr.message + '\n'); } catch (_) {}
@@ -196,35 +202,35 @@ function autoReview(cardId) {
         pipeline.releaseProjectLock(cardId);
       }
     } catch (err) {
-      console.error('autoReview poll error for card', cardId, ':', err.message);
+      log.error({ cardId, err: err.message }, 'autoReview poll error');
     }
   }, 5000);
 }
 
 function autoFixFindings(cardId, findings) {
-  var pipeline = require('./pipeline');
+  const pipeline = require('./pipeline');
 
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card || !card.project_path) return;
 
-  var projectPath = card.project_path;
-  var fixLog = logPath(cardId, 'review-fix');
-  var fixFile = path.join(projectPath, '.review-fix-complete');
+  const projectPath = card.project_path;
+  const fixLog = logPath(cardId, 'review-fix');
+  const fixFile = path.join(projectPath, '.review-fix-complete');
 
   try { fs.unlinkSync(fixFile); } catch (_) {}
 
-  var header = '[' + new Date().toISOString() + '] Auto-fix review findings started\n'
+  const header = '[' + new Date().toISOString() + '] Auto-fix review findings started\n'
     + 'Card: ' + card.title + '\nProject: ' + projectPath
     + '\nFindings: ' + findings.length + '\n---\n';
   fs.writeFileSync(fixLog, header);
   pipeline.setActivity(cardId, 'fix', 'Claude fixing ' + findings.length + ' review findings...');
-  console.log('autoFixFindings: started for card', cardId, '(' + findings.length + ' findings)');
+  log.info({ cardId, findingCount: findings.length }, 'autoFixFindings started');
 
-  var findingsList = findings.map(function(f) {
+  const findingsList = findings.map(function(f) {
     return '- [' + f.severity + '] ' + f.category + ': ' + f.message + (f.file ? ' (' + f.file + ')' : '');
   }).join('\n');
 
-  var prompt = [
+  const prompt = [
     'You are an autonomous code fixer. Fix ALL the review findings listed below.',
     '',
     '## Review Findings to Fix',
@@ -242,7 +248,7 @@ function autoFixFindings(cardId, findings) {
     '{"status":"fixed","summary":"What was fixed","files_changed":["list"]}',
   ].join('\n');
 
-  var run = runClaudeSilent({
+  const run = runClaudeSilent({
     id: 'review-fix-' + cardId,
     cardId: cardId,
     cwd: projectPath,
@@ -252,20 +258,20 @@ function autoFixFindings(cardId, findings) {
 
   pipeline.trackPid(cardId, run.pid);
 
-  var pollCount = 0;
-  var maxPoll = 120; // 10 minutes
+  let pollCount = 0;
+  const maxPoll = 120; // 10 minutes
 
-  var fixInterval = setInterval(function() {
+  const fixInterval = setInterval(function() {
     pollCount++;
     try {
       if (fs.existsSync(fixFile)) {
         clearInterval(fixInterval);
-        var content = fs.readFileSync(fixFile, 'utf-8').trim();
+        const content = fs.readFileSync(fixFile, 'utf-8').trim();
         try { fs.appendFileSync(fixLog, '\n---\n[' + new Date().toISOString() + '] Fix completed\n' + content + '\n'); } catch (_) {}
 
         try {
-          var data = JSON.parse(content);
-          console.log('autoFixFindings: completed for card', cardId, '—', data.summary || 'done');
+          const data = JSON.parse(content);
+          log.info({ cardId, summary: data.summary || 'done' }, 'autoFixFindings completed');
           broadcast('toast', { message: 'Auto-fix done: ' + (data.summary || 'Fixed findings'), type: 'success' });
         } catch (_) {}
 
@@ -286,9 +292,63 @@ function autoFixFindings(cardId, findings) {
         pipeline.releaseProjectLock(cardId);
       }
     } catch (err) {
-      console.error('autoFixFindings poll error:', err.message);
+      log.error({ cardId, err: err.message }, 'autoFixFindings poll error');
     }
   }, 5000);
 }
 
-module.exports = { autoReview: autoReview, autoFixFindings: autoFixFindings };
+// --- Parent-Child Initiative Lifecycle ---
+// When a child card completes, check if ALL siblings under the same parent are done.
+// If so, mark the parent brainstorm card as complete and trigger next discovery cycle.
+
+function checkParentInitiativeComplete(childCardId) {
+  const childCard = cards.get(childCardId);
+  if (!childCard || !childCard.parent_card_id) return;
+
+  const parentId = childCard.parent_card_id;
+  const incomplete = cards.countIncompleteChildren(parentId);
+
+  if (incomplete > 0) {
+    // Not all siblings done yet — enqueue the next unstarted sibling
+    const siblings = cards.getByParent(parentId);
+    const pipeline = require('./pipeline');
+    for (let i = 0; i < siblings.length; i++) {
+      const sib = siblings[i];
+      if (sib.column_name === 'todo' && sib.status === 'idle') {
+        try {
+          pipeline.enqueue(sib.id, 0);
+          break; // Only start one at a time
+        } catch (_) {}
+      }
+    }
+    return;
+  }
+
+  // All children done — mark parent initiative complete
+  const parentCard = cards.get(parentId);
+  if (!parentCard) return;
+
+  const pipeline = require('./pipeline');
+
+  cards.setStatus(parentId, 'complete');
+  cards.move(parentId, 'done');
+  pipeline.setActivity(parentId, 'done', 'All child tasks complete — initiative finished');
+  broadcast('card-updated', cards.get(parentId));
+  broadcast('toast', { message: 'Initiative complete: ' + parentCard.title, type: 'success' });
+  sendWebhook('initiative-complete', { parentId: parentId, title: parentCard.title });
+
+  // Auto-commit the whole initiative
+  git.autoChangelog(parentId);
+  git.autoCommit(parentId);
+
+  // Trigger next discovery cycle (single-project mode)
+  if (runtime.mode === 'single-project') {
+    const autoDiscover = require('./auto-discover');
+    // Small delay to let things settle
+    setTimeout(function() {
+      autoDiscover.runDiscovery();
+    }, 5000);
+  }
+}
+
+module.exports = { autoReview: autoReview, autoFixFindings: autoFixFindings, checkParentInitiativeComplete: checkParentInitiativeComplete };

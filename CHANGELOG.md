@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] - 2026-03-08
+
+### Added
+- **SSO identity provider** (`src/sso/`): Self-contained auth module — JWT (HS256), Argon2id password hashing (64MB memory, timing-safe), login/logout/session endpoints, HTML login page. Drop-in replaceable with real OIDC/SAML — same interface, zero kanban code changes
+- **Role-based access control**: `admin` and `user` roles. Admin-only endpoints enforced via `requireAdmin` middleware. SSO-protected admin panel redirect with role check
+- **Intelligence service** (`src/services/intelligence.js`): Self-learning pattern engine — auto-labels cards from keyword patterns, tracks build durations and review scores per project, learns from retry feedback, auto-tunes config on repeated timeouts. 30+ seed rules, user patterns overtake at higher confidence
+- **Checkpoint/rollback system**: Every intelligence auto-change creates a revert point. `GET /api/checkpoints`, `POST /api/checkpoints/:id/rollback` accessible from both public board and admin panel
+- **Auto-discover service** (`src/services/auto-discover.js`): Single-project mode — scans project folder for TODOs/FIXMEs, decomposes brainstorm initiatives into child cards, periodic discovery at configurable interval. Pending user actions queue for out-of-scope operations
+- **Pino structured logging** (`src/lib/logger.js`): JSON output with ISO timestamps, structured fields, correlation IDs via `reqLogger()`. Replaces all `console.log/error` across 8+ files
+- **DB error persistence**: `error_log` table (level, source, card_id, message, context JSON, resolved, fix_card_id). Pino hook auto-persists every error/fatal to DB. `GET /api/errors`, `GET /api/errors/recent`, `POST /api/errors/:id/resolve`
+- **DB auto-fix scanner**: `scanDbErrors()` runs every 30s — groups unresolved errors by card, triggers `selfHeal()`, escalates after 2 attempts, auto-prunes entries older than 30 days
+- **Deep health check**: `GET /health/ready` — DB integrity, disk writability, pipeline state, unresolved error count. Returns 503 with degraded status when unhealthy
+- **Factory reset (nuke + clone)**: One-click reset from control panel — backs up `.env`, spawns detached script in parent dir, deletes kanban folder, fresh `git clone`, restores `.env`, `pnpm install`, auto-starts server hidden. Retry loop (5x) handles Windows file locks. Browser polls `/health` and auto-redirects when server is back
+- **Single-project mode**: `KANBAN_MODE=single-project` locks board to one folder. Auto-promotes brainstorm cards, configurable discovery interval, max child cards per initiative. Housekeeping pauses pipeline, waits for idle, cleans, resumes
+- **Learnings DB table**: `learnings` (category, pattern_key, pattern_value, confidence, occurrences) with CRUD API for admin
+- **Intelligence API**: `GET /api/intelligence` (admin), `POST /api/intelligence/analyze` (admin), `DELETE /api/intelligence/learnings/:id` (admin)
+- **Config in DB**: Custom prompts, scan markers, PID, ports, admin path all stored in `config` table (key/value/updated_at) — single source of truth, no more marker files
+
+### Changed
+- **Auth model replaced**: Deleted `src/lib/session.js` (in-memory session store) and `src/middleware/auth.js` (PIN-based auth). Replaced with enterprise SSO pattern — JWT tokens, Argon2id passwords, session store with 10K cap and oldest-eviction
+- **Admin security hardened**: `ADMIN_PORT` randomized (49152–65535) and `ADMIN_PATH` randomized (52-char hex) on every server start. Both stored in DB config. Admin redirect requires SSO session + admin role
+- **Env-based credentials**: `ADMIN_PASSWORD` and `USER_PASSWORD` from environment variables. Loud startup warning if using defaults. No more hardcoded or auto-generated PINs
+- **All `var` declarations modernized**: Every `src/` file converted to `const`/`let`
+- **XFF trust scoped**: `getIp()` only trusts `X-Forwarded-For` from loopback connections — prevents IP spoofing from external requests
+- **Open redirect blocked**: `safeReturnUrl()` validates login return parameter — rejects absolute URLs, protocol-relative URLs, and paths outside the app
+- **Concurrency enforcement tightened**: `retryWithFeedback()` checks both `activeBuilds.size` and per-project lock before accepting work
+- **SSE guard expanded**: `sseGuard` middleware now covers both `/api/events` and `/api/cards/:id/log-stream` endpoints
+- **Card count capped**: `MAX_TOTAL_CARDS=500` enforced on create, ideas generation, and bulk-create endpoints
+- **Localhost-only spawn**: `requireLocalhost` middleware on `open-vscode`, `open-terminal`, `open-claude`, and `preview` endpoints — blocks remote code execution
+- **Factory reset hardened**: Requires `{ "confirm": true }` body. Audit-logged before execution
+- **Input validation tightened**: Labels max 1000 chars, depends-on max 500 chars (format-validated), feedback max 10K chars, bulk-create items capped
+- **Dependencies updated**: Added `argon2` ^0.44.0, `pino` ^10.3.1
+- **Housekeeping orchestrated**: In single-project mode, hourly housekeeping pauses pipeline, waits for idle (max 5 min), cleans, then resumes pipeline and discovery
+
+### Removed
+- `src/lib/session.js` — replaced by `src/sso/session-store.js`
+- `src/middleware/auth.js` — replaced by `src/sso/` middleware exports
+
+### Fixed
+- Security audit #2: 9 findings fixed (XFF trust, open redirect, env credentials, concurrency enforcement, SSE guard, card cap, localhost spawn, factory reset confirmation, input limits)
+
 ## [1.9.0] - 2026-03-07
 
 ### Fixed

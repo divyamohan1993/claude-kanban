@@ -1,10 +1,11 @@
 const fs = require('fs');
 const path = require('path');
-const { IS_WIN, IS_MAC, PROJECTS_ROOT, LOGS_DIR, RUNTIME_DIR, runtime } = require('../config');
+const { IS_WIN, IS_MAC, PROJECTS_ROOT, LOGS_DIR, RUNTIME_DIR, runtime, getEffectiveProjectPath } = require('../config');
 const { cards, sessions } = require('../db');
 const { broadcast } = require('../lib/broadcast');
 const { killProcess } = require('../lib/process-manager');
 const { logPath, suggestName, sendWebhook } = require('../lib/helpers');
+const { log } = require('../lib/logger');
 const { runClaudeSilent } = require('./claude-runner');
 const snapshot = require('./snapshot');
 const usageSvc = require('./usage');
@@ -14,25 +15,28 @@ if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
 if (!fs.existsSync(RUNTIME_DIR)) fs.mkdirSync(RUNTIME_DIR, { recursive: true });
 
 // --- Shared Pipeline State ---
-var activePollers = new Map();   // cardId -> interval
-var buildPids = new Map();       // cardId -> pid
-var workQueue = [];              // [{cardId, priority, projectPath, enqueuedAt}]
-var activeBuilds = new Map();    // projectPath -> cardId
-var pipelinePaused = false;
-var activeFixes = new Set();     // sourceCardId set (self-heal)
-var fixAttempts = new Map();     // sourceCardId -> {count, lastAttempt}
-var reviewFixCount = new Map();  // cardId -> fix attempt count
-var cardActivity = new Map();    // cardId -> {detail, step, timestamp}
+const activePollers = new Map();   // cardId -> interval
+const buildPids = new Map();       // cardId -> pid
+const workQueue = [];              // [{cardId, priority, projectPath, enqueuedAt}]
+const activeBuilds = new Map();    // projectPath -> cardId
+let pipelinePaused = false;
+const activeFixes = new Set();     // sourceCardId set (self-heal)
+const fixAttempts = new Map();     // sourceCardId -> {count, lastAttempt}
+const reviewFixCount = new Map();  // cardId -> fix attempt count
+const cardActivity = new Map();    // cardId -> {detail, step, timestamp}
 
 // --- State Accessors (for other services) ---
 
 function getPipelineState() {
+  const brainstormSvcState = require('./brainstorm');
   return {
     paused: pipelinePaused,
     activeCount: activeBuilds.size,
     queueLength: workQueue.length,
     fixCount: activeFixes.size,
     pollerCount: activePollers.size,
+    activeBrainstorms: brainstormSvcState.getActiveBrainstorms(),
+    brainstormQueueLength: brainstormSvcState.getBrainstormQueue().length,
     pause: function() { pipelinePaused = true; broadcast('pipeline-state', { paused: true }); },
   };
 }
@@ -45,7 +49,7 @@ function deleteReviewFixCount(cardId) { reviewFixCount.delete(cardId); }
 // --- Activity Tracking ---
 
 function setActivity(cardId, step, detail) {
-  var entry = { cardId: cardId, step: step, detail: detail, timestamp: Date.now() };
+  const entry = { cardId: cardId, step: step, detail: detail, timestamp: Date.now() };
   cardActivity.set(cardId, entry);
   broadcast('card-activity', entry);
 }
@@ -56,8 +60,8 @@ function clearActivity(cardId) {
 }
 
 function getActivities() {
-  var result = {};
-  for (var entry of cardActivity) {
+  const result = {};
+  for (const entry of cardActivity) {
     result[entry[0]] = entry[1];
   }
   return result;
@@ -66,9 +70,9 @@ function getActivities() {
 // --- Duration Tracking ---
 
 function trackPhase(cardId, phase, action) {
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card) return;
-  var durations = {};
+  let durations = {};
   try { durations = JSON.parse(card.phase_durations || '{}'); } catch (_) {}
   if (action === 'start') {
     durations[phase] = { start: Date.now() };
@@ -87,16 +91,16 @@ function setPaused(paused) {
   sendWebhook('pipeline-' + (pipelinePaused ? 'paused' : 'resumed'), {});
   if (!pipelinePaused) {
     // Lazy requires to avoid circular deps
-    var brainstormSvc = require('./brainstorm');
-    var reviewSvc = require('./review');
+    const brainstormSvc = require('./brainstorm');
+    const reviewSvc = require('./review');
 
-    var allCards = cards.getAll();
+    const allCards = cards.getAll();
     // Restart fix-interrupted cards at top priority
-    for (var i = 0; i < allCards.length; i++) {
-      var c = allCards[i];
+    for (let i = 0; i < allCards.length; i++) {
+      const c = allCards[i];
       if (c.status === 'fix-interrupted' && c.column_name === 'todo') {
         try {
-          var reviewData = c.review_data ? JSON.parse(c.review_data) : null;
+          const reviewData = c.review_data ? JSON.parse(c.review_data) : null;
           if (reviewData && reviewData.findings && reviewData.findings.length > 0) {
             cards.move(c.id, 'review');
             cards.setStatus(c.id, 'fixing');
@@ -111,9 +115,10 @@ function setPaused(paused) {
         }
       }
     }
-    // Restart frozen brainstorm cards
-    for (var j = 0; j < allCards.length; j++) {
+    // Restart frozen brainstorm cards (queued through concurrency-controlled brainstorm)
+    for (let j = 0; j < allCards.length; j++) {
       if (allCards[j].status === 'frozen' && allCards[j].column_name === 'brainstorm') {
+        cards.setStatus(allCards[j].id, 'idle');
         try { brainstormSvc.brainstorm(allCards[j].id); } catch (_) {}
       }
     }
@@ -127,16 +132,16 @@ function isPaused() { return pipelinePaused; }
 
 function killAll() {
   pipelinePaused = true;
-  var killed = [];
+  const killed = [];
 
   // 1. Kill active builds
-  for (var entry of activeBuilds) {
-    var projectPath = entry[0], cardId = entry[1];
-    var pid = buildPids.get(cardId);
+  for (const entry of activeBuilds) {
+    const projectPath = entry[0], cardId = entry[1];
+    const pid = buildPids.get(cardId);
     if (pid) { killProcess(pid); buildPids.delete(cardId); }
-    var poller = activePollers.get(cardId);
+    const poller = activePollers.get(cardId);
     if (poller) { clearInterval(poller); activePollers.delete(cardId); }
-    var card = cards.get(cardId);
+    const card = cards.get(cardId);
     cards.setStatus(cardId, 'interrupted');
     cards.move(cardId, 'todo');
     setActivity(cardId, 'queue', 'Killed by master kill switch');
@@ -145,27 +150,34 @@ function killAll() {
   }
   activeBuilds.clear();
 
-  // 2. Freeze brainstorming cards
-  var allCards = cards.getAll();
-  for (var ci = 0; ci < allCards.length; ci++) {
-    var c = allCards[ci];
+  // 2. Freeze brainstorming cards + drain brainstorm queue
+  const brainstormSvcKill = require('./brainstorm');
+  const allCards = cards.getAll();
+  for (let ci = 0; ci < allCards.length; ci++) {
+    const c = allCards[ci];
     if (c.status === 'brainstorming') {
-      var bPid = buildPids.get(c.id);
+      const bPid = buildPids.get(c.id);
       if (bPid) { killProcess(bPid); buildPids.delete(c.id); }
       cards.setStatus(c.id, 'frozen');
       setActivity(c.id, 'spec', 'Frozen — will restart on resume');
       broadcast('card-updated', cards.get(c.id));
       killed.push({ id: c.id, title: c.title, phase: 'brainstorm' });
+    } else if (c.status === 'brainstorm-queued') {
+      cards.setStatus(c.id, 'frozen');
+      setActivity(c.id, 'spec', 'Frozen — will restart on resume');
+      broadcast('card-updated', cards.get(c.id));
+      killed.push({ id: c.id, title: c.title, phase: 'brainstorm-queued' });
     }
   }
+  brainstormSvcKill.resetBrainstormState();
 
   // 3. Kill fixing processes — preserve review findings
-  for (var fi = 0; fi < allCards.length; fi++) {
-    var fc = allCards[fi];
+  for (let fi = 0; fi < allCards.length; fi++) {
+    const fc = allCards[fi];
     if (fc.status === 'fixing') {
-      var fPid = buildPids.get(fc.id);
+      const fPid = buildPids.get(fc.id);
       if (fPid) { killProcess(fPid); buildPids.delete(fc.id); }
-      var fPoller = activePollers.get(fc.id);
+      const fPoller = activePollers.get(fc.id);
       if (fPoller) { clearInterval(fPoller); activePollers.delete(fc.id); }
       cards.setStatus(fc.id, 'fix-interrupted');
       cards.move(fc.id, 'todo');
@@ -177,12 +189,12 @@ function killAll() {
   activeFixes.clear();
 
   // 4. Kill review processes
-  for (var ri = 0; ri < allCards.length; ri++) {
-    var rc = allCards[ri];
+  for (let ri = 0; ri < allCards.length; ri++) {
+    const rc = allCards[ri];
     if (rc.column_name === 'review' && rc.status !== 'fix-interrupted') {
-      var rPid = buildPids.get(rc.id);
+      const rPid = buildPids.get(rc.id);
       if (rPid) { killProcess(rPid); buildPids.delete(rc.id); }
-      var rPoller = activePollers.get(rc.id);
+      const rPoller = activePollers.get(rc.id);
       if (rPoller) { clearInterval(rPoller); activePollers.delete(rc.id); }
       cards.setStatus(rc.id, 'interrupted');
       cards.move(rc.id, 'todo');
@@ -193,14 +205,14 @@ function killAll() {
   }
 
   // 5. Clear orphans
-  for (var pollerEntry of activePollers) { clearInterval(pollerEntry[1]); }
+  for (const pollerEntry of activePollers) { clearInterval(pollerEntry[1]); }
   activePollers.clear();
-  for (var pidEntry of buildPids) { killProcess(pidEntry[1]); }
+  for (const pidEntry of buildPids) { killProcess(pidEntry[1]); }
   buildPids.clear();
 
   // 6. Drain queue
   while (workQueue.length > 0) {
-    var qi = workQueue.pop();
+    const qi = workQueue.pop();
     cards.setStatus(qi.cardId, 'idle');
     clearActivity(qi.cardId);
     broadcast('card-updated', cards.get(qi.cardId));
@@ -216,12 +228,12 @@ function killAll() {
 // --- Stop Single Card ---
 
 function stopCard(cardId) {
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card) throw new Error('Card not found');
 
-  var result = dequeue(cardId);
+  const result = dequeue(cardId);
 
-  var poller = activePollers.get(cardId);
+  const poller = activePollers.get(cardId);
   if (poller) { clearInterval(poller); activePollers.delete(cardId); }
 
   if (result.wasBuilding || result.removed) {
@@ -249,31 +261,45 @@ function stopCard(cardId) {
 // --- Queue Management ---
 
 function enqueue(cardId, priority) {
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card) throw new Error('Card not found');
   if (!card.spec) throw new Error('No spec — run brainstorm first');
 
   if (card.depends_on) {
-    var deps = card.depends_on.split(',').map(function(d) { return Number(d.trim()); }).filter(Boolean);
-    for (var di = 0; di < deps.length; di++) {
-      var depCard = cards.get(deps[di]);
+    const deps = card.depends_on.split(',').map(function(d) { return Number(d.trim()); }).filter(Boolean);
+    for (let di = 0; di < deps.length; di++) {
+      const depCard = cards.get(deps[di]);
       if (depCard && depCard.column_name !== 'done' && depCard.column_name !== 'archive') {
         throw new Error('Blocked by card #' + deps[di] + ' (' + depCard.title + ')');
       }
     }
   }
 
-  var projectPath = card.project_path;
+  let projectPath = card.project_path;
   if (!projectPath) {
-    projectPath = path.join(PROJECTS_ROOT, suggestName(card.title));
+    // Single-project mode: always use the locked folder
+    const singlePath = getEffectiveProjectPath();
+    if (runtime.mode === 'single-project' && singlePath) {
+      projectPath = singlePath;
+    } else {
+      projectPath = path.join(PROJECTS_ROOT, suggestName(card.title));
+    }
     cards.setProjectPath(cardId, projectPath);
   }
 
-  for (var entry of activeBuilds) {
+  // Single-project mode: enforce folder sandbox
+  if (runtime.mode === 'single-project') {
+    const singlePath2 = getEffectiveProjectPath();
+    if (singlePath2 && path.resolve(projectPath) !== path.resolve(singlePath2)) {
+      throw new Error('Single-project mode: all work must be in ' + singlePath2);
+    }
+  }
+
+  for (const entry of activeBuilds) {
     if (entry[1] === cardId) return { status: 'already-building' };
   }
 
-  var existing = workQueue.find(function(q) { return q.cardId === cardId; });
+  const existing = workQueue.find(function(q) { return q.cardId === cardId; });
   if (existing) {
     if (priority > existing.priority) {
       existing.priority = priority;
@@ -306,19 +332,19 @@ function enqueue(cardId, priority) {
 }
 
 function dequeue(cardId) {
-  var idx = workQueue.findIndex(function(q) { return q.cardId === cardId; });
+  const idx = workQueue.findIndex(function(q) { return q.cardId === cardId; });
   if (idx >= 0) {
     workQueue.splice(idx, 1);
     broadcastQueuePositions();
     return { removed: true };
   }
 
-  for (var entry of activeBuilds) {
+  for (const entry of activeBuilds) {
     if (entry[1] === cardId) {
       activeBuilds.delete(entry[0]);
-      var poller = activePollers.get(cardId);
+      const poller = activePollers.get(cardId);
       if (poller) { clearInterval(poller); activePollers.delete(cardId); }
-      var pid = buildPids.get(cardId);
+      const pid = buildPids.get(cardId);
       if (pid) { killProcess(pid); buildPids.delete(cardId); }
       return { removed: true, wasBuilding: true };
     }
@@ -335,7 +361,7 @@ function sortQueue() {
 }
 
 function getQueuePosition(cardId) {
-  for (var i = 0; i < workQueue.length; i++) {
+  for (let i = 0; i < workQueue.length; i++) {
     if (workQueue[i].cardId === cardId) return i + 1;
   }
   return -1;
@@ -357,9 +383,9 @@ function broadcastQueuePositions() {
 }
 
 function releaseProjectLock(cardId) {
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card) return;
-  var projectPath = card.project_path;
+  const projectPath = card.project_path;
   if (projectPath && activeBuilds.get(projectPath) === cardId) {
     activeBuilds.delete(projectPath);
     processQueue();
@@ -369,19 +395,19 @@ function releaseProjectLock(cardId) {
 // --- Cascade Revert ---
 
 function cascadeRevert(revertedCardId) {
-  var allCards = cards.getAll();
-  var affected = [];
+  const allCards = cards.getAll();
+  const affected = [];
 
-  for (var c of allCards) {
+  for (const c of allCards) {
     if (!c.depends_on) continue;
-    var deps = c.depends_on.split(',').map(function(d) { return Number(d.trim()); }).filter(Boolean);
+    const deps = c.depends_on.split(',').map(function(d) { return Number(d.trim()); }).filter(Boolean);
     if (!deps.includes(revertedCardId)) continue;
 
-    var wasActive = false;
+    let wasActive = false;
     if (c.status === 'building' || c.status === 'reviewing' || c.status === 'fixing' || c.status === 'queued') {
-      var dqResult = dequeue(c.id);
+      const dqResult = dequeue(c.id);
       wasActive = dqResult.wasBuilding || dqResult.removed;
-      var reviewPoller = activePollers.get(c.id);
+      const reviewPoller = activePollers.get(c.id);
       if (reviewPoller) { clearInterval(reviewPoller); activePollers.delete(c.id); }
     }
 
@@ -403,10 +429,10 @@ function cascadeRevert(revertedCardId) {
 }
 
 function checkUnblock() {
-  var allCards = cards.getAll();
-  var unblocked = [];
+  const allCards = cards.getAll();
+  const unblocked = [];
 
-  for (var c of allCards) {
+  for (const c of allCards) {
     if (c.status !== 'blocked') continue;
     if (!c.depends_on) {
       cards.setStatus(c.id, 'idle');
@@ -416,10 +442,10 @@ function checkUnblock() {
       continue;
     }
 
-    var deps = c.depends_on.split(',').map(function(d) { return Number(d.trim()); }).filter(Boolean);
-    var allSatisfied = true;
-    for (var di = 0; di < deps.length; di++) {
-      var depCard = cards.get(deps[di]);
+    const deps = c.depends_on.split(',').map(function(d) { return Number(d.trim()); }).filter(Boolean);
+    let allSatisfied = true;
+    for (let di = 0; di < deps.length; di++) {
+      const depCard = cards.get(deps[di]);
       if (depCard && depCard.column_name !== 'done' && depCard.column_name !== 'archive') {
         allSatisfied = false;
         break;
@@ -442,20 +468,20 @@ function checkUnblock() {
 
 function processQueue() {
   if (pipelinePaused) return;
-  var limits = usageSvc.checkUsageLimits(getPipelineState());
+  const limits = usageSvc.checkUsageLimits(getPipelineState());
   if (!limits.allowed) return;
   if (activeBuilds.size >= runtime.maxConcurrentBuilds) return;
 
-  for (var i = 0; i < workQueue.length; i++) {
-    var item = workQueue[i];
+  for (let i = 0; i < workQueue.length; i++) {
+    const item = workQueue[i];
     if (activeBuilds.has(item.projectPath)) continue;
 
-    var card = cards.get(item.cardId);
+    const card = cards.get(item.cardId);
     if (card && card.depends_on) {
-      var deps = card.depends_on.split(',').map(function(d) { return Number(d.trim()); }).filter(Boolean);
-      var blocked = false;
-      for (var di = 0; di < deps.length; di++) {
-        var depCard = cards.get(deps[di]);
+      const deps = card.depends_on.split(',').map(function(d) { return Number(d.trim()); }).filter(Boolean);
+      let blocked = false;
+      for (let di = 0; di < deps.length; di++) {
+        const depCard = cards.get(deps[di]);
         if (depCard && depCard.column_name !== 'done' && depCard.column_name !== 'archive') {
           blocked = true;
           break;
@@ -468,7 +494,7 @@ function processQueue() {
     try {
       executeWork(item.cardId, item.projectPath);
     } catch (err) {
-      console.error('executeWork failed for card', item.cardId, ':', err.message);
+      log.error({ cardId: item.cardId, err: err.message }, 'executeWork failed');
       cards.setStatus(item.cardId, 'idle');
       cards.move(item.cardId, 'todo');
       broadcast('card-updated', cards.get(item.cardId));
@@ -482,10 +508,10 @@ function processQueue() {
 // --- Execute Work ---
 
 function executeWork(cardId, projectPath) {
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card) return;
 
-  var isExisting = projectPath && fs.existsSync(projectPath);
+  const isExisting = projectPath && fs.existsSync(projectPath);
 
   if (card.column_name !== 'working') {
     cards.move(cardId, 'working');
@@ -495,14 +521,14 @@ function executeWork(cardId, projectPath) {
   setActivity(cardId, 'snapshot', 'Taking file snapshot...');
   trackPhase(cardId, 'build', 'start');
 
-  var completionFile = path.join(projectPath, '.task-complete');
+  const completionFile = path.join(projectPath, '.task-complete');
   try { fs.unlinkSync(completionFile); } catch (_) {}
 
-  var snapInfo;
+  let snapInfo;
   try {
     snapInfo = snapshot.take(cardId, projectPath);
   } catch (err) {
-    console.error('Snapshot failed for card', cardId, err.message);
+    log.error({ cardId, err: err.message }, 'Snapshot failed');
     activeBuilds.delete(projectPath);
     clearActivity(cardId);
     throw err;
@@ -513,7 +539,7 @@ function executeWork(cardId, projectPath) {
   setActivity(cardId, 'snapshot', 'Snapshot taken (' + snapInfo.fileCount + ' files)');
 
   // Build CLAUDE.md
-  var claudeParts = ['# Task: ' + card.title, ''];
+  const claudeParts = ['# Task: ' + card.title, ''];
   if (isExisting) {
     claudeParts.push('## Existing Project');
     claudeParts.push('This is an EXISTING project. Do NOT start from scratch.');
@@ -551,6 +577,16 @@ function executeWork(cardId, projectPath) {
   claudeParts.push('- Use pnpm as package manager (never npm or yarn)');
   claudeParts.push('- Do NOT modify files outside this project directory');
   claudeParts.push('- For any servers/services, use random high ports (49152-65535 range) — NEVER use common ports like 3000, 3333, 4000, 5000, 8000, 8080, etc.');
+
+  // Single-project mode: strict folder sandbox + destructive action flagging
+  if (runtime.mode === 'single-project') {
+    claudeParts.push('');
+    claudeParts.push('## STRICT SANDBOX (Single-Project Mode)');
+    claudeParts.push('- You are operating in SINGLE-PROJECT mode. The ONLY directory you may touch is: ' + projectPath);
+    claudeParts.push('- Any operation outside this directory is FORBIDDEN. If you need something from outside, note it in .task-complete under "pending_actions" and continue.');
+    claudeParts.push('- ALL destructive operations (rm -rf, mass delete, dropping tables, removing security) MUST be flagged in .task-complete under "destructive_flags".');
+    claudeParts.push('- Do NOT create, modify, or delete files in parent directories, sibling directories, or system paths.');
+  }
   claudeParts.push('');
   claudeParts.push('## Code Quality Standards');
   claudeParts.push('');
@@ -574,7 +610,7 @@ function executeWork(cardId, projectPath) {
   claudeParts.push('');
   claudeParts.push('**Testing**: Test behavior not implementation. Ensure the application runs without errors before marking complete.');
 
-  var cp = usageSvc.getCustomPrompts();
+  const cp = usageSvc.getCustomPrompts();
   if (cp.buildInstructions) {
     claudeParts.push('');
     claudeParts.push('## Additional Build Instructions');
@@ -589,15 +625,15 @@ function executeWork(cardId, projectPath) {
   fs.writeFileSync(path.join(projectPath, 'CLAUDE.md'), claudeParts.join('\n'));
   setActivity(cardId, 'build', 'CLAUDE.md written — launching Claude...');
 
-  var log = logPath(cardId, 'build');
-  var header = '[' + new Date().toISOString() + '] Build started\n'
+  const log = logPath(cardId, 'build');
+  const header = '[' + new Date().toISOString() + '] Build started\n'
     + 'Card: ' + card.title + '\nProject: ' + projectPath + '\n'
     + 'Mode: ' + (isExisting ? 'EXISTING' : 'NEW') + '\nSnapshot: ' + snapInfo.fileCount + ' files\n---\n';
   fs.writeFileSync(log, header);
 
-  var buildPrompt = 'Read CLAUDE.md and complete the task as specified. You are an autonomous orchestrator with FULL access to all tools — use subagents, agent teams, web search, file operations, terminal commands — whatever it takes. Maximize parallelism. Think deeply. Deliver production-quality work. When fully done, create .task-complete file as instructed in CLAUDE.md.';
+  const buildPrompt = 'Read CLAUDE.md and complete the task as specified. You are an autonomous orchestrator with FULL access to all tools — use subagents, agent teams, web search, file operations, terminal commands — whatever it takes. Maximize parallelism. Think deeply. Deliver production-quality work. When fully done, create .task-complete file as instructed in CLAUDE.md.';
 
-  var run = runClaudeSilent({
+  const run = runClaudeSilent({
     id: 'build-' + cardId,
     cardId: cardId,
     cwd: projectPath,
@@ -624,15 +660,15 @@ function startWork(cardId) {
 // --- Build Polling ---
 
 function pollForCompletion(cardId, projectPath) {
-  var completionFile = path.join(projectPath, '.task-complete');
-  var log = logPath(cardId, 'build');
-  var pollCount = 0;
+  const completionFile = path.join(projectPath, '.task-complete');
+  const log = logPath(cardId, 'build');
+  let pollCount = 0;
 
-  var interval = setInterval(function() {
+  const interval = setInterval(function() {
     pollCount++;
-    var needsQueueProcess = false;
+    let needsQueueProcess = false;
     try {
-      var card = cards.get(cardId);
+      const card = cards.get(cardId);
       if (!card || card.column_name !== 'working') {
         clearInterval(interval);
         activePollers.delete(cardId);
@@ -642,26 +678,26 @@ function pollForCompletion(cardId, projectPath) {
         return;
       }
 
-      var isIdle = false;
-      var idleMinutes = 0;
+      let isIdle = false;
+      let idleMinutes = 0;
       try {
-        var logStat = fs.statSync(log);
-        var msSinceWrite = Date.now() - logStat.mtimeMs;
+        const logStat = fs.statSync(log);
+        const msSinceWrite = Date.now() - logStat.mtimeMs;
         idleMinutes = Math.round(msSinceWrite / 60000);
         isIdle = msSinceWrite > runtime.idleTimeoutMs;
       } catch (_) {
         isIdle = pollCount >= runtime.buildTimeoutPolls;
         idleMinutes = Math.round(pollCount * 5 / 60);
       }
-      var hardTimeout = pollCount >= runtime.buildTimeoutPolls * 4;
+      const hardTimeout = pollCount >= runtime.buildTimeoutPolls * 4;
 
       if (isIdle || hardTimeout) {
-        var reason = hardTimeout ? 'Hard limit (' + Math.round(pollCount * 5 / 60) + ' min)' : 'Idle for ' + idleMinutes + ' min (no log activity)';
+        const reason = hardTimeout ? 'Hard limit (' + Math.round(pollCount * 5 / 60) + ' min)' : 'Idle for ' + idleMinutes + ' min (no log activity)';
         clearInterval(interval);
         activePollers.delete(cardId);
         activeBuilds.delete(projectPath);
         trackPhase(cardId, 'build', 'end');
-        var pid = buildPids.get(cardId);
+        const pid = buildPids.get(cardId);
         if (pid) { killProcess(pid); buildPids.delete(cardId); }
         cards.setStatus(cardId, 'interrupted');
         broadcast('card-updated', cards.get(cardId));
@@ -679,8 +715,35 @@ function pollForCompletion(cardId, projectPath) {
         buildPids.delete(cardId);
         trackPhase(cardId, 'build', 'end');
 
-        var content = fs.readFileSync(completionFile, 'utf-8');
+        const content = fs.readFileSync(completionFile, 'utf-8');
         cards.setSessionLog(cardId, content);
+
+        // Single-project mode: check for pending actions and destructive flags
+        if (runtime.mode === 'single-project') {
+          try {
+            const taskData = JSON.parse(content);
+            const autoDiscover = require('./auto-discover');
+            if (taskData.pending_actions && taskData.pending_actions.length > 0) {
+              for (let pa = 0; pa < taskData.pending_actions.length; pa++) {
+                autoDiscover.addPendingAction('build-request', taskData.pending_actions[pa], false);
+              }
+            }
+            if (taskData.destructive_flags && taskData.destructive_flags.length > 0) {
+              for (let df = 0; df < taskData.destructive_flags.length; df++) {
+                autoDiscover.addPendingAction('destructive-op', taskData.destructive_flags[df], true);
+              }
+              // Destructive flags freeze the card in review for human approval
+              cards.setStatus(cardId, 'idle');
+              cards.move(cardId, 'review');
+              setActivity(cardId, 'review', 'FLAGGED: Destructive operations detected — needs human approval');
+              broadcast('card-updated', cards.get(cardId));
+              broadcast('toast', { message: 'Destructive ops flagged — human review required: ' + card.title, type: 'error' });
+              // Don't auto-review, wait for human
+              return;
+            }
+          } catch (_) {}
+        }
+
         cards.setStatus(cardId, 'idle');
         cards.move(cardId, 'review');
         setActivity(cardId, 'review', 'Build complete — starting AI review...');
@@ -691,10 +754,10 @@ function pollForCompletion(cardId, projectPath) {
 
         // Lazy require review to avoid circular dep
         try {
-          var reviewSvc = require('./review');
+          const reviewSvc = require('./review');
           reviewSvc.autoReview(cardId);
         } catch (reviewErr) {
-          console.error('autoReview failed for card', cardId, ':', reviewErr.message);
+          log.error({ cardId, err: reviewErr.message }, 'autoReview failed');
           try { fs.appendFileSync(log, '\n[ERROR] autoReview failed: ' + reviewErr.message + '\n'); } catch (_) {}
           cards.setStatus(cardId, 'idle');
           broadcast('card-updated', cards.get(cardId));
@@ -702,10 +765,10 @@ function pollForCompletion(cardId, projectPath) {
         }
       }
     } catch (err) {
-      console.error('pollForCompletion error for card', cardId, ':', err.message);
+      log.error({ cardId, err: err.message }, 'pollForCompletion error');
     } finally {
       if (needsQueueProcess) {
-        try { processQueue(); } catch (e) { console.error('processQueue error:', e.message); }
+        try { processQueue(); } catch (e) { log.error({ err: e.message }, 'processQueue error'); }
       }
     }
   }, 5000);
@@ -718,10 +781,10 @@ function pollForCompletion(cardId, projectPath) {
 function selfHeal(sourceCardId, errors, sourceLogFile) {
   if (activeFixes.has(sourceCardId)) return { status: 'already-fixing' };
 
-  var attempts = fixAttempts.get(sourceCardId) || { count: 0, lastAttempt: 0 };
+  const attempts = fixAttempts.get(sourceCardId) || { count: 0, lastAttempt: 0 };
   if (attempts.count >= runtime.maxFixAttempts) return { status: 'max-attempts', count: attempts.count };
 
-  var card = cards.get(sourceCardId);
+  const card = cards.get(sourceCardId);
   if (!card || !card.project_path) return { status: 'no-project' };
   if (!fs.existsSync(card.project_path)) return { status: 'project-missing' };
   if (activeBuilds.has(card.project_path)) return { status: 'build-active' };
@@ -731,24 +794,24 @@ function selfHeal(sourceCardId, errors, sourceLogFile) {
   attempts.lastAttempt = Date.now();
   fixAttempts.set(sourceCardId, attempts);
 
-  var projectPath = card.project_path;
-  var fixLog = logPath(sourceCardId, 'fix-' + attempts.count);
-  var fixFile = path.join(projectPath, '.fix-complete');
+  const projectPath = card.project_path;
+  const fixLog = logPath(sourceCardId, 'fix-' + attempts.count);
+  const fixFile = path.join(projectPath, '.fix-complete');
 
   try { fs.unlinkSync(fixFile); } catch (_) {}
 
-  var header = '[' + new Date().toISOString() + '] Self-heal attempt ' + attempts.count + '/' + runtime.maxFixAttempts + '\n'
+  const header = '[' + new Date().toISOString() + '] Self-heal attempt ' + attempts.count + '/' + runtime.maxFixAttempts + '\n'
     + 'Card: ' + card.title + '\nProject: ' + projectPath + '\nErrors: ' + errors.length + '\n---\n';
   fs.writeFileSync(fixLog, header);
 
-  var logContext = '';
+  let logContext = '';
   try {
     if (sourceLogFile && fs.existsSync(sourceLogFile)) {
       logContext = fs.readFileSync(sourceLogFile, 'utf-8').slice(-3000);
     }
   } catch (_) {}
 
-  var prompt = [
+  const prompt = [
     'You are an autonomous error-fixing agent with FULL tool access. Errors were detected in this project.',
     '',
     '## Errors Found',
@@ -772,7 +835,7 @@ function selfHeal(sourceCardId, errors, sourceLogFile) {
     '{"status":"failed","reason":"Why it cannot be fixed"}',
   ].join('\n');
 
-  var run = runClaudeSilent({
+  const run = runClaudeSilent({
     id: 'fix-' + sourceCardId + '-' + attempts.count,
     cardId: sourceCardId,
     cwd: projectPath,
@@ -782,19 +845,19 @@ function selfHeal(sourceCardId, errors, sourceLogFile) {
 
   buildPids.set(sourceCardId, run.pid);
 
-  var pollCount = 0;
-  var maxPoll = 120;
+  let pollCount = 0;
+  const maxPoll = 120;
 
-  var fixInterval = setInterval(function() {
+  const fixInterval = setInterval(function() {
     pollCount++;
     try {
       if (fs.existsSync(fixFile)) {
         clearInterval(fixInterval);
         activeFixes.delete(sourceCardId);
 
-        var content = fs.readFileSync(fixFile, 'utf-8').trim();
+        const content = fs.readFileSync(fixFile, 'utf-8').trim();
         try {
-          var data = JSON.parse(content);
+          const data = JSON.parse(content);
           try { fs.appendFileSync(fixLog, '\n[SELF-HEAL] Result: ' + data.status + '\n'); } catch (_) {}
 
           if (data.status === 'fixed') {
@@ -819,7 +882,7 @@ function selfHeal(sourceCardId, errors, sourceLogFile) {
         broadcast('toast', { message: 'Self-heal timed out for: ' + card.title, type: 'error' });
       }
     } catch (err) {
-      console.error('selfHeal poll error:', err.message);
+      log.error({ err: err.message }, 'selfHeal poll error');
     }
   }, 5000);
 
@@ -833,10 +896,21 @@ function getFixAttempts(sourceCardId) {
 // --- Retry with Feedback ---
 
 function retryWithFeedback(cardId, feedback) {
-  var card = cards.get(cardId);
+  const card = cards.get(cardId);
   if (!card || !card.project_path) throw new Error('No project path');
 
-  var projectPath = card.project_path;
+  // Concurrency check — respect MAX_CONCURRENT_BUILDS limit (was previously bypassed)
+  if (activeBuilds.size >= runtime.maxConcurrentBuilds) {
+    throw new Error('Build slots full (' + activeBuilds.size + '/' + runtime.maxConcurrentBuilds + '). Wait for a build to finish or increase MAX_CONCURRENT_BUILDS.');
+  }
+
+  const projectPath = card.project_path;
+
+  // Block if another card is already building in this project
+  const existingBuild = activeBuilds.get(projectPath);
+  if (existingBuild && existingBuild !== cardId) {
+    throw new Error('Another build is active in this project folder. Wait for card #' + existingBuild + ' to finish.');
+  }
 
   snapshot.take(cardId, projectPath);
 
@@ -845,14 +919,14 @@ function retryWithFeedback(cardId, feedback) {
   cards.setReviewData(cardId, 0, '');
   reviewFixCount.delete(cardId);
 
-  var log = logPath(cardId, 'build');
-  var header = '\n\n[' + new Date().toISOString() + '] Retry with feedback\nFeedback: ' + feedback + '\n---\n';
+  const log = logPath(cardId, 'build');
+  const header = '\n\n[' + new Date().toISOString() + '] Retry with feedback\nFeedback: ' + feedback + '\n---\n';
   try { fs.appendFileSync(log, header); } catch (_) { fs.writeFileSync(log, header); }
 
-  var completionFile = path.join(projectPath, '.task-complete');
+  const completionFile = path.join(projectPath, '.task-complete');
   try { fs.unlinkSync(completionFile); } catch (_) {}
 
-  var prompt = 'The previous work on this project has been reviewed and needs specific changes. '
+  const prompt = 'The previous work on this project has been reviewed and needs specific changes. '
     + 'Keep ALL existing work — do NOT start from scratch or undo anything unless specifically requested. '
     + 'Apply ONLY these changes:\n\n'
     + feedback + '\n\n'
@@ -862,7 +936,7 @@ function retryWithFeedback(cardId, feedback) {
   activeBuilds.set(projectPath, cardId);
   trackPhase(cardId, 'retry', 'start');
 
-  var run = runClaudeSilent({
+  const run = runClaudeSilent({
     id: 'retry-' + cardId + '-' + Date.now(),
     cardId: cardId,
     cwd: projectPath,
@@ -884,13 +958,13 @@ function retryWithFeedback(cardId, feedback) {
 // --- Init ---
 
 function preflightChecks() {
-  var issues = [];
-  var execFileSync = require('child_process').execFileSync;
+  const issues = [];
+  const execFileSync = require('child_process').execFileSync;
 
   [RUNTIME_DIR, LOGS_DIR].forEach(function(dir) {
     try {
       fs.mkdirSync(dir, { recursive: true });
-      var testFile = path.join(dir, '.preflight-test');
+      const testFile = path.join(dir, '.preflight-test');
       fs.writeFileSync(testFile, 'ok');
       fs.unlinkSync(testFile);
     } catch (e) {
@@ -912,11 +986,11 @@ function preflightChecks() {
   try {
     execFileSync('code', ['--version'], { timeout: 5000, stdio: 'pipe' });
   } catch (_) {
-    console.log('  [preflight] VS Code CLI not found — "Open in VSCode" will not work');
+    log.info('VS Code CLI not found — "Open in VSCode" will not work');
   }
 
   if (IS_MAC) {
-    var testScript = path.join(RUNTIME_DIR, '.preflight-exec-test.sh');
+    const testScript = path.join(RUNTIME_DIR, '.preflight-exec-test.sh');
     try {
       fs.writeFileSync(testScript, '#!/bin/bash\necho ok', { mode: 0o755 });
       execFileSync('bash', [testScript], { timeout: 5000, stdio: 'pipe' });
@@ -930,23 +1004,21 @@ function preflightChecks() {
     try {
       execFileSync('which', ['xdg-open'], { timeout: 3000, stdio: 'pipe' });
     } catch (_) {
-      console.log('  [preflight] xdg-open not found — browser auto-open disabled');
+      log.info('xdg-open not found — browser auto-open disabled');
     }
   }
 
   if (issues.length > 0) {
-    console.log('\n  [preflight] Issues detected:');
-    issues.forEach(function(i) { console.log('    - ' + i); });
-    console.log('');
+    log.warn({ issues }, 'Preflight issues detected');
   } else {
-    console.log('  [preflight] All checks passed (' + process.platform + ')');
+    log.info('Preflight all checks passed (' + process.platform + ')');
   }
 }
 
 function resetStuckCards() {
-  var all = cards.getAll();
-  for (var i = 0; i < all.length; i++) {
-    var c = all[i];
+  const all = cards.getAll();
+  for (let i = 0; i < all.length; i++) {
+    const c = all[i];
     if (c.status === 'queued' || c.status === 'building') {
       cards.setStatus(c.id, 'idle');
       if (c.column_name === 'working') cards.move(c.id, 'todo');
@@ -964,10 +1036,10 @@ function init() {
 
   usageSvc.fetchClaudeUsage(true).then(function(data) {
     if (data) {
-      console.log('  [usage] Claude Max: session ' + (data.five_hour ? data.five_hour.utilization : '?') + '%, weekly ' + (data.seven_day ? data.seven_day.utilization : '?') + '%');
+      log.info({ session: data.five_hour ? data.five_hour.utilization : '?', weekly: data.seven_day ? data.seven_day.utilization : '?' }, 'Claude Max usage');
       broadcast('usage-update', usageSvc.getUsageStats());
     } else {
-      console.log('  [usage] Could not fetch Claude Max usage (check ~/.claude/.credentials.json)');
+      log.warn('Could not fetch Claude Max usage (check ~/.claude/.credentials.json)');
     }
   });
   setInterval(function() {
@@ -978,6 +1050,16 @@ function init() {
       }
     });
   }, usageSvc.USAGE_CACHE_TTL);
+
+  // Initialize auto-discovery for single-project mode
+  const autoDiscover = require('./auto-discover');
+  autoDiscover.init();
+
+  if (runtime.mode === 'single-project') {
+    log.info('Mode: SINGLE-PROJECT — autonomous pipeline active');
+  } else {
+    log.info('Mode: GLOBAL — multi-project manual mode');
+  }
 }
 
 module.exports = {

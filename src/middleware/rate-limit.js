@@ -15,8 +15,8 @@
 //   - When empty → instant 429, ~180 bytes, zero processing
 
 // --- Pre-built static responses (allocated once, reused forever) ---
-var REJECT_BODY = '{"error":"Too many requests","code":"RATE_LIMITED"}';
-var REJECT_HEADERS = {
+const REJECT_BODY = '{"error":"Too many requests","code":"RATE_LIMITED"}';
+const REJECT_HEADERS = {
   'Content-Type': 'application/json',
   'Content-Length': String(Buffer.byteLength(REJECT_BODY)),
   'Retry-After': '1',
@@ -24,10 +24,10 @@ var REJECT_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
 };
 
-var SSE_REJECT_BODY = 'data: {"error":"connection limit reached"}\n\n';
+const SSE_REJECT_BODY = 'data: {"error":"connection limit reached"}\n\n';
 
 // --- Configuration ---
-var CONFIG = {
+const CONFIG = {
   // General API: 60 requests per second burst, refill 30/s
   general: { burst: 60, refillRate: 30 },
   // Auth endpoints: 5 per second burst, refill 1/s (brute force protection on top of session rate limiting)
@@ -42,34 +42,39 @@ var CONFIG = {
 
 // --- Token bucket store ---
 // Map<ip, { tokens: number, lastRefill: number }>
-var generalBuckets = new Map();
-var authBuckets = new Map();
+const generalBuckets = new Map();
+const authBuckets = new Map();
 
 // --- SSE connection tracking ---
 // Map<ip, number> — count of active SSE connections per IP
-var sseConnections = new Map();
-var sseTotalConnections = 0;
+const sseConnections = new Map();
+let sseTotalConnections = 0;
 
 // --- IP extraction ---
+// Only trust X-Forwarded-For when request arrives via loopback (reverse proxy).
+// Direct connections use socket address — prevents attacker spoofing IP via XFF header.
+const LOOPBACK_RE = /^(127\.\d+\.\d+\.\d+|::1|::ffff:127\.\d+\.\d+\.\d+)$/;
 function getIp(req) {
-  // Trust X-Forwarded-For only if behind known proxy (Cloudflare, nginx)
-  // For direct connections, use socket address
-  var xff = req.headers['x-forwarded-for'];
-  if (xff) return xff.split(',')[0].trim();
-  return req.socket ? (req.socket.remoteAddress || '') : '';
+  const socketIp = req.socket ? (req.socket.remoteAddress || '') : '';
+  // Trust XFF only if the TCP connection is from loopback (nginx/CF proxy on same host)
+  if (LOOPBACK_RE.test(socketIp)) {
+    const xff = req.headers['x-forwarded-for'];
+    if (xff) return xff.split(',')[0].trim();
+  }
+  return socketIp;
 }
 
 // --- Token bucket check (O(1)) ---
 function checkBucket(store, ip, config) {
-  var now = Date.now();
-  var bucket = store.get(ip);
+  const now = Date.now();
+  const bucket = store.get(ip);
 
   if (!bucket) {
     // New IP — full bucket minus this request
     // Evict oldest if at capacity
     if (store.size >= CONFIG.maxTrackedIps) {
       // Delete first entry (oldest insertion — Map preserves order)
-      var firstKey = store.keys().next().value;
+      const firstKey = store.keys().next().value;
       store.delete(firstKey);
     }
     store.set(ip, { tokens: config.burst - 1, lastRefill: now });
@@ -77,7 +82,7 @@ function checkBucket(store, ip, config) {
   }
 
   // Refill tokens based on elapsed time
-  var elapsed = (now - bucket.lastRefill) / 1000;
+  const elapsed = (now - bucket.lastRefill) / 1000;
   bucket.tokens = Math.min(config.burst, bucket.tokens + elapsed * config.refillRate);
   bucket.lastRefill = now;
 
@@ -93,13 +98,13 @@ function checkBucket(store, ip, config) {
 // This runs BEFORE everything — before body parsing, before sessions.
 // Must be as cheap as possible.
 function rateLimiter(req, res, next) {
-  var ip = getIp(req);
-  var path = req.url;
+  const ip = getIp(req);
+  const path = req.url;
 
   // Auth endpoints get stricter limits
-  var isAuth = path.indexOf('/api/auth/login') === 0;
-  var store = isAuth ? authBuckets : generalBuckets;
-  var config = isAuth ? CONFIG.auth : CONFIG.general;
+  const isAuth = path.indexOf('/api/auth/login') === 0;
+  const store = isAuth ? authBuckets : generalBuckets;
+  const config = isAuth ? CONFIG.auth : CONFIG.general;
 
   if (!checkBucket(store, ip, config)) {
     // REJECT — static response, zero processing
@@ -114,7 +119,7 @@ function rateLimiter(req, res, next) {
 // --- SSE connection limiter ---
 // Wraps the SSE endpoint to enforce per-IP and global connection caps.
 function sseGuard(req, res, next) {
-  var ip = getIp(req);
+  const ip = getIp(req);
 
   // Global cap
   if (sseTotalConnections >= CONFIG.sse.maxTotal) {
@@ -125,7 +130,7 @@ function sseGuard(req, res, next) {
   }
 
   // Per-IP cap
-  var count = sseConnections.get(ip) || 0;
+  const count = sseConnections.get(ip) || 0;
   if (count >= CONFIG.sse.maxPerIp) {
     res.writeHead(429, { 'Content-Type': 'text/event-stream', 'Connection': 'close' });
     res.write(SSE_REJECT_BODY);
@@ -139,7 +144,7 @@ function sseGuard(req, res, next) {
 
   // Clean up on disconnect
   req.on('close', function() {
-    var c = sseConnections.get(ip) || 1;
+    const c = sseConnections.get(ip) || 1;
     if (c <= 1) sseConnections.delete(ip);
     else sseConnections.set(ip, c - 1);
     sseTotalConnections = Math.max(0, sseTotalConnections - 1);
@@ -150,8 +155,8 @@ function sseGuard(req, res, next) {
 
 // --- Periodic cleanup (prevent stale bucket accumulation) ---
 setInterval(function() {
-  var now = Date.now();
-  var staleThreshold = 120000; // 2 minutes of inactivity
+  const now = Date.now();
+  const staleThreshold = 120000; // 2 minutes of inactivity
 
   function cleanStore(store) {
     store.forEach(function(bucket, ip) {

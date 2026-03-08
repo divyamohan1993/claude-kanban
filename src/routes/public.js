@@ -247,7 +247,8 @@ function computeDisplay(card, allCards) {
 // Server-driven UI: enrichCard includes actions ONLY when user is authenticated.
 // Anonymous viewers see cards + display state, but no action buttons.
 // This is the core of "UI is dumb, server is king" — server decides what controls to show.
-// isAuthed: true = include actions, false = strip actions, undefined = include (for broadcasts/internal)
+// isAuthed: true = include actions, false = strip actions, undefined = include (for broadcasts to authed clients)
+// SSE broadcasts always include actions — frontend strips them for public viewers based on userRole.
 function enrichCard(card, allCards, isAuthed) {
   if (!card) return card;
   card.actions = (isAuthed === false) ? [] : computeActions(card);

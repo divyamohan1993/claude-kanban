@@ -16,6 +16,13 @@ var selectedCardId = null;
 var pipelinePaused = false;
 var boardMode = { mode: 'global', autoPromoteBrainstorm: true, discoveryRunning: false };
 
+// Debounced render — coalesces rapid SSE updates into a single DOM repaint
+var _renderTimer = null;
+function debouncedRender() {
+  if (_renderTimer) return;
+  _renderTimer = setTimeout(function() { _renderTimer = null; render(); }, 150);
+}
+
 var lastVisitTime = (function() {
   var t = localStorage.getItem('claude-kanban-last-visit');
   return t ? Number(t) : 0;
@@ -196,8 +203,7 @@ function connectSSE() {
     var idx = state.cards.findIndex(function(c) { return c.id === card.id; });
     if (idx >= 0) state.cards[idx] = card;
     else state.cards.push(card);
-    render();
-    // Desktop notification for state changes
+    debouncedRender();
     notifyCardEvent(card);
   }
 
@@ -208,7 +214,7 @@ function connectSSE() {
   es.addEventListener('card-deleted', function(e) {
     var data = JSON.parse(e.data);
     state.cards = state.cards.filter(function(c) { return c.id !== data.id; });
-    render();
+    debouncedRender();
   });
 
   es.addEventListener('card-activity', function(e) {
@@ -220,23 +226,23 @@ function connectSSE() {
 
   es.addEventListener('queue-update', function(e) {
     queueInfo = JSON.parse(e.data);
-    render();
+    debouncedRender();
   });
 
   es.addEventListener('pipeline-state', function(e) {
     var data = JSON.parse(e.data);
     pipelinePaused = data.paused;
     updatePipelineControls();
-    render();
+    debouncedRender();
   });
 
   es.addEventListener('config-updated', function(e) {
     state.config = JSON.parse(e.data);
-    render();
+    debouncedRender();
   });
 
   es.addEventListener('mode-updated', function(e) {
-    try { boardMode = JSON.parse(e.data); applyModeUI(); render(); } catch (_) {}
+    try { boardMode = JSON.parse(e.data); applyModeUI(); debouncedRender(); } catch (_) {}
   });
 
   es.addEventListener('discovery-state', function(e) {
@@ -592,12 +598,14 @@ function renderCard(card) {
     'promote': ['Promote', 'btn-sm btn-primary', function() { doPromote(id); }, 'Approve and decompose into tasks'],
   };
 
-  for (var ai = 0; ai < ca.length; ai++) {
-    var def = ACTION_MAP[ca[ai]];
-    if (def) actions.appendChild(btn(def[0], def[1], def[2], def[3]));
+  if (isAuthed) {
+    for (var ai = 0; ai < ca.length; ai++) {
+      var def = ACTION_MAP[ca[ai]];
+      if (def) actions.appendChild(btn(def[0], def[1], def[2], def[3]));
+    }
   }
 
-  cardEl.appendChild(actions);
+  if (actions.childNodes.length > 0) cardEl.appendChild(actions);
   return cardEl;
 }
 

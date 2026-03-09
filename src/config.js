@@ -62,6 +62,8 @@ const runtime = {
   creativeConstraintPct: Number(process.env.CREATIVE_CONSTRAINT_PCT) || 20,
   // Spec feedback loop: scores spec effectiveness, learns patterns over time
   specFeedbackLoop: (process.env.SPEC_FEEDBACK_LOOP || 'true') === 'true',
+  // Percentage of brainstorms that receive confrontational spec challenges (0-100)
+  confrontationalPct: Number(process.env.CONFRONTATIONAL_PCT) || 70,
 };
 
 // Housekeeping constants

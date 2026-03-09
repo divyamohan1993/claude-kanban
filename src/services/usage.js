@@ -143,6 +143,7 @@ function getConfig(pipelineState, opts) {
       multiLensBrainstorm: runtime.multiLensBrainstorm,
       creativeConstraintPct: runtime.creativeConstraintPct,
       specFeedbackLoop: runtime.specFeedbackLoop,
+      confrontationalPct: runtime.confrontationalPct,
     },
     status: pipelineState ? {
       pipelinePaused: pipelineState.paused,
@@ -196,6 +197,7 @@ function setConfig(updates) {
   if (updates.multiLensBrainstorm !== undefined) { runtime.multiLensBrainstorm = !!updates.multiLensBrainstorm; changed.multiLensBrainstorm = runtime.multiLensBrainstorm; }
   if (updates.creativeConstraintPct !== undefined) { runtime.creativeConstraintPct = Math.max(0, Math.min(100, Number(updates.creativeConstraintPct))); changed.creativeConstraintPct = runtime.creativeConstraintPct; }
   if (updates.specFeedbackLoop !== undefined) { runtime.specFeedbackLoop = !!updates.specFeedbackLoop; changed.specFeedbackLoop = runtime.specFeedbackLoop; }
+  if (updates.confrontationalPct !== undefined) { runtime.confrontationalPct = Math.max(0, Math.min(100, Number(updates.confrontationalPct))); changed.confrontationalPct = runtime.confrontationalPct; }
   broadcast('config-updated', getConfig());
   return changed;
 }

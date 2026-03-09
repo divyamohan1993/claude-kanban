@@ -695,36 +695,39 @@ function buildDomainCoverageSection() {
   }
 }
 
+const CONFRONTATIONAL_CHALLENGES = [
+  { name: 'Alternatives Test', text: 'Name 2 fundamentally different approaches to solving this problem.\nFor each, state one concrete advantage over the chosen approach.\nThen justify why the chosen approach wins, considering the tradeoffs.' },
+  { name: 'Opportunity Cost', text: 'By building this, what will NOT get built? Name a specific feature or improvement\nthat competes for the same effort. Why is this more valuable right now?' },
+  { name: 'Failure Pre-Mortem', text: 'Imagine this feature shipped and failed. Write a 2-sentence post-mortem:\nwhat went wrong, and what should have been caught in the spec?\nNow address that risk explicitly in the specification.' },
+  { name: 'User Reality Check', text: 'Name a specific user persona (role, context, frequency of use).\nDescribe the exact moment they need this feature. If you cannot name a concrete\nscenario, the feature may not be needed. Simplify or pivot.' },
+  { name: 'Scope Knife', text: 'Cut 30% of the planned scope. What survives? Justify each remaining piece.\nThe surviving 70% is probably the real spec. Consider using it.' },
+];
+
 function buildConfrontationalSection() {
+  if (runtime.confrontationalPct <= 0) return '';
+  if (Math.random() * 100 >= runtime.confrontationalPct) return '';
+
+  // Pick 3 of 5 challenges randomly — prevents formulaic responses
+  const shuffled = CONFRONTATIONAL_CHALLENGES.slice();
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = shuffled[i];
+    shuffled[i] = shuffled[j];
+    shuffled[j] = tmp;
+  }
+  const selected = shuffled.slice(0, 3);
+
   const parts = [];
-  parts.push('## Confrontational Spec Challenges (MANDATORY)');
+  parts.push('## Confrontational Spec Challenges');
   parts.push('');
-  parts.push('Before finalizing the specification, answer these five challenges.');
-  parts.push('These force real critical thinking and prevent repetitive, score-chasing specs.');
+  parts.push('Before finalizing, answer these challenges. They prevent repetitive, safe specs.');
   parts.push('');
-  parts.push('### Challenge 1: Alternatives Test');
-  parts.push('Name 2 fundamentally different approaches to solving this problem.');
-  parts.push('For each, state one concrete advantage over the chosen approach.');
-  parts.push('Then justify why the chosen approach wins, considering the tradeoffs.');
-  parts.push('');
-  parts.push('### Challenge 2: Opportunity Cost');
-  parts.push('By building this, what will NOT get built? Name a specific feature or improvement');
-  parts.push('that competes for the same effort. Why is this more valuable right now?');
-  parts.push('');
-  parts.push('### Challenge 3: Failure Pre-Mortem');
-  parts.push('Imagine this feature shipped and failed. Write a 2-sentence post-mortem:');
-  parts.push('what went wrong, and what should have been caught in the spec?');
-  parts.push('Now address that risk explicitly in the specification.');
-  parts.push('');
-  parts.push('### Challenge 4: User Reality Check');
-  parts.push('Name a specific user persona (role, context, frequency of use).');
-  parts.push('Describe the exact moment they need this feature. If you cannot name a concrete');
-  parts.push('scenario, the feature may not be needed. Simplify or pivot.');
-  parts.push('');
-  parts.push('### Challenge 5: Scope Knife');
-  parts.push('Cut 30% of the planned scope. What survives? Justify each remaining piece.');
-  parts.push('The surviving 70% is probably the real spec. Consider using it.');
-  parts.push('');
+
+  for (let ci = 0; ci < selected.length; ci++) {
+    parts.push('### ' + selected[ci].name);
+    parts.push(selected[ci].text);
+    parts.push('');
+  }
 
   return parts.join('\n');
 }

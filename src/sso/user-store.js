@@ -14,6 +14,7 @@
 const crypto = require('crypto');
 const argon2 = require('argon2');
 const { log } = require('../lib/logger');
+const broker = require('../lib/secret-broker');
 
 const ARGON2_OPTS = { type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 4 };
 const VALID_ROLES = ['superadmin', 'admin', 'user'];
@@ -32,11 +33,31 @@ let masterKey = null;
 
 function getMasterKey() {
   if (masterKey) return masterKey;
+
+  // Priority 1: HKDF-derived key from secret vault (key splitting)
+  // Worker has half A, .env has half B, HKDF(A, B) = actual key.
+  // Compromising either side alone is useless.
+  if (broker.isEnabled()) {
+    const derived = broker.deriveMasterKey();
+    if (derived) {
+      masterKey = derived;
+      // Migrate: purge any old master key from DB (it's now vault-derived)
+      const dbKey = dbConfig.get('master_encryption_key');
+      if (dbKey) {
+        dbConfig.set('master_encryption_key', '');
+        log.info('Purged master key from DB (now HKDF-derived from vault)');
+      }
+      return masterKey;
+    }
+    log.warn('Secret broker enabled but MASTER_KEY_SHARE not in vault. Falling back to DB.');
+  }
+
+  // Priority 2: DB config (local dev only — insecure, key co-located with data)
   let keyHex = dbConfig.get('master_encryption_key');
   if (!keyHex) {
     keyHex = crypto.randomBytes(32).toString('hex');
     dbConfig.set('master_encryption_key', keyHex);
-    log.info('Generated new master encryption key');
+    log.warn('[SECURITY] Master key stored in DB alongside encrypted data. Configure secret vault for production.');
   }
   masterKey = Buffer.from(keyHex, 'hex');
   return masterKey;

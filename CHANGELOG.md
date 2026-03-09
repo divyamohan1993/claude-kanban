@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.2.0] - 2026-03-10
+
+### Added
+- **Secret vault** (`deploy/secret-vault-worker/`): Cloudflare Worker secret vault with 10-layer defense in depth
+  - Layer 1: CF edge DDoS/bot protection (automatic)
+  - Layer 2: Geo-fence by country code (ALLOWED_COUNTRIES)
+  - Layer 3: IP allowlist via CF-Connecting-IP (unforgeable at TCP level)
+  - Layer 4: Progressive lockout (3 failures = permanent block until redeploy)
+  - Layer 5: Rate limiting (5 req/min/IP)
+  - Layer 6: HMAC-SHA256 request signing (key A)
+  - Layer 7: Timestamp (30s window) + nonce uniqueness (anti-replay)
+  - Layer 8: AES-256-GCM encrypted request body (key B)
+  - Layer 9: AES-256-GCM encrypted response body (key B)
+  - Layer 10: HKDF key splitting (Worker has half A, client has half B, neither alone is useful)
+- **Secret broker client** (`src/lib/secret-broker.js`): Fetches secrets at startup, holds in memory only
+  - Encrypted request/response (AES-256-GCM) on top of TLS
+  - HKDF key derivation: `HKDF-SHA256(worker_share, client_derive_key, context)` produces master key
+  - Graceful fallback: disabled when no vault configured (local dev)
+- **Master key separation**: Encryption key no longer co-located with encrypted data in SQLite
+  - Production: derived via HKDF from two halves stored on separate systems
+  - Dev: still auto-generated in DB with security warning logged
+- **JWT secret from vault**: `jwt.js` now resolves secret from vault > env > random (dev only)
+
+### Changed
+- **Server startup**: Broker init runs before SSO init; secrets available before any auth
+- **user-store.js**: `getMasterKey()` uses `broker.deriveMasterKey()` (HKDF) as first priority
+
 ## [3.1.0] - 2026-03-09
 
 ### Changed

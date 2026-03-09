@@ -3,8 +3,33 @@
 // Replace with `jsonwebtoken` or OIDC library for real deployments.
 
 const crypto = require('crypto');
+const broker = require('../lib/secret-broker');
 
-const SECRET = process.env.SSO_JWT_SECRET || crypto.randomBytes(32).toString('hex');
+// Lazy-resolved secret: broker > env > random (dev only)
+let _secret = null;
+
+function getSecret() {
+  if (_secret) return _secret;
+
+  // Priority 1: Secret broker (CF Worker vault)
+  if (broker.isEnabled()) {
+    const vaultSecret = broker.get('JWT_SECRET');
+    if (vaultSecret) {
+      _secret = vaultSecret;
+      return _secret;
+    }
+  }
+
+  // Priority 2: Environment variable
+  if (process.env.SSO_JWT_SECRET) {
+    _secret = process.env.SSO_JWT_SECRET;
+    return _secret;
+  }
+
+  // Priority 3: Random (dev only — sessions invalidate on restart)
+  _secret = crypto.randomBytes(32).toString('hex');
+  return _secret;
+}
 
 function base64url(buf) {
   return (typeof buf === 'string' ? Buffer.from(buf) : buf)
@@ -21,6 +46,7 @@ function base64urlDecode(str) {
 }
 
 function sign(payload, expiresInSec) {
+  const secret = getSecret();
   const now = Math.floor(Date.now() / 1000);
   const claims = Object.assign({}, payload, {
     iat: now,
@@ -32,7 +58,7 @@ function sign(payload, expiresInSec) {
   const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const body = base64url(JSON.stringify(claims));
   const signature = base64url(
-    crypto.createHmac('sha256', SECRET).update(header + '.' + body).digest()
+    crypto.createHmac('sha256', secret).update(header + '.' + body).digest()
   );
 
   return header + '.' + body + '.' + signature;
@@ -43,8 +69,10 @@ function verify(token) {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
 
+  const secret = getSecret();
+
   // Verify signature (constant-time)
-  const expected = crypto.createHmac('sha256', SECRET)
+  const expected = crypto.createHmac('sha256', secret)
     .update(parts[0] + '.' + parts[1])
     .digest();
   const actual = base64urlDecode(parts[2]);

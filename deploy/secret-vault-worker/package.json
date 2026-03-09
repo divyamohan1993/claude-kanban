@@ -1,0 +1,13 @@
+{
+  "name": "secret-vault-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker secret vault — IP allowlist + HMAC-SHA256 auth",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

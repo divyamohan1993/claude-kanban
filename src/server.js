@@ -6,20 +6,28 @@ const { PORT, ADMIN_PORT, ADMIN_PATH, ROOT_DIR, DATA_DIR, LOGS_DIR, runtime } = 
 const { securityHeaders, requestId, originCheck, errorHandler, requireJsonContentType } = require('./middleware/security');
 const { rateLimiter, sseGuard } = require('./middleware/rate-limit');
 const { log } = require('./lib/logger');
+const broker = require('./lib/secret-broker');
 const sso = require('./sso');
 const db = require('./db');
 const { cards, auditLog, config: dbConfig, errors: dbErrors } = db;
 
-// Initialize user store with DB — must happen before any auth middleware fires.
-// Returns a Promise (Argon2 hashing is async). All auth calls await _ready internally,
-// so the server can accept connections immediately; auth simply blocks until init completes.
-// The .catch in user-store.js exits the process if init fails.
-sso.init(db).then(function() {
+// Initialize secret broker FIRST (fetches secrets from CF Worker vault).
+// If broker is not configured (no SECRET_BROKER_URL), this is a no-op.
+// Must complete before SSO init, which needs the master encryption key.
+broker.init().then(function() {
+  if (broker.isEnabled()) {
+    log.info({ keys: broker.keyCount() }, 'Secret vault connected');
+  }
+
+  // Initialize user store with DB — must happen after broker.
+  // Returns a Promise (Argon2 hashing is async). All auth calls await _ready internally,
+  // so the server can accept connections immediately; auth simply blocks until init completes.
+  return sso.init(db);
+}).then(function() {
   log.info('SSO user store initialized');
 }).catch(function(err) {
-  // user-store.js already calls process.exit(1) on failure,
-  // but log here too in case the exit is delayed
-  log.fatal({ err: err.message }, 'SSO init failed');
+  log.fatal({ err: err.message }, 'Startup failed (broker or SSO)');
+  process.exit(1);
 });
 const { broadcast, setEnrichCard } = require('./lib/broadcast');
 const pipeline = require('./services/pipeline');

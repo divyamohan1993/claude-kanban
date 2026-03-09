@@ -18,6 +18,7 @@ const crypto = require('crypto');
 const { log } = require('./logger');
 
 const BROKER_URL = process.env.SECRET_BROKER_URL || '';
+const CLIENT_ID = process.env.SECRET_BROKER_CLIENT_ID || '';
 const HMAC_KEY = process.env.SECRET_BROKER_HMAC_KEY || '';
 const ENC_KEY = process.env.SECRET_BROKER_ENC_KEY || '';
 const DERIVE_KEY = process.env.SECRET_BROKER_DERIVE_KEY || '';
@@ -95,6 +96,7 @@ async function init() {
       method: 'POST',
       headers: {
         'Content-Type': 'text/plain',
+        'X-Client-ID': CLIENT_ID,
         'X-Timestamp': timestamp,
         'X-Nonce': nonce,
         'X-Signature': signature,

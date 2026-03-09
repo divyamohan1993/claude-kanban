@@ -18,11 +18,10 @@ const intelligence = require('../services/intelligence');
 const router = express.Router();
 
 // --- Security: Global card count cap — prevents DB spam via automated card creation ---
-const MAX_TOTAL_CARDS = 500;
 function checkCardLimit() {
-  const count = cards.getAll().length + cards.getArchived().length;
-  if (count >= MAX_TOTAL_CARDS) {
-    return 'Card limit reached (' + MAX_TOTAL_CARDS + '). Archive or delete old cards first.';
+  const count = cards.countTotal();
+  if (count >= runtime.maxTotalCards) {
+    return 'Card limit reached (' + runtime.maxTotalCards + '). Archive or delete old cards first.';
   }
   return null;
 }
@@ -81,6 +80,11 @@ function computeActions(card) {
         actions.push('promote'); // manual approval: promote brainstorm → decompose → todo
       }
       if (card.spec && runtime.mode !== 'single-project') actions.push('move-to-todo');
+      // Spec approval gate: show approve/edit actions when spec is ready
+      if (card.spec && st === 'spec-ready') {
+        actions.push('approve-spec');
+        actions.push('edit-spec');
+      }
       if (st === 'initiative-active') {
         actions = actions.filter(function(a) { return a !== 'brainstorm' && a !== 'move-to-todo' && a !== 'promote'; });
       }
@@ -143,12 +147,14 @@ function computeActions(card) {
 }
 
 // Server-computed display state — frontend renders this, makes zero decisions
-function computeDisplay(card, allCards) {
+// cardMap: Map<id, card> for O(1) lookups (built once in enrichCards, avoids O(n²))
+function computeDisplay(card, cardMap) {
   const display = { badges: [], pipelineStep: null };
   const st = card.status;
 
   // Status badges — server decides what badge to show
   if (st === 'frozen') display.badges.push({ text: 'Frozen', type: 'blocked' });
+  else if (st === 'spec-ready') display.badges.push({ text: 'Spec Ready', type: 'has-spec' });
   else if (st === 'fix-interrupted') display.badges.push({ text: 'Fix Paused', type: 'warning' });
   else if (st === 'brainstorming') display.badges.push({ text: 'Brainstorming', type: 'brainstorming', spinner: true });
   else if (st === 'queued') {
@@ -171,17 +177,15 @@ function computeDisplay(card, allCards) {
 
   if (st === 'complete') display.badges.push({ text: 'Complete', type: 'complete' });
 
-  // Dependency blocking — server resolves which deps are unmet
-  if (card.depends_on && allCards) {
+  // Dependency blocking — server resolves which deps are unmet (O(deps) via Map lookup)
+  if (card.depends_on && cardMap) {
     const deps = card.depends_on.split(',').filter(Boolean);
     const blockedBy = [];
     for (let d = 0; d < deps.length; d++) {
       const depId = Number(deps[d].trim());
-      for (let c = 0; c < allCards.length; c++) {
-        if (allCards[c].id === depId && allCards[c].column_name !== 'done' && allCards[c].column_name !== 'archive') {
-          blockedBy.push('#' + depId + ' ' + allCards[c].title);
-          break;
-        }
+      const depCard = cardMap.get(depId);
+      if (depCard && depCard.column_name !== 'done' && depCard.column_name !== 'archive') {
+        blockedBy.push('#' + depId + ' ' + depCard.title);
       }
     }
     if (blockedBy.length > 0) {
@@ -197,20 +201,55 @@ function computeDisplay(card, allCards) {
     };
   }
 
+  // Review breakdown — group findings by category for detailed display
+  if (card.review_data) {
+    try {
+      const rd = JSON.parse(card.review_data);
+      if (Array.isArray(rd.findings) && rd.findings.length > 0) {
+        const breakdown = {};
+        for (let i = 0; i < rd.findings.length; i++) {
+          const f = rd.findings[i];
+          if (!f) continue;
+          const cat = f.category || 'other';
+          const sev = f.severity || 'info';
+          if (!breakdown[cat]) breakdown[cat] = { critical: 0, warning: 0, info: 0, total: 0 };
+          breakdown[cat][sev] = (breakdown[cat][sev] || 0) + 1;
+          breakdown[cat].total++;
+        }
+        display.reviewBreakdown = breakdown;
+      }
+      // Failure summary — top finding for quick visibility
+      if (Array.isArray(rd.findings) && rd.findings.length > 0 && card.review_score < 8) {
+        const critical = rd.findings.find(function(f) { return f && f.severity === 'critical'; });
+        const topFinding = critical || rd.findings[0];
+        if (topFinding && topFinding.message) {
+          display.failureSummary = topFinding.message.length > 120 ? topFinding.message.slice(0, 117) + '...' : topFinding.message;
+          display.failureCategory = topFinding.category || 'other';
+        }
+      }
+    } catch (_) {}
+  }
+
   // Approval badge
   if (card.approved_by) {
     display.approval = { by: card.approved_by, type: card.approved_by === 'human' ? 'human' : 'ai' };
   }
 
-  // Parent-child hierarchy info
+  // Trust level — progressive trust based on project build history
+  if (card.project_path) {
+    try {
+      const intelligence = require('../services/intelligence');
+      const trust = intelligence.getProjectTrust(card.project_path);
+      if (trust.level !== 'new') {
+        display.trustLevel = trust.level;
+      }
+    } catch (_) {}
+  }
+
+  // Parent-child hierarchy info (O(1) via Map lookup)
   if (card.parent_card_id) {
     display.parentCardId = card.parent_card_id;
-    let parent = null;
-    if (allCards) {
-      for (let pi = 0; pi < allCards.length; pi++) {
-        if (allCards[pi].id === card.parent_card_id) { parent = allCards[pi]; break; }
-      }
-    }
+    const parent = cardMap ? cardMap.get(card.parent_card_id) : null;
     if (parent) display.parentTitle = parent.title;
     display.isSubtask = true;
     display.initiativeId = card.parent_card_id;
@@ -249,15 +288,19 @@ function computeDisplay(card, allCards) {
 // This is the core of "UI is dumb, server is king" — server decides what controls to show.
 // isAuthed: true = include actions, false = strip actions, undefined = include (for broadcasts to authed clients)
 // SSE broadcasts always include actions — frontend strips them for public viewers based on userRole.
-function enrichCard(card, allCards, isAuthed) {
+// cardMap: optional Map<id, card> for O(1) lookups in computeDisplay (built by enrichCards)
+function enrichCard(card, cardMap, isAuthed) {
   if (!card) return card;
   card.actions = (isAuthed === false) ? [] : computeActions(card);
-  card.display = computeDisplay(card, allCards);
+  card.display = computeDisplay(card, cardMap);
   return card;
 }
 
 function enrichCards(list, isAuthed) {
-  for (let i = 0; i < list.length; i++) enrichCard(list[i], list, isAuthed);
+  // Build lookup Map once — O(n). computeDisplay uses it for O(1) dep/parent lookups.
+  const cardMap = new Map();
+  for (let i = 0; i < list.length; i++) cardMap.set(list[i].id, list[i]);
+  for (let i = 0; i < list.length; i++) enrichCard(list[i], cardMap, isAuthed);
   return list;
 }
 
@@ -279,6 +322,123 @@ router.get('/api/search', optionalAuth, function(req, res) {
   res.json(enrichCards(cards.search(req.query.q), !!req.user));
 });
 router.get('/api/metrics', optionalAuth, function(_req, res) { res.json(support.getMetrics()); });
+
+router.get('/api/templates', optionalAuth, function(_req, res) {
+  res.json([
+    {
+      id: 'bug',
+      name: 'Bug Report',
+      icon: 'bug',
+      description: 'Report and fix a bug',
+      title: 'Fix: ',
+      body: '## Bug Description\n\n## Steps to Reproduce\n1. \n2. \n3. \n\n## Expected Behavior\n\n## Actual Behavior\n\n## Environment\n- Browser/OS: \n- Version: ',
+      labels: 'bug',
+    },
+    {
+      id: 'feature',
+      name: 'New Feature',
+      icon: 'feature',
+      description: 'Add new functionality',
+      title: 'Add: ',
+      body: '## User Story\nAs a [user], I want to [action] so that [benefit].\n\n## Acceptance Criteria\n- [ ] \n- [ ] \n- [ ] \n\n## Technical Notes\n',
+      labels: 'feature',
+    },
+    {
+      id: 'refactor',
+      name: 'Refactor',
+      icon: 'refactor',
+      description: 'Improve code quality',
+      title: 'Refactor: ',
+      body: '## What to Refactor\n\n## Why\n\n## Risk Assessment\n- Breaking changes: \n- Test coverage: \n\n## Approach\n',
+      labels: 'refactor',
+    },
+    {
+      id: 'security',
+      name: 'Security Fix',
+      icon: 'security',
+      description: 'Address a security concern',
+      title: 'Security: ',
+      body: '## Vulnerability\n\n## Severity\nCritical / High / Medium / Low\n\n## Attack Vector\n\n## Mitigation\n\n## Verification\n',
+      labels: 'security',
+    },
+    {
+      id: 'performance',
+      name: 'Performance',
+      icon: 'performance',
+      description: 'Optimize speed or efficiency',
+      title: 'Perf: ',
+      body: '## Performance Issue\n\n## Current Metrics\n- \n\n## Target Metrics\n- \n\n## Optimization Strategy\n',
+      labels: 'performance',
+    },
+    {
+      id: 'test',
+      name: 'Testing',
+      icon: 'test',
+      description: 'Add or improve tests',
+      title: 'Test: ',
+      body: '## Test Coverage Target\n\n## Test Types\n- [ ] Unit tests\n- [ ] Integration tests\n- [ ] E2E tests\n\n## Key Scenarios\n1. \n2. \n3. ',
+      labels: 'testing',
+    },
+  ]);
+});
+
+router.get('/api/trends', optionalAuth, function(_req, res) {
+  const allCards = cards.getAll().concat(cards.getArchived());
+
+  // Pre-compute week boundaries once
+  const now = new Date();
+  const weekBounds = [];
+  for (let w = 7; w >= 0; w--) {
+    const ws = new Date(now); ws.setDate(ws.getDate() - (w + 1) * 7);
+    const we = new Date(now); we.setDate(we.getDate() - w * 7);
+    weekBounds.push({ start: ws.toISOString().slice(0, 10), end: we.toISOString().slice(0, 10), completed: 0, scoreSum: 0, scoreCount: 0 });
+  }
+
+  // Single pass over all cards — computes weekly + overall stats simultaneously
+  let totalCompleted = 0, totalActive = 0, scoreSum = 0, scoreCount = 0, highScoreCount = 0;
+  let autoApproved = 0, humanApproved = 0;
+
+  for (let i = 0; i < allCards.length; i++) {
+    const c = allCards[i];
+    const isDone = c.column_name === 'done' || c.column_name === 'archive';
+    if (isDone) totalCompleted++;
+    else totalActive++;
+
+    if (c.review_score > 0) {
+      scoreSum += c.review_score;
+      scoreCount++;
+      if (c.review_score >= 8) highScoreCount++;
+    }
+    if (c.approved_by === 'ai') autoApproved++;
+    else if (c.approved_by === 'human') humanApproved++;
+
+    // Bucket into weekly bins
+    if (isDone) {
+      const updated = (c.updated_at || '').slice(0, 10);
+      for (let w = 0; w < weekBounds.length; w++) {
+        if (updated >= weekBounds[w].start && updated < weekBounds[w].end) {
+          weekBounds[w].completed++;
+          if (c.review_score > 0) {
+            weekBounds[w].scoreSum += c.review_score;
+            weekBounds[w].scoreCount++;
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  res.json({
+    weeklyCompletions: weekBounds.map(function(w) { return w.completed; }),
+    weeklyScores: weekBounds.map(function(w) { return w.scoreCount > 0 ? Math.round(w.scoreSum / w.scoreCount * 10) / 10 : null; }),
+    totalCompleted: totalCompleted,
+    totalActive: totalActive,
+    avgScore: scoreCount > 0 ? Math.round(scoreSum / scoreCount * 10) / 10 : 0,
+    autoApproveRate: (autoApproved + humanApproved) > 0 ? Math.round(autoApproved / (autoApproved + humanApproved) * 100) : 0,
+    successRate: scoreCount > 0 ? Math.round(highScoreCount / scoreCount * 100) : 0,
+  });
+});
+
 router.get('/api/spec-intelligence', optionalAuth, function(_req, res) { res.json(require('../services/spec-intelligence').getInsights()); });
 router.get('/api/export', requireAuth, function(_req, res) { res.json(support.exportBoard()); });
 
@@ -391,9 +551,11 @@ router.get('/api/mode', optionalAuth, function(_req, res) { res.json(autoDiscove
 
 // --- Auto-Archive (internal helper) ---
 function autoArchiveDone() {
-  const doneCards = cards.getAll().filter(function(c) { return c.column_name === 'done'; });
+  // Quick count check avoids loading cards when not needed
+  if (cards.countByColumn('done') <= 5) return;
+  // Targeted query — only loads 'done' column cards, already sorted by updated_at DESC
+  const doneCards = cards.getByColumn('done');
   if (doneCards.length <= 5) return;
-  doneCards.sort(function(a, b) { return (b.updated_at || '').localeCompare(a.updated_at || ''); });
   const toArchive = doneCards.slice(5);
   for (let i = 0; i < toArchive.length; i++) {
     cards.move(toArchive[i].id, 'archive');
@@ -411,7 +573,7 @@ function autoArchiveDone() {
 
 // --- Cards CRUD ---
 router.post('/api/cards', requireAuth, function(req, res) {
-  const title = req.body.title;
+  const title = (req.body.title || '').trim();
   const description = req.body.description;
   const column = req.body.column;
   if (!title) return res.status(400).json({ error: 'Title required' });
@@ -421,7 +583,7 @@ router.post('/api/cards', requireAuth, function(req, res) {
   const limitErr = checkCardLimit();
   if (limitErr) return res.status(429).json({ error: limitErr });
   const result = cards.create(title, description, column);
-  const card = cards.get(Number(result.lastInsertRowid));
+  let card = cards.get(Number(result.lastInsertRowid));
   // Intelligence: auto-label based on learned patterns
   if (!card.labels) {
     const autoLabels = intelligence.autoLabel(title, description);
@@ -429,11 +591,13 @@ router.post('/api/cards', requireAuth, function(req, res) {
       intelligence.checkpoint('Auto-label card #' + card.id, 'auto-label',
         autoLabels, { cardId: card.id, oldLabels: '' });
       cards.setLabels(card.id, autoLabels);
+      card = cards.get(card.id); // re-fetch after label mutation
     }
   }
   auditLog('create', 'card', card.id, req.user.id, '', card.title, '');
-  broadcast('card-created', enrichCard(cards.get(card.id)));
-  res.json(enrichCard(cards.get(card.id)));
+  const enriched = enrichCard(card);
+  broadcast('card-created', enriched);
+  res.json(enriched);
 });
 
 router.put('/api/cards/:id', requireAuth, function(req, res) {
@@ -444,8 +608,9 @@ router.put('/api/cards/:id', requireAuth, function(req, res) {
   cards.update(id, req.body.title, req.body.description);
   const card = cards.get(id);
   auditLog('update', 'card', id, req.user.id, old ? old.title : '', req.body.title, 'edited');
-  broadcast('card-updated', enrichCard(card));
-  res.json(enrichCard(card));
+  const enriched = enrichCard(card);
+  broadcast('card-updated', enriched);
+  res.json(enriched);
 });
 
 router.delete('/api/cards/:id', requireAuth, function(req, res) {
@@ -482,14 +647,16 @@ router.post('/api/cards/:id/move', requireAuth, function(req, res) {
   if (column === 'working' && card.spec) {
     try {
       pipeline.enqueue(id, source === 'human' ? 1 : 0);
-      return res.json(enrichCard(cards.get(id)));
+      const enriched = enrichCard(cards.get(id));
+      return res.json(enriched);
     } catch (err) {
       log.error({ cardId: id, err: err.message }, 'Enqueue failed');
       pipeline.dequeue(id);
       cards.setStatus(id, 'idle');
-      broadcast('card-updated', enrichCard(cards.get(id)));
+      const enriched = enrichCard(cards.get(id));
+      broadcast('card-updated', enriched);
       broadcast('toast', { message: err.message, type: 'error' });
-      return res.status(409).json({ error: err.message, card: enrichCard(cards.get(id)) });
+      return res.status(409).json({ error: err.message, card: enriched });
     }
   }
 
@@ -507,8 +674,9 @@ router.post('/api/cards/:id/move', requireAuth, function(req, res) {
     cards.setStatus(id, 'idle');
   }
 
-  broadcast('card-updated', enrichCard(cards.get(id)));
-  res.json(enrichCard(cards.get(id)));
+  const enriched = enrichCard(cards.get(id));
+  broadcast('card-updated', enriched);
+  res.json(enriched);
 });
 
 // --- Card Actions ---
@@ -525,8 +693,9 @@ router.post('/api/cards/:id/assign-folder', requireAuth, function(req, res) {
   if (pathErr) return res.status(400).json({ error: pathErr });
   cards.setProjectPath(id, path.resolve(req.body.projectPath));
   const card = cards.get(id);
-  broadcast('card-updated', enrichCard(card));
-  res.json(enrichCard(card));
+  const enriched = enrichCard(card);
+  broadcast('card-updated', enriched);
+  res.json(enriched);
 });
 
 router.post('/api/cards/:id/brainstorm', requireAuth, function(req, res) {
@@ -607,7 +776,6 @@ router.post('/api/cards/:id/approve', requireAuth, function(req, res) {
   // Spec intelligence: score spec effectiveness (human-approved)
   try { require('../services/spec-intelligence').computeSpecEffectiveness(id, card.review_score || 7, 0, false); } catch (_) {}
   auditLog('approve', 'card', id, req.user.id, card ? card.status : '', 'complete', card ? card.title : '');
-  broadcast('card-updated', enrichCard(cards.get(id)));
   const clResult = git.autoChangelog(id);
   if (clResult.success) broadcast('toast', { message: 'Changelog: ' + clResult.type + ' entry added', type: 'success' });
   const gitResult = git.autoCommit(id);
@@ -615,9 +783,10 @@ router.post('/api/cards/:id/approve', requireAuth, function(req, res) {
   autoArchiveDone();
   pipeline.releaseProjectLock(id);
   pipeline.checkUnblock();
-  // If this card is a sub-task, check if the parent initiative is now complete
   require('../services/review').checkParentInitiativeComplete(id);
-  res.json({ card: enrichCard(cards.get(id)), git: gitResult, changelog: clResult });
+  const enriched = enrichCard(cards.get(id));
+  broadcast('card-updated', enriched);
+  res.json({ card: enriched, git: gitResult, changelog: clResult });
 });
 
 // --- Reject ---
@@ -629,10 +798,11 @@ router.post('/api/cards/:id/reject', requireAuth, function(req, res) {
   cards.setStatus(id, 'idle');
   cards.setSessionLog(id, 'REJECTED - Files rolled back. ' + (result.success ? (result.wasNew ? 'New project folder removed.' : 'All files restored to pre-work state.') : result.reason));
   auditLog('reject', 'card', id, req.user.id, card ? card.column_name : '', 'todo', card ? card.title : '');
-  broadcast('card-updated', enrichCard(cards.get(id)));
   pipeline.releaseProjectLock(id);
   const cascaded = pipeline.cascadeRevert(id);
-  res.json({ card: enrichCard(cards.get(id)), rollback: result, cascaded: cascaded });
+  const enriched = enrichCard(cards.get(id));
+  broadcast('card-updated', enriched);
+  res.json({ card: enriched, rollback: result, cascaded: cascaded });
 });
 
 // --- Edit File ---
@@ -685,8 +855,9 @@ router.put('/api/cards/:id/spec', requireAuth, function(req, res) {
   cards.setSpec(id, spec);
   auditLog('edit-spec', 'card', id, req.user.id, (old && old.spec) ? old.spec.slice(0, 200) : '', spec.slice(0, 200), '');
   const card = cards.get(id);
-  broadcast('card-updated', enrichCard(card));
-  res.json(enrichCard(card));
+  const enriched = enrichCard(card);
+  broadcast('card-updated', enriched);
+  res.json(enriched);
 });
 
 router.put('/api/cards/:id/labels', requireAuth, function(req, res) {
@@ -699,8 +870,9 @@ router.put('/api/cards/:id/labels', requireAuth, function(req, res) {
   intelligence.learnFromLabels(id);
   auditLog('edit-labels', 'card', id, req.user.id, old ? old.labels : '', req.body.labels, '');
   const card = cards.get(id);
-  broadcast('card-updated', enrichCard(card));
-  res.json(enrichCard(card));
+  const enriched = enrichCard(card);
+  broadcast('card-updated', enriched);
+  res.json(enriched);
 });
 
 router.put('/api/cards/:id/depends-on', requireAuth, function(req, res) {
@@ -715,8 +887,9 @@ router.put('/api/cards/:id/depends-on', requireAuth, function(req, res) {
   cards.setDependsOn(id, req.body.dependsOn);
   auditLog('edit-deps', 'card', id, req.user.id, old ? old.depends_on : '', req.body.dependsOn, '');
   const card = cards.get(id);
-  broadcast('card-updated', enrichCard(card));
-  res.json(enrichCard(card));
+  const enriched = enrichCard(card);
+  broadcast('card-updated', enriched);
+  res.json(enriched);
 });
 
 // --- Retry / Preview ---
@@ -746,6 +919,22 @@ router.post('/api/cards/:id/promote', requireAuth, function(req, res) {
   });
 });
 
+// --- Approve Spec (spec approval gate) ---
+router.post('/api/cards/:id/approve-spec', requireAuth, function(req, res) {
+  const id = Number(req.params.id);
+  const card = cards.get(id);
+  if (!card) return res.status(404).json({ error: 'Card not found' });
+  if (card.status !== 'spec-ready') return res.status(400).json({ error: 'Card is not in spec-ready status' });
+  if (card.column_name !== 'brainstorm') return res.status(400).json({ error: 'Card must be in brainstorm column' });
+  cards.setStatus(id, 'idle');
+  cards.move(id, 'todo');
+  auditLog('approve-spec', 'card', id, req.user.id, 'spec-ready', 'idle', card.title);
+  const updated = enrichCard(cards.get(id));
+  broadcast('card-updated', updated);
+  broadcast('toast', { message: 'Spec approved, moved to Todo: ' + card.title, type: 'success' });
+  res.json(updated);
+});
+
 // --- Pipeline Control ---
 router.post('/api/pipeline/pause', requireAuth, function(_req, res) { pipeline.setPaused(true); res.json({ paused: true }); });
 router.post('/api/pipeline/resume', requireAuth, function(_req, res) { pipeline.setPaused(false); res.json({ paused: false }); });
@@ -767,11 +956,17 @@ router.post('/api/bulk-create', requireAuth, function(req, res) {
     // Enforce per-item length limits
     const itemTitle = String(batch[i].title).slice(0, 500);
     const itemDesc = batch[i].description ? String(batch[i].description).slice(0, 10000) : '';
-    const result = cards.create(itemTitle, itemDesc, batch[i].column || 'brainstorm');
-    const card = cards.get(Number(result.lastInsertRowid));
-    if (batch[i].labels) cards.setLabels(card.id, batch[i].labels);
-    broadcast('card-created', enrichCard(cards.get(card.id)));
-    created.push(enrichCard(cards.get(card.id)));
+    const col = batch[i].column || 'brainstorm';
+    if (!VALID_COLUMNS.includes(col)) continue;
+    const result = cards.create(itemTitle, itemDesc, col);
+    let card = cards.get(Number(result.lastInsertRowid));
+    if (batch[i].labels) {
+      cards.setLabels(card.id, batch[i].labels);
+      card = cards.get(card.id);
+    }
+    const enriched = enrichCard(card);
+    broadcast('card-created', enriched);
+    created.push(enriched);
   }
   res.json({ created: created.length, cards: created });
 });
@@ -895,9 +1090,10 @@ router.post('/api/cards/:id/feedback', requireAuth, function(req, res) {
   }
 
   auditLog('feedback', 'card', id, req.user.id, '', text.substring(0, 100), '');
-  broadcast('card-updated', enrichCard(cards.get(id)));
+  const updated = enrichCard(cards.get(id));
+  broadcast('card-updated', updated);
   broadcast('toast', { message: 'Feedback added to #' + id, type: 'success' });
-  res.json(enrichCard(cards.get(id)));
+  res.json(updated);
 });
 
 // --- Intelligence: Rollback (available from main board — mandatory access) ---
@@ -919,9 +1115,10 @@ router.post('/api/cards/:id/unarchive', requireAuth, function(req, res) {
   const id = Number(req.params.id);
   if (!cards.get(id)) return res.status(404).json({ error: 'Card not found' });
   cards.move(id, 'done');
-  broadcast('card-created', enrichCard(cards.get(id)));
+  const enriched = enrichCard(cards.get(id));
+  broadcast('card-created', enriched);
   autoArchiveDone();
-  res.json(enrichCard(cards.get(id)));
+  res.json(enriched);
 });
 
 // --- Test-only (L1 fix: require auth even in test mode) ---
@@ -930,8 +1127,9 @@ if (process.env.NODE_ENV === 'test') {
     const id = Number(req.params.id);
     if (!cards.get(id)) return res.status(404).json({ error: 'Not found' });
     cards.updateState(id, req.body);
-    broadcast('card-updated', enrichCard(cards.get(id)));
-    res.json(enrichCard(cards.get(id)));
+    const enriched = enrichCard(cards.get(id));
+    broadcast('card-updated', enriched);
+    res.json(enriched);
   });
 }
 

@@ -1,12 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const { runtime, getEffectiveProjectPath } = require('../config');
+const { runtime } = require('../config');
 const { cards } = require('../db');
 const { broadcast } = require('../lib/broadcast');
 const { log } = require('../lib/logger');
 const snapshot = require('./snapshot');
 const { logPath, sendWebhook } = require('../lib/helpers');
-const { runClaudeSilent } = require('./claude-runner');
+const { runClaudeSilent, detectRateLimit } = require('./claude-runner');
 const { getCustomPrompts } = require('./usage');
 const git = require('./git');
 
@@ -129,7 +129,15 @@ function autoReview(cardId) {
           const fixCount = pipeline.getReviewFixCount(cardId);
           const needsHuman = data.needsHumanApproval === true;
 
-          if (score >= 8 && criticals === 0 && !needsHuman) {
+          // Progressive trust: proven projects can auto-approve at lower thresholds
+          let approveThreshold = 8;
+          try {
+            const intelligence = require('./intelligence');
+            const trust = intelligence.getProjectTrust(projectPath);
+            approveThreshold = trust.autoApproveThreshold;
+          } catch (_) {}
+
+          if (score >= approveThreshold && criticals === 0 && !needsHuman) {
             // Auto-approve
             pipeline.deleteReviewFixCount(cardId);
             pipeline.setActivity(cardId, 'approve', 'Score ' + score + '/10 — auto-approving...');
@@ -194,6 +202,17 @@ function autoReview(cardId) {
         }
 
         try { fs.unlinkSync(reviewFile); } catch (_) {}
+      }
+
+      // Rate-limit fast-fail
+      if (pollCount >= runtime.rateLimitMinPolls && pollCount % 3 === 0) {
+        const rl = detectRateLimit(reviewLog);
+        if (rl.detected) {
+          clearInterval(reviewInterval);
+          pipeline.trackPhase(cardId, 'review', 'end');
+          pipeline.handleRateLimitDetected(cardId, 'review', reviewLog);
+          return;
+        }
       }
 
       if (pollCount >= maxPoll) {
@@ -284,6 +303,16 @@ function autoFixFindings(cardId, findings) {
         // Re-review after fix
         pipeline.setActivity(cardId, 'review', 'Fixes applied — re-reviewing...');
         autoReview(cardId);
+      }
+
+      // Rate-limit fast-fail for fix
+      if (pollCount >= runtime.rateLimitMinPolls && pollCount % 3 === 0) {
+        const rl = detectRateLimit(fixLog);
+        if (rl.detected) {
+          clearInterval(fixInterval);
+          pipeline.handleRateLimitDetected(cardId, 'fix', fixLog);
+          return;
+        }
       }
 
       if (pollCount >= maxPoll) {

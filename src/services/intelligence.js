@@ -14,6 +14,7 @@
 //   workflow-note : general behavioral observations
 //
 
+const { runtime } = require('../config');
 const { cards, learnings, checkpoints, config: dbConfig, auditLog } = require('../db');
 const { broadcast } = require('../lib/broadcast');
 const { log } = require('../lib/logger');
@@ -71,34 +72,37 @@ function autoLabel(title, description) {
   const rules = learnings.getByCategory('label-rule');
   if (rules.length === 0) return null;
 
+  // Build Map<keyword, rule> for O(1) lookup (UNIQUE(category, pattern_key) guarantees one per key)
+  const ruleMap = new Map();
+  for (let ri = 0; ri < rules.length; ri++) {
+    if (rules[ri].confidence >= runtime.autoLabelConfidence) ruleMap.set(rules[ri].pattern_key, rules[ri]);
+  }
+
   const text = ((title || '') + ' ' + (description || '')).toLowerCase();
   const words = text.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(function(w) { return w.length >= 3; });
 
+  // O(n) word scan with O(1) rule lookups
   const labelScores = {};
+  const matchedRuleIds = new Set();
   for (let wi = 0; wi < words.length; wi++) {
-    for (let ri = 0; ri < rules.length; ri++) {
-      if (rules[ri].pattern_key === words[wi] && rules[ri].confidence >= 40) {
-        const label = rules[ri].pattern_value;
-        labelScores[label] = (labelScores[label] || 0) + rules[ri].confidence;
-      }
+    const rule = ruleMap.get(words[wi]);
+    if (rule) {
+      labelScores[rule.pattern_value] = (labelScores[rule.pattern_value] || 0) + rule.confidence;
+      matchedRuleIds.add(rule.id);
     }
   }
 
   // Pick labels with score >= 60 (at least one strong match or two weak ones)
-  const labels = Object.keys(labelScores).filter(function(l) { return labelScores[l] >= 60; });
+  const labels = Object.keys(labelScores).filter(function(l) { return labelScores[l] >= runtime.labelScoreThreshold; });
   if (labels.length === 0) return null;
 
   // Cap at 3 auto-labels
   labels.sort(function(a, b) { return labelScores[b] - labelScores[a]; });
-  const result = labels.slice(0, 3).join(',');
+  const result = labels.slice(0, runtime.maxAutoLabels).join(',');
 
-  // Track which rules were applied
-  for (let ai = 0; ai < labels.length && ai < 3; ai++) {
-    for (let ri = 0; ri < rules.length; ri++) {
-      if (rules[ri].pattern_value === labels[ai]) {
-        learnings.bumpApplied(rules[ri].id);
-      }
-    }
+  // Track which rules were applied — O(m) where m is matched rules
+  for (const id of matchedRuleIds) {
+    learnings.bumpApplied(id);
   }
 
   return result;
@@ -175,9 +179,11 @@ function analyzeAndTune() {
   const changes = [];
 
   // 1. Check for frequent build timeouts → increase timeout
+  // Single pass over all cards for both timeout and build stats
   const allCards = cards.getAll().concat(cards.getArchived());
   let timeoutCount = 0;
   let totalBuilds = 0;
+  const scores = [];
   for (let i = 0; i < allCards.length; i++) {
     const c = allCards[i];
     if (c.session_log && c.session_log.includes('TIMEOUT')) timeoutCount++;
@@ -187,6 +193,7 @@ function analyzeAndTune() {
         if (pd.build) totalBuilds++;
       } catch (_) {}
     }
+    if (c.review_score > 0) scores.push(c.review_score);
   }
   if (totalBuilds >= 5 && timeoutCount / totalBuilds > 0.3) {
     const currentTimeout = runtime.buildTimeoutPolls;
@@ -203,7 +210,6 @@ function analyzeAndTune() {
   }
 
   // 2. Check for consistently low review scores → note for prompt improvement
-  const scores = allCards.filter(function(c) { return c.review_score > 0; }).map(function(c) { return c.review_score; });
   if (scores.length >= 5) {
     const avg = scores.reduce(function(a, b) { return a + b; }, 0) / scores.length;
     if (avg < 6) {
@@ -330,6 +336,38 @@ function removeLearning(id) {
   learnings.remove(id);
 }
 
+// --- Progressive Trust ---
+
+// Calculates a trust level for a project based on its build/review history.
+// Projects with more successful builds earn lower auto-approve thresholds.
+function getProjectTrust(projectPath) {
+  // SQL aggregation — O(1) via idx_cards_project, avoids loading all cards
+  const stats = cards.getProjectTrustStats(projectPath);
+  const completedCards = stats.completed;
+  const avgScore = Math.round(stats.avg_score * 10) / 10;
+
+  let level = 'new';
+  let autoApproveThreshold = 8;
+
+  if (completedCards >= 10 && avgScore >= 7.5) {
+    level = 'proven';
+    autoApproveThreshold = 7;
+  } else if (completedCards >= 6 && avgScore >= 7) {
+    level = 'trusted';
+    autoApproveThreshold = 7;
+  } else if (completedCards >= 3) {
+    level = 'building';
+    autoApproveThreshold = 8;
+  }
+
+  return {
+    level: level,
+    completedCards: completedCards,
+    avgScore: avgScore,
+    autoApproveThreshold: autoApproveThreshold,
+  };
+}
+
 // --- Init ---
 
 function init() {
@@ -352,6 +390,8 @@ module.exports = {
   analyzeAndTune: analyzeAndTune,
   getInsights: getInsights,
   removeLearning: removeLearning,
+  // Progressive trust
+  getProjectTrust: getProjectTrust,
   // Checkpoint / rollback
   checkpoint: checkpoint,
   getCheckpoints: getCheckpoints,

@@ -196,7 +196,15 @@ async function loadCards() {
 // --- SSE ---
 function connectSSE() {
   var es = new EventSource('/api/events');
-  es.onerror = function() { es.close(); setTimeout(connectSSE, 3000); };
+  es.onerror = function() {
+    es.close();
+    setTimeout(function() {
+      connectSSE();
+      // Full state sync on reconnect — catch up on missed events
+      loadCards();
+      loadQueue();
+    }, 3000);
+  };
 
   function handleCard(e) {
     var card = JSON.parse(e.data);
@@ -345,6 +353,31 @@ function renderPipeline(card) {
   return container;
 }
 
+// --- Trend Sparklines ---
+var trendData = null;
+
+function loadTrends() {
+  fetch('/api/trends').then(function(r) { return r.json(); }).then(function(data) {
+    trendData = data;
+    renderStats();
+  }).catch(function() {});
+}
+
+function makeSparkline(values) {
+  var filtered = [];
+  for (var fi = 0; fi < values.length; fi++) {
+    if (values[fi] !== null) filtered.push(values[fi]);
+  }
+  var max = Math.max.apply(null, filtered.concat([1]));
+  var container = el('span', { className: 'sparkline', title: 'Last 8 weeks' });
+  for (var si = 0; si < values.length; si++) {
+    var val = values[si];
+    var height = val !== null && val > 0 ? Math.max(2, Math.round(val / max * 18)) : 0;
+    container.appendChild(el('span', { className: 'sparkline-bar' + (height === 0 ? ' empty' : ''), style: 'height:' + (height || 2) + 'px' }));
+  }
+  return container;
+}
+
 // --- Stats ---
 function renderStats() {
   var container = document.getElementById('header-stats');
@@ -366,6 +399,14 @@ function renderStats() {
   if (active > 0) container.appendChild(chip('Active', active, 'stat-active'));
   if (queued > 0) container.appendChild(chip('Queued', queued, 'stat-queued'));
   container.appendChild(chip('Done', doneCount, 'stat-done'));
+  if (trendData) {
+    if (trendData.weeklyCompletions) {
+      container.appendChild(makeSparkline(trendData.weeklyCompletions));
+    }
+    if (trendData.successRate !== undefined) {
+      container.appendChild(chip(trendData.successRate + '% pass', '', 'stat-done'));
+    }
+  }
 }
 
 // --- Render ---
@@ -459,9 +500,18 @@ function renderColumn(col, colCards) {
 
 function renderCard(card) {
   var isAuthed = (userRole !== 'public');
-  var cardEl = el('div', { className: 'card' + (card.id === selectedCardId ? ' card-selected' : ''), draggable: isAuthed ? 'true' : 'false', 'data-id': card.id });
+  var cardEl = el('div', {
+    className: 'card' + (card.id === selectedCardId ? ' card-selected' : ''),
+    draggable: isAuthed ? 'true' : 'false',
+    'data-id': card.id,
+    tabindex: '0',
+    role: 'article',
+    'aria-label': 'Card ' + card.id + ': ' + card.title,
+  });
   if (isAuthed) cardEl.addEventListener('dragstart', function() { dragCardId = card.id; cardEl.classList.add('dragging'); });
   cardEl.addEventListener('dragend', function() { cardEl.classList.remove('dragging'); dragCardId = null; });
+  // Enter key on card opens detail
+  cardEl.addEventListener('keydown', function(e) { if (e.key === 'Enter') showDetail(card); });
 
   cardEl.appendChild(el('div', { className: 'card-accent' }));
 
@@ -515,6 +565,32 @@ function renderCard(card) {
     meta.appendChild(el('span', { className: 'approved-badge ' + abCls, textContent: disp.approval.type === 'human' ? 'Human Approved' : 'AI Approved' }));
   }
 
+  // Trust level badge — server-computed
+  if (disp.trustLevel) {
+    meta.appendChild(el('span', { className: 'trust-badge trust-' + disp.trustLevel, textContent: disp.trustLevel }));
+  }
+
+  if (meta.children.length) cardEl.appendChild(meta);
+
+  // Review breakdown — server-computed category details
+  if (disp.reviewBreakdown) {
+    var breakdownContainer = el('div', { className: 'review-breakdown' });
+    var cats = Object.keys(disp.reviewBreakdown);
+    for (var rbi = 0; rbi < cats.length; rbi++) {
+      var catData = disp.reviewBreakdown[cats[rbi]];
+      var catClass = 'review-cat';
+      if (catData.critical > 0) catClass += ' has-critical';
+      else if (catData.warning > 0) catClass += ' has-warning';
+      breakdownContainer.appendChild(el('span', { className: catClass, textContent: cats[rbi] + ':' + catData.total }));
+    }
+    if (breakdownContainer.children.length) cardEl.appendChild(breakdownContainer);
+  }
+
+  // Failure summary — server-computed
+  if (disp.failureSummary) {
+    cardEl.appendChild(el('div', { className: 'failure-summary', textContent: disp.failureSummary }));
+  }
+
   if (lastVisitTime > 0 && card.created_at) {
     var cardCreated = new Date(card.created_at.replace(' ', 'T') + 'Z').getTime();
     if (cardCreated > lastVisitTime) {
@@ -525,7 +601,6 @@ function renderCard(card) {
   if (card.updated_at) {
     meta.appendChild(el('span', { className: 'card-timestamp', textContent: timeAgo(card.updated_at) }));
   }
-  if (meta.children.length) cardEl.appendChild(meta);
 
   // Duration
   if (card.phase_durations) {
@@ -596,6 +671,7 @@ function renderCard(card) {
     'view-fix-log': ['Log', 'btn-sm btn-ghost btn-log', function() { showLiveLog(id, 'review-fix'); }, 'Watch auto-fix output'],
     'unarchive': ['Unarchive', 'btn-sm btn-ghost', function() { api('/cards/' + id + '/unarchive', { method: 'POST' }).then(function() { loadCards(); toast('Unarchived', 'success'); }).catch(function(e) { toast(e.message, 'error'); }); }, 'Restore from archive'],
     'promote': ['Promote', 'btn-sm btn-primary', function() { doPromote(id); }, 'Approve and decompose into tasks'],
+    'approve-spec': ['Approve Spec', 'btn-sm btn-success', function() { api('/cards/' + id + '/approve-spec', { method: 'POST' }).then(loadCards).catch(function(e) { toast(e.message, 'error'); }); }, 'Approve spec and move to Todo'],
   };
 
   if (isAuthed) {
@@ -942,11 +1018,43 @@ function showDetail(card) {
   detailModal.classList.add('active');
 }
 
-// --- Toast ---
+// --- Toast (with ARIA live region announcement) ---
 function toast(msg, type) {
-  var toastEl = el('div', { className: 'toast toast-' + (type || 'info'), textContent: msg });
+  var toastEl = el('div', {
+    className: 'toast toast-' + (type || 'info'),
+    textContent: msg,
+    role: 'status',
+    'aria-live': 'polite',
+  });
   document.getElementById('toasts').appendChild(toastEl);
-  setTimeout(function() { toastEl.style.opacity = '0'; setTimeout(function() { toastEl.remove(); }, 300); }, 4000);
+  // AAA: longer display time for readability (6s instead of 4s)
+  setTimeout(function() { toastEl.style.opacity = '0'; setTimeout(function() { toastEl.remove(); }, 300); }, 6000);
+}
+
+// --- Modal Focus Trap (WCAG 2.4.3 focus order) ---
+function trapFocus(modalEl) {
+  var focusable = modalEl.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  if (focusable.length === 0) return;
+  var first = focusable[0];
+  var last = focusable[focusable.length - 1];
+  first.focus();
+  function handler(e) {
+    if (e.key !== 'Tab') return;
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
+  modalEl._focusTrapHandler = handler;
+  modalEl.addEventListener('keydown', handler);
+}
+
+function releaseFocusTrap(modalEl) {
+  if (modalEl._focusTrapHandler) {
+    modalEl.removeEventListener('keydown', modalEl._focusTrapHandler);
+    delete modalEl._focusTrapHandler;
+  }
 }
 
 // --- Live Log Viewer ---
@@ -1001,8 +1109,8 @@ async function showFindings(cardId) {
     var review = await api('/cards/' + cardId + '/review');
     var scoreCls = review.score >= 8 ? 'review-score-high' : review.score >= 5 ? 'review-score-mid' : 'review-score-low';
     body.appendChild(el('div', { style: 'display:flex;align-items:center;gap:12px;margin-bottom:14px' }, [
-      el('span', { className: 'review-score ' + scoreCls, style: 'font-size:1.1rem;padding:5px 14px', textContent: review.score + '/10' }),
-      el('span', { textContent: review.summary || 'No summary', style: 'color:var(--text-secondary);font-size:0.85rem' }),
+      el('span', { className: 'review-score ' + scoreCls, style: 'font-size:1.2rem;padding:6px 16px', textContent: review.score + '/10' }),
+      el('span', { textContent: review.summary || 'No summary', style: 'color:var(--text-secondary);font-size:0.95rem;line-height:1.5' }),
     ]));
 
     var findings = review.findings || [];
@@ -1015,11 +1123,11 @@ async function showFindings(cardId) {
         var sevColor = sev === 'critical' ? 'var(--error)' : sev === 'warning' ? 'var(--warning)' : 'var(--text-tertiary)';
         body.appendChild(el('div', { style: 'padding:6px 0;border-bottom:1px solid var(--border)' }, [
           el('div', { style: 'display:flex;gap:6px;align-items:center;margin-bottom:3px' }, [
-            el('span', { textContent: sev.toUpperCase(), style: 'font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:color-mix(in srgb, ' + sevColor + ' 10%, transparent);color:' + sevColor }),
-            el('span', { textContent: f.category || '', style: 'font-size:9px;color:var(--text-tertiary);text-transform:uppercase' }),
+            el('span', { textContent: sev.toUpperCase(), style: 'font-size:12px;font-weight:700;padding:2px 6px;border-radius:3px;background:color-mix(in srgb, ' + sevColor + ' 10%, transparent);color:' + sevColor }),
+            el('span', { textContent: f.category || '', style: 'font-size:12px;color:var(--text-secondary);text-transform:uppercase' }),
           ]),
-          el('div', { textContent: f.message, style: 'font-size:12px;line-height:1.4' }),
-          f.file ? el('div', { textContent: f.file, style: 'font-size:10px;color:var(--primary);font-family:monospace;margin-top:2px' }) : null,
+          el('div', { textContent: f.message, style: 'font-size:14px;line-height:1.5' }),
+          f.file ? el('div', { textContent: f.file, style: 'font-size:12px;color:var(--primary);font-family:monospace;margin-top:3px' }) : null,
         ]));
       }
     }
@@ -1051,7 +1159,7 @@ async function showFindings(cardId) {
 function makeEditableFile(cardId, filePath, currentContent) {
   var editArea = el('textarea', {
     className: 'diff-editor',
-    style: 'width:100%;min-height:200px;max-height:60vh;font-family:monospace;font-size:11px;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);resize:vertical;tab-size:2;white-space:pre;overflow-wrap:normal;overflow-x:auto',
+    style: 'width:100%;min-height:200px;max-height:60vh;font-family:monospace;font-size:13px;line-height:1.6;padding:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);resize:vertical;tab-size:2;white-space:pre;overflow-wrap:normal;overflow-x:auto',
   });
   editArea.value = currentContent;
   var saveBtn = btn('Save', 'btn-sm btn-primary', async function() {
@@ -1283,14 +1391,14 @@ async function showArchive() {
   try {
     var archived = await api('/archive');
     if (archived.length === 0) {
-      body.appendChild(el('p', { textContent: 'No archived cards.', style: 'color:var(--text-tertiary);font-size:12px;padding:12px 0' }));
+      body.appendChild(el('p', { textContent: 'No archived cards.', style: 'color:var(--text-secondary);font-size:14px;padding:12px 0' }));
       return;
     }
     archived.forEach(function(card) {
       body.appendChild(el('div', { style: 'display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)' }, [
         el('div', { style: 'flex:1;min-width:0' }, [
-          el('div', { style: 'font-weight:600;font-size:12px;margin-bottom:2px', textContent: card.title }),
-          el('div', { style: 'font-size:10px;color:var(--text-tertiary)', textContent: (card.project_path || 'No project') + '  ·  ' + timeAgo(card.updated_at) }),
+          el('div', { style: 'font-weight:600;font-size:14px;margin-bottom:3px', textContent: card.title }),
+          el('div', { style: 'font-size:12px;color:var(--text-secondary);line-height:1.5', textContent: (card.project_path || 'No project') + '  ·  ' + timeAgo(card.updated_at) }),
         ]),
         card.review_score > 0 ? el('span', {
           className: 'review-score ' + (card.review_score >= 8 ? 'review-score-high' : card.review_score >= 5 ? 'review-score-mid' : 'review-score-low'),
@@ -1373,7 +1481,7 @@ async function showMetrics() {
           el('div', { style: 'flex:1' }, [
             el('div', { className: 'metrics-project-bar', style: 'width:' + Math.max(8, (p[1] / maxProj) * 100) + '%' }),
           ]),
-          el('span', { textContent: p[1], style: 'color:var(--text-tertiary);font-size:11px;min-width:24px;text-align:right' }),
+          el('span', { textContent: p[1], style: 'color:var(--text-secondary);font-size:12px;min-width:24px;text-align:right' }),
         ]));
       });
       projSec.appendChild(projList);
@@ -1455,6 +1563,7 @@ function showShortcuts() {
   panel.appendChild(el('h2', { textContent: 'Keyboard Shortcuts' }));
 
   var shortcuts = [
+    ['Command palette', 'Ctrl+K'],
     ['New card', 'N'],
     ['Search', '/'],
     ['Toggle dark mode', 'D'],
@@ -1476,11 +1585,22 @@ function showShortcuts() {
 }
 
 document.addEventListener('keydown', function(e) {
+  // Command palette — Ctrl+K / Cmd+K works even in inputs
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    openCmdPalette();
+    return;
+  }
+
   // Don't handle shortcuts when typing in inputs
   var tag = document.activeElement.tagName;
   var isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 
   if (e.key === 'Escape') {
+    if (cmdPalette && cmdPalette.classList.contains('active')) {
+      closeCmdPalette();
+      return;
+    }
     if (shortcutsVisible) {
       var overlay = document.querySelector('.shortcuts-overlay');
       if (overlay) { overlay.remove(); shortcutsVisible = false; }
@@ -1611,10 +1731,53 @@ var ideaHint = document.getElementById('idea-hint');
 var ideaModalTitle = document.getElementById('idea-modal-title');
 var ideaSelectedFolder = null;
 var ideaFeedbackCardId = null;
+var selectedTemplate = null;
+
+var TEMPLATE_ICONS = { bug: '\uD83D\uDC1B', feature: '\u2728', refactor: '\uD83D\uDD27', security: '\uD83D\uDD12', performance: '\u26A1', test: '\uD83E\uDDEA' };
+
+var cachedTemplates = null;
+function renderTemplateGrid(container) {
+  function renderFromCache(templates) {
+    container.textContent = '';
+    if (!templates || templates.length === 0) return;
+    var grid = el('div', { className: 'template-grid' });
+    for (var ti = 0; ti < templates.length; ti++) {
+      var tmpl = templates[ti];
+      var tCard = el('div', { className: 'template-card', 'data-tmpl-index': String(ti) }, [
+        el('div', { className: 'template-icon', textContent: TEMPLATE_ICONS[tmpl.id] || '\uD83D\uDCCB' }),
+        el('div', { className: 'template-name', textContent: tmpl.name }),
+        el('div', { className: 'template-desc', textContent: tmpl.description || '' }),
+      ]);
+      grid.appendChild(tCard);
+    }
+    // Event delegation — single listener on grid, no leaks
+    grid.addEventListener('click', function(e) {
+      var card = e.target.closest('.template-card');
+      if (!card || !card.hasAttribute('data-tmpl-index')) return;
+      var idx = Number(card.getAttribute('data-tmpl-index'));
+      var tmpl = templates[idx];
+      if (!tmpl) return;
+      selectedTemplate = tmpl;
+      if (ideaInput) ideaInput.value = (tmpl.title || tmpl.name) + '\n\n' + (tmpl.body || '');
+      var allTmpl = grid.querySelectorAll('.template-card');
+      for (var j = 0; j < allTmpl.length; j++) allTmpl[j].classList.remove('selected');
+      card.classList.add('selected');
+    });
+    container.appendChild(grid);
+  }
+  if (cachedTemplates) { renderFromCache(cachedTemplates); return; }
+  fetch('/api/templates').then(function(r) { return r.json(); }).then(function(templates) {
+    cachedTemplates = templates;
+    renderFromCache(templates);
+  }).catch(function() { container.textContent = ''; });
+}
 
 function openIdeaModal() {
   clearIdeaFeedbackMode();
+  selectedTemplate = null;
   ideaInput.value = '';
+  var templateContainer = document.getElementById('idea-templates');
+  if (templateContainer) renderTemplateGrid(templateContainer);
   ideaModal.classList.add('active');
   ideaInput.focus();
 }
@@ -1691,6 +1854,8 @@ function setIdeaFeedbackMode(cardId, cardTitle) {
   ideaTargetTag.style.display = '';
   ideaFolderBtn.style.display = 'none';
   ideaFolderTag.style.display = 'none';
+  var tmplContainer = document.getElementById('idea-templates');
+  if (tmplContainer) tmplContainer.style.display = 'none';
   ideaInput.placeholder = 'What should be changed or improved?';
   ideaInput.value = '';
   ideaSend.textContent = 'Send Feedback';
@@ -1702,6 +1867,8 @@ function clearIdeaFeedbackMode() {
   ideaFeedbackCardId = null;
   if (ideaTargetTag) ideaTargetTag.style.display = 'none';
   if (ideaFolderBtn) ideaFolderBtn.style.display = '';
+  var tmplContainer = document.getElementById('idea-templates');
+  if (tmplContainer) tmplContainer.style.display = '';
   if (ideaModalTitle) ideaModalTitle.textContent = 'New Idea';
   if (ideaHint) ideaHint.textContent = 'Describe what you want to build. A new project folder will be created automatically.';
   if (ideaInput) ideaInput.placeholder = 'I want to build a...';
@@ -1808,6 +1975,7 @@ async function init() {
   initPipelineControls();
   render();
   connectSSE();
+  loadTrends();
 
   if (lastVisitTime > 0) {
     var newCount = state.cards.filter(function(c) {
@@ -1824,4 +1992,164 @@ async function init() {
     setTimeout(function() { if (hint) hint.style.display = 'none'; }, 500);
   }, 10000);
 }
+
+// --- Command Palette ---
+var cmdPalette = document.getElementById('cmd-palette');
+var cmdInput = document.getElementById('cmd-input');
+var cmdResults = document.getElementById('cmd-results');
+var cmdSelectedIndex = 0;
+var cmdItems = [];
+
+var CMD_ACTIONS = [
+  { label: 'New Idea', icon: '+', action: function() { document.getElementById('add-btn').click(); }, hint: 'N' },
+  { label: 'Pause Pipeline', icon: '\u23F8', action: function() { api('/pipeline/pause', { method: 'POST' }).catch(function(e) { toast(e.message, 'error'); }); }, hint: '' },
+  { label: 'Resume Pipeline', icon: '\u25B6', action: function() { api('/pipeline/resume', { method: 'POST' }).catch(function(e) { toast(e.message, 'error'); }); }, hint: '' },
+  { label: 'Toggle Dark Mode', icon: '\u25D0', action: function() { document.getElementById('theme-toggle').click(); }, hint: 'D' },
+  { label: 'View Archive', icon: '\uD83D\uDCE6', action: function() { document.getElementById('archive-btn').click(); }, hint: 'A' },
+  { label: 'View Metrics', icon: '\uD83D\uDCCA', action: function() { showMetrics(); }, hint: 'M' },
+  { label: 'Control Panel', icon: '\u2699', action: function() { document.getElementById('admin-btn').click(); }, hint: '' },
+];
+
+function openCmdPalette() {
+  if (!cmdPalette) return;
+  cmdPalette.classList.add('active');
+  cmdInput.value = '';
+  cmdSelectedIndex = 0;
+  renderCmdResults('');
+  cmdInput.focus();
+}
+
+function closeCmdPalette() {
+  if (!cmdPalette) return;
+  cmdPalette.classList.remove('active');
+  cmdInput.value = '';
+}
+
+function renderCmdResults(query) {
+  cmdResults.textContent = '';
+  cmdItems = [];
+  var q = query.toLowerCase().trim();
+
+  // Actions
+  for (var ai = 0; ai < CMD_ACTIONS.length; ai++) {
+    var act = CMD_ACTIONS[ai];
+    if (!q || act.label.toLowerCase().indexOf(q) !== -1) {
+      cmdItems.push({ type: 'action', data: act });
+    }
+  }
+
+  // Card search
+  if (q.length >= 2) {
+    for (var ci = 0; ci < state.cards.length; ci++) {
+      var card = state.cards[ci];
+      var text = (card.title + ' ' + (card.labels || '')).toLowerCase();
+      if (text.indexOf(q) !== -1) {
+        cmdItems.push({ type: 'card', data: card });
+      }
+      if (cmdItems.length > 15) break;
+    }
+  }
+
+  if (cmdItems.length === 0) {
+    cmdResults.appendChild(el('div', { className: 'cmd-result', textContent: 'No results' }));
+    return;
+  }
+
+  cmdSelectedIndex = Math.min(cmdSelectedIndex, cmdItems.length - 1);
+
+  for (var i = 0; i < cmdItems.length; i++) {
+    var item = cmdItems[i];
+    var row;
+    if (item.type === 'action') {
+      row = el('div', { className: 'cmd-result' + (i === cmdSelectedIndex ? ' selected' : ''), 'data-index': String(i) }, [
+        el('span', { className: 'cmd-icon', textContent: item.data.icon }),
+        el('span', { className: 'cmd-label', textContent: item.data.label }),
+        item.data.hint ? el('span', { className: 'cmd-hint', textContent: item.data.hint }) : null,
+      ]);
+    } else {
+      var colLabel = item.data.column_name === 'brainstorm' ? 'Brainstorm' : item.data.column_name === 'todo' ? 'Todo' : item.data.column_name === 'working' ? 'Working' : item.data.column_name === 'review' ? 'Review' : 'Done';
+      row = el('div', { className: 'cmd-result' + (i === cmdSelectedIndex ? ' selected' : ''), 'data-index': String(i) }, [
+        el('span', { className: 'cmd-icon', textContent: '#' }),
+        el('span', { className: 'cmd-label', textContent: '#' + item.data.id + ' ' + item.data.title }),
+        el('span', { className: 'cmd-hint', textContent: colLabel }),
+      ]);
+    }
+    cmdResults.appendChild(row);
+  }
+}
+
+function executeCmdItem(index) {
+  if (index < 0 || index >= cmdItems.length) return;
+  var item = cmdItems[index];
+  closeCmdPalette();
+  if (item.type === 'action') {
+    item.data.action();
+  } else if (item.type === 'card') {
+    selectedCardId = item.data.id;
+    showDetail(item.data);
+  }
+}
+
+// Event delegation for command palette — single listener, no leaks
+if (cmdResults) {
+  cmdResults.addEventListener('click', function(e) {
+    var row = e.target.closest('.cmd-result');
+    if (!row || !row.hasAttribute('data-index')) return;
+    executeCmdItem(Number(row.getAttribute('data-index')));
+  });
+}
+
+if (cmdInput) {
+  cmdInput.addEventListener('input', function() {
+    cmdSelectedIndex = 0;
+    renderCmdResults(cmdInput.value);
+  });
+  cmdInput.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      cmdSelectedIndex = Math.min(cmdSelectedIndex + 1, cmdItems.length - 1);
+      renderCmdResults(cmdInput.value);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      cmdSelectedIndex = Math.max(cmdSelectedIndex - 1, 0);
+      renderCmdResults(cmdInput.value);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      executeCmdItem(cmdSelectedIndex);
+    } else if (e.key === 'Escape') {
+      closeCmdPalette();
+    }
+  });
+}
+if (cmdPalette) {
+  cmdPalette.addEventListener('click', function(e) {
+    if (e.target === cmdPalette) closeCmdPalette();
+  });
+}
+
+// --- Automatic Focus Trap for Modals (WCAG 2.4.3) ---
+// Observe all modal overlays; trap focus when opened, release when closed.
+(function() {
+  var modals = document.querySelectorAll('.modal-overlay, .cmd-overlay');
+  var previousFocus = null;
+  var observer = new MutationObserver(function(mutations) {
+    for (var i = 0; i < mutations.length; i++) {
+      var target = mutations[i].target;
+      if (target.classList.contains('active')) {
+        previousFocus = document.activeElement;
+        setTimeout(function() { trapFocus(target); }, 50);
+      } else {
+        releaseFocusTrap(target);
+        if (previousFocus && previousFocus.focus) {
+          try { previousFocus.focus(); } catch (_) {}
+          previousFocus = null;
+        }
+      }
+    }
+  });
+  modals.forEach(function(modal) {
+    observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+  });
+})();
+
 checkSession();

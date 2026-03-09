@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { cards, audit, auditLog, backups, db, errors: dbErrors } = require('../db');
 const { broadcast, adminClients } = require('../lib/broadcast');
-const { DATA_DIR, LOG_RETENTION_DAYS, SNAPSHOT_ARCHIVE_RETENTION_DAYS, MAX_AUDIT_ROWS, RUNTIME_STALE_HOURS, ROOT_DIR, IS_WIN, PORT } = require('../config');
+const { DATA_DIR, ROOT_DIR, IS_WIN, PORT, runtime } = require('../config');
 const { requireAdmin } = require('../sso');
 const { log } = require('../lib/logger');
 const pipeline = require('../services/pipeline');
@@ -95,6 +95,13 @@ router.put('/api/config', requireAdmin, function(req, res) {
 router.get('/api/custom-prompts', requireAdmin, function(_req, res) { res.json(usageSvc.getCustomPrompts()); });
 
 router.put('/api/custom-prompts', requireAdmin, function(req, res) {
+  const MAX_PROMPT_LEN = 100000; // 100KB per field
+  const fields = ['brainstormInstructions', 'buildInstructions', 'reviewCriteria', 'qualityGates'];
+  for (let i = 0; i < fields.length; i++) {
+    if (req.body[fields[i]] && String(req.body[fields[i]]).length > MAX_PROMPT_LEN) {
+      return res.status(400).json({ error: fields[i] + ' exceeds maximum length (' + MAX_PROMPT_LEN + ' chars)' });
+    }
+  }
   const oldPrompts = usageSvc.getCustomPrompts();
   const data = usageSvc.setCustomPrompts(req.body);
   auditLog('prompts-change', 'config', null, req.user.id, oldPrompts, data, 'custom prompts updated');
@@ -133,10 +140,13 @@ router.post('/api/bulk-create', requireAdmin, function(req, res) {
     const itemTitle = String(batch[i].title).slice(0, 500);
     const itemDesc = batch[i].description ? String(batch[i].description).slice(0, 10000) : '';
     const result = cards.create(itemTitle, itemDesc, batch[i].column || 'brainstorm');
-    const card = cards.get(Number(result.lastInsertRowid));
-    if (batch[i].labels) cards.setLabels(card.id, batch[i].labels);
-    broadcast('card-created', cards.get(card.id));
-    created.push(cards.get(card.id));
+    let card = cards.get(Number(result.lastInsertRowid));
+    if (batch[i].labels) {
+      cards.setLabels(card.id, batch[i].labels);
+      card = cards.get(card.id);
+    }
+    broadcast('card-created', card);
+    created.push(card);
   }
   res.json({ created: created.length, cards: created });
 });
@@ -415,54 +425,53 @@ router.post('/api/factory-reset', requireAdmin, function(req, res) {
 });
 
 // --- Housekeeping ---
-function dirSize(dir) {
-  let total = 0;
+// Single-pass recursive scan: returns { size, files } in one traversal (was 2x before)
+function dirStats(dir) {
+  let size = 0, files = 0;
   try {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (let i = 0; i < entries.length; i++) {
-      const fp = path.join(dir, entries[i].name);
-      if (entries[i].isDirectory()) total += dirSize(fp);
-      else try { total += fs.statSync(fp).size; } catch (_) {}
+      if (entries[i].isDirectory()) {
+        const sub = dirStats(path.join(dir, entries[i].name));
+        size += sub.size;
+        files += sub.files;
+      } else {
+        try { size += fs.statSync(path.join(dir, entries[i].name)).size; } catch (_) {}
+        files++;
+      }
     }
   } catch (_) {}
-  return total;
-}
-
-function countFiles(dir) {
-  try {
-    let count = 0;
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (let i = 0; i < entries.length; i++) {
-      if (entries[i].isDirectory()) count += countFiles(path.join(dir, entries[i].name));
-      else count++;
-    }
-    return count;
-  } catch (_) { return 0; }
+  return { size, files };
 }
 
 function getHousekeepingStats() {
-  const logsDir = path.join(DATA_DIR, 'logs');
-  const snapshotsDir = path.join(DATA_DIR, 'snapshots');
-  const archiveDir = path.join(DATA_DIR, 'archive');
-  const runtimeDir = path.join(DATA_DIR, 'runtime');
-  const backupsDir = path.join(DATA_DIR, 'backups');
-  return {
-    logs: { path: logsDir, size: dirSize(logsDir), files: countFiles(logsDir) },
-    snapshots: { path: snapshotsDir, size: dirSize(snapshotsDir), files: countFiles(snapshotsDir) },
-    archive: { path: archiveDir, size: dirSize(archiveDir), files: countFiles(archiveDir) },
-    runtime: { path: runtimeDir, size: dirSize(runtimeDir), files: countFiles(runtimeDir) },
-    backups: { path: backupsDir, size: dirSize(backupsDir), files: countFiles(backupsDir) },
-    total: dirSize(DATA_DIR),
+  const dirs = {
+    logs: path.join(DATA_DIR, 'logs'),
+    snapshots: path.join(DATA_DIR, 'snapshots'),
+    archive: path.join(DATA_DIR, 'archive'),
+    runtime: path.join(DATA_DIR, 'runtime'),
+    backups: path.join(DATA_DIR, 'backups'),
   };
+  const result = {};
+  let totalSize = 0;
+  const keys = Object.keys(dirs);
+  for (let i = 0; i < keys.length; i++) {
+    const stats = dirStats(dirs[keys[i]]);
+    result[keys[i]] = { path: dirs[keys[i]], size: stats.size, files: stats.files };
+    totalSize += stats.size;
+  }
+  result.total = totalSize;
+  return result;
 }
 
 function isPipelineIdle() {
   try {
-    const all = cards.getAll();
-    return !all.some(function(c) {
-      return c.column_name === 'working' ||
-        ['building', 'brainstorming', 'reviewing', 'fixing'].includes(c.status);
-    });
+    // O(1) via index instead of loading all cards
+    return cards.countByColumn('working') === 0 &&
+      cards.countByStatus('building') === 0 &&
+      cards.countByStatus('brainstorming') === 0 &&
+      cards.countByStatus('reviewing') === 0 &&
+      cards.countByStatus('fixing') === 0;
   } catch (_) { return true; }
 }
 
@@ -472,7 +481,7 @@ function runHousekeeping(force) {
   const cleaned = { logs: 0, markers: 0, runtime: 0, snapshotArchive: 0, audit: 0 };
 
   const logsDir = path.join(DATA_DIR, 'logs');
-  const logCutoff = now - LOG_RETENTION_DAYS * 86400000;
+  const logCutoff = now - runtime.logRetentionDays * 86400000;
   try {
     const logFiles = fs.readdirSync(logsDir);
     for (let i = 0; i < logFiles.length; i++) {
@@ -495,7 +504,7 @@ function runHousekeeping(force) {
   } catch (_) {}
 
   const runtimeDir = path.join(DATA_DIR, 'runtime');
-  const rtCutoff = now - RUNTIME_STALE_HOURS * 3600000;
+  const rtCutoff = now - runtime.runtimeStaleHours * 3600000;
   try {
     const rtFiles = fs.readdirSync(runtimeDir);
     for (let k = 0; k < rtFiles.length; k++) {
@@ -507,7 +516,7 @@ function runHousekeeping(force) {
   } catch (_) {}
 
   const archiveDir = path.join(DATA_DIR, 'archive', 'snapshots');
-  const archCutoff = now - SNAPSHOT_ARCHIVE_RETENTION_DAYS * 86400000;
+  const archCutoff = now - runtime.snapshotArchiveRetentionDays * 86400000;
   try {
     const archDirs = fs.readdirSync(archiveDir);
     for (let m = 0; m < archDirs.length; m++) {
@@ -522,9 +531,9 @@ function runHousekeeping(force) {
   } catch (_) {}
 
   try {
-    const total = audit.all().length;
-    if (total > MAX_AUDIT_ROWS) {
-      const excess = total - MAX_AUDIT_ROWS;
+    const total = audit.count();
+    if (total > runtime.maxAuditRows) {
+      const excess = total - runtime.maxAuditRows;
       db.prepare('DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log ORDER BY timestamp ASC LIMIT ?)').run(excess);
       cleaned.audit = excess;
     }

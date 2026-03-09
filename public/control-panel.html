@@ -4,285 +4,481 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Control Panel — Claude Kanban</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
   --bg: #F5F0EB; --surface: #FFFFFF; --surface-hover: #FBF8F3; --elevated: #FFFFFF;
-  --border: #E5DDD3; --border-hover: #D5CCC2;
-  --text: #1B1B18; --text-secondary: #65635E; --text-tertiary: #9C9A94;
-  --primary: #D97706; --primary-soft: rgba(217,119,6,0.08); --primary-hover: #B45309; --primary-text: #92400E;
-  --success: #16A34A; --success-soft: rgba(22,163,74,0.08);
-  --warning: #D97706; --warning-soft: rgba(217,119,6,0.08);
-  --error: #DC2626; --error-soft: rgba(220,38,38,0.08);
-  --radius: 8px; --radius-sm: 4px;
-  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
-  --shadow-lg: 0 4px 12px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.06);
-  --mono: 'SF Mono','Cascadia Code','Consolas',monospace;
+  --border: #C5BAB0; --border-hover: #B5AAA0;
+  --text: #1B1B18; --text-secondary: #3D3A37; --text-tertiary: #524F4C;
+  --primary: #D97706; --primary-soft: rgba(217,119,6,0.10); --primary-hover: #9A5B04; --primary-text: #7B4106;
+  --success: #15803D; --success-soft: rgba(21,128,61,0.10); --success-text: #14532D;
+  --warning: #B45309; --warning-soft: rgba(180,83,9,0.10); --warning-text: #7C2D12;
+  --error: #DC2626; --error-soft: rgba(220,38,38,0.08); --error-text: #991B1B;
+  --info: #2563EB; --info-soft: rgba(37,99,235,0.10); --info-text: #1E40AF;
+  --purple: #7C3AED; --purple-soft: rgba(124,58,237,0.10); --purple-text: #5B21B6;
+  --sidebar-w: 248px; --header-h: 56px;
+  --radius: 8px; --radius-sm: 6px;
+  --shadow: 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-lg: 0 4px 12px rgba(0,0,0,0.08);
+  --mono: 'Cascadia Code','SF Mono','Consolas','Monaco',monospace;
+  --focus-ring: 0 0 0 3px var(--primary-soft), 0 0 0 1.5px var(--primary);
 }
 
 body.dark {
   --bg: #1A1A1D; --surface: #232326; --surface-hover: #2C2C30; --elevated: #2A2A2E;
-  --border: #3A3A3F; --border-hover: #4A4A50;
-  --text: #ECECEC; --text-secondary: #A8A8A8; --text-tertiary: #6E6E6E;
-  --primary: #F59E0B; --primary-soft: rgba(245,158,11,0.12); --primary-hover: #D97706; --primary-text: #FCD34D;
-  --success: #22C55E; --success-soft: rgba(34,197,94,0.12);
-  --warning: #F59E0B; --warning-soft: rgba(245,158,11,0.12);
-  --error: #EF4444; --error-soft: rgba(239,68,68,0.12);
-  --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
-  --shadow-lg: 0 4px 12px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3);
+  --border: #48484E; --border-hover: #58585F;
+  --text: #F0F0F0; --text-secondary: #C8C8C8; --text-tertiary: #B0B0B0;
+  --primary: #F59E0B; --primary-soft: rgba(245,158,11,0.14); --primary-hover: #D97706; --primary-text: #FBBF24;
+  --success: #22C55E; --success-soft: rgba(34,197,94,0.14); --success-text: #4ADE80;
+  --warning: #F59E0B; --warning-soft: rgba(245,158,11,0.14); --warning-text: #FBBF24;
+  --error: #EF4444; --error-soft: rgba(239,68,68,0.14); --error-text: #FCA5A5;
+  --info: #60A5FA; --info-soft: rgba(96,165,250,0.14); --info-text: #93C5FD;
+  --purple: #A78BFA; --purple-soft: rgba(167,139,250,0.14); --purple-text: #C4B5FD;
+  --shadow: 0 1px 3px rgba(0,0,0,0.3); --shadow-lg: 0 4px 12px rgba(0,0,0,0.3);
 }
 
-html { height: 100%; }
+html, body { height: 100%; }
 body {
-  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 15px; line-height: 1.6;
   background: var(--bg); color: var(--text);
-  -webkit-font-smoothing: antialiased; min-height: 100%;
-  transition: background-color 0.2s, color 0.2s;
+  -webkit-font-smoothing: antialiased; overflow: hidden;
 }
 
-.cp-header {
-  display: flex; align-items: center; padding: 0 20px; height: 56px;
+/* === Skip link === */
+.skip-link {
+  position: absolute; top: -100px; left: 8px; z-index: 10000;
+  padding: 10px 18px; font-size: 14px; font-weight: 600;
+  background: var(--primary); color: #fff; border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  text-decoration: none; transition: top 0.15s;
+}
+.skip-link:focus { top: 0; outline: none; }
+
+/* === Global focus === */
+*:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: 2px;
+  box-shadow: var(--focus-ring);
+}
+
+/* === Layout === */
+.layout { display: flex; height: 100vh; }
+
+/* === Sidebar === */
+.sidebar {
+  width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; z-index: 10;
+}
+.sb-brand { padding: 18px 16px 14px; border-bottom: 1px solid var(--border); }
+.sb-logo { display: flex; align-items: center; gap: 10px; }
+.sb-diamond { font-size: 24px; color: var(--primary-text); line-height: 1; }
+.sb-title { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+.sb-sub { font-size: 13px; color: var(--text-tertiary); margin-top: 4px; padding-left: 34px; line-height: 1.4; }
+.sb-nav { padding: 10px 8px; flex: 1; }
+.sb-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-tertiary); padding: 12px 12px 6px; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 44px; border-radius: var(--radius-sm);
+  cursor: pointer; font-size: 14px; font-weight: 500; color: var(--text-secondary);
+  border: none; background: none; width: 100%; text-align: left; font-family: inherit;
+  transition: background 0.15s;
+}
+.nav-item:hover { background: var(--surface-hover); color: var(--text); }
+.nav-item:focus-visible { outline-offset: -2px; }
+.nav-item.active { background: var(--primary-soft); color: var(--primary-text); font-weight: 600; }
+.nav-icon { width: 20px; text-align: center; font-size: 16px; flex-shrink: 0; }
+.nav-item.active .nav-icon { opacity: 1; }
+.nav-badge {
+  margin-left: auto; font-size: 13px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+  background: var(--primary-soft); color: var(--primary-text);
+}
+.sb-footer {
+  padding: 12px 12px; border-top: 1px solid var(--border); display: flex; gap: 6px;
+}
+.sb-foot-btn {
+  flex: 1; padding: 10px 8px; font-size: 13px; font-weight: 500; font-family: inherit;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+  color: var(--text-secondary); cursor: pointer; text-align: center; text-decoration: none; display: block;
+  min-height: 44px; display: flex; align-items: center; justify-content: center;
+}
+.sb-foot-btn:hover { background: var(--surface-hover); color: var(--text); }
+
+/* === Main === */
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.main-header {
   background: var(--surface); border-bottom: 1px solid var(--border);
-  box-shadow: var(--shadow); gap: 12px; position: sticky; top: 0; z-index: 100;
+  padding: 0 24px; height: var(--header-h); display: flex; align-items: center; gap: 14px; flex-shrink: 0;
 }
-.cp-logo { font-size: 22px; color: var(--primary); }
-.cp-title { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
-.cp-subtitle { font-size: 10px; color: var(--text-tertiary); display: block; }
-.cp-header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.cp-link {
-  font-size: 12px; color: var(--primary); text-decoration: none; font-weight: 500;
-  padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); transition: all 0.15s;
+.main-title { font-size: 17px; font-weight: 700; flex: 1; }
+.pills { display: flex; gap: 8px; align-items: center; }
+.pill {
+  display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 20px;
+  font-size: 13px; font-weight: 600; border: 1px solid var(--border); white-space: nowrap;
 }
-.cp-link:hover { background: var(--primary-soft); border-color: var(--primary); }
-.cp-btn {
-  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 12px;
-  font-size: 12px; font-weight: 500; font-family: inherit; cursor: pointer;
-  background: var(--surface); color: var(--text); transition: all 0.15s;
+.pill-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.pill-dot.green { background: var(--success); }
+.pill-dot.red { background: var(--error); }
+.pill-dot.amber { background: var(--warning); }
+.menu-btn {
+  display: none; width: 44px; height: 44px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); cursor: pointer; font-size: 18px; color: var(--text-secondary);
 }
-.cp-btn:hover { background: var(--surface-hover); border-color: var(--border-hover); }
-.cp-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.cp-btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
-.cp-btn-primary:hover { background: var(--primary-hover); }
-.cp-btn-danger { background: var(--error); color: #fff; border-color: var(--error); }
-.cp-btn-danger:hover { background: #B91C1C; }
-.cp-btn-icon { padding: 6px; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
+.theme-btn {
+  width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text-secondary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.theme-btn:hover { background: var(--surface-hover); color: var(--text); }
 
-.cp-body { max-width: 960px; margin: 0 auto; padding: 20px 20px 60px; }
+/* === Content === */
+.main-scroll { flex: 1; overflow-y: auto; }
+.content { padding: 28px; max-width: 920px; }
+.page { display: none; }
+.page.active { display: block; }
+.page-heading { font-size: 22px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.3px; }
+.page-desc { font-size: 14px; color: var(--text-tertiary); margin-bottom: 22px; line-height: 1.5; }
 
-.cp-section {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  margin-bottom: 16px; box-shadow: var(--shadow); transition: background-color 0.2s, border-color 0.2s;
+/* === Cards === */
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px;
 }
-.cp-section-header {
-  display: flex; align-items: center; padding: 14px 18px; cursor: pointer;
-  gap: 10px; user-select: none; border-bottom: 1px solid transparent; transition: border-color 0.15s;
+.card-head {
+  display: flex; align-items: center; padding: 14px 18px; gap: 10px;
+  border-bottom: 1px solid var(--border);
 }
-.cp-section-header:hover { background: var(--surface-hover); }
-.cp-section.open .cp-section-header { border-bottom-color: var(--border); }
-.cp-section-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.cp-section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-secondary); flex: 1; }
-.cp-section-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
-.cp-section-arrow { font-size: 10px; color: var(--text-tertiary); transition: transform 0.15s; }
-.cp-section.open .cp-section-arrow { transform: rotate(90deg); }
-.cp-section-body { display: none; padding: 16px 18px; }
-.cp-section.open .cp-section-body { display: block; }
+.card-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.card-title { font-size: 15px; font-weight: 600; flex: 1; }
+.card-hint { font-size: 13px; color: var(--text-tertiary); }
+.card-body { padding: 18px; }
+.card-foot { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
 
-.usage-bar-wrap { margin-bottom: 14px; }
-.usage-bar-label { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; }
-.usage-bar-name { font-weight: 600; }
-.usage-bar-pct { font-weight: 700; font-variant-numeric: tabular-nums; }
-.usage-bar-track { height: 10px; background: var(--bg); border-radius: 5px; overflow: hidden; border: 1px solid var(--border); }
-.usage-bar-fill { height: 100%; border-radius: 5px; transition: width 0.5s ease, background-color 0.3s; }
-.usage-bar-meta { font-size: 10px; color: var(--text-tertiary); margin-top: 3px; }
-.usage-ok { background: var(--primary); }
-.usage-warn { background: var(--warning); }
-.usage-danger { background: var(--error); }
-
-.cfg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-@media (max-width: 640px) { .cfg-grid { grid-template-columns: 1fr; } }
+/* === Config fields === */
+.cfg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .cfg-item { display: flex; flex-direction: column; gap: 4px; }
-.cfg-label { font-size: 11px; font-weight: 500; color: var(--text-secondary); }
-.cfg-help { font-size: 10px; color: var(--text-tertiary); }
+.cfg-item.full { grid-column: 1 / -1; }
+.cfg-label { font-size: 14px; font-weight: 600; color: var(--text); }
+.cfg-help { font-size: 13px; color: var(--text-tertiary); line-height: 1.5; }
 .cfg-input {
-  width: 100%; padding: 7px 10px; font-size: 13px; font-family: inherit;
-  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  color: var(--text); transition: border-color 0.15s;
+  width: 100%; padding: 10px 12px; font-size: 14px; font-family: inherit;
+  background: var(--bg); border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text); transition: border-color 0.15s; min-height: 44px;
 }
-.cfg-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.cfg-input:focus { outline: none; border-color: var(--primary); box-shadow: var(--focus-ring); }
 select.cfg-input { cursor: pointer; }
-
-.pipeline-status {
-  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
-  background: var(--bg); border-radius: var(--radius-sm); margin-bottom: 14px;
+.cfg-toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 6px 0; min-height: 44px; }
+.cfg-switch {
+  width: 44px; height: 24px; appearance: none; -webkit-appearance: none;
+  background: var(--border); border-radius: 12px; position: relative; cursor: pointer;
+  transition: background 0.15s; flex-shrink: 0; border: none;
 }
-.pipeline-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.pipeline-dot.running { background: var(--success); animation: pulse 2s ease-in-out infinite; }
-.pipeline-dot.paused { background: var(--error); animation: blink 1s ease-in-out infinite; }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+.cfg-switch:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: var(--focus-ring); }
+.cfg-switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+  background: white; border-radius: 50%; transition: transform 0.15s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+.cfg-switch:checked { background: var(--primary); }
+.cfg-switch:checked::after { transform: translateX(20px); }
+.cfg-switch-label { font-size: 14px; font-weight: 500; }
+
+/* === Buttons === */
+.btn {
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 10px 16px;
+  font-size: 14px; font-weight: 500; font-family: inherit; cursor: pointer;
+  background: var(--surface); color: var(--text); transition: all 0.15s;
+  min-height: 44px; display: inline-flex; align-items: center; justify-content: center;
+}
+.btn:hover { background: var(--surface-hover); border-color: var(--border-hover); }
+.btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: var(--focus-ring); }
+.btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-primary:focus-visible { outline-color: var(--primary-text); }
+.btn-danger { background: var(--error); color: #fff; border-color: var(--error); }
+.btn-danger:hover { background: #B91C1C; }
+.btn-danger:focus-visible { outline-color: var(--error-text); }
+.btn-sm { padding: 6px 12px; font-size: 13px; min-height: 36px; }
+
+/* === Stats === */
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 22px; }
+.stat-box {
+  text-align: center; padding: 16px 12px; background: var(--surface);
+  border: 1.5px solid var(--border); border-radius: var(--radius);
+}
+.stat-val { font-size: 28px; font-weight: 700; color: var(--primary-text); font-variant-numeric: tabular-nums; line-height: 1.2; }
+.stat-lbl { font-size: 13px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.3px; margin-top: 4px; }
+
+/* === Usage bars === */
+.ubar { margin-bottom: 16px; }
+.ubar-top { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+.ubar-name { font-weight: 600; }
+.ubar-pct { font-weight: 700; font-variant-numeric: tabular-nums; }
+.ubar-track { height: 12px; background: var(--bg); border-radius: 6px; overflow: hidden; border: 1.5px solid var(--border); }
+.ubar-fill { height: 100%; border-radius: 6px; transition: width 0.4s; }
+.ubar-sub { font-size: 13px; color: var(--text-tertiary); margin-top: 5px; line-height: 1.5; }
+.u-ok { background: var(--primary); }
+.u-warn { background: var(--warning); }
+.u-danger { background: var(--error); }
+
+/* === Pipeline === */
+.pipe-bar {
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px;
+}
+.pipe-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+.pipe-dot.on { background: var(--success); animation: pulse 2s ease-in-out infinite; }
+.pipe-dot.off { background: var(--error); animation: blink 1.5s ease-in-out infinite; }
+.pipe-label { font-size: 16px; font-weight: 600; flex: 1; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-.queue-item {
-  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
-  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  margin-bottom: 6px; font-size: 12px;
+/* === Queue === */
+.q-item {
+  display: flex; align-items: center; gap: 10px; padding: 11px 16px;
+  background: var(--bg); border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  margin-bottom: 8px; font-size: 14px;
 }
-.queue-pos { font-weight: 700; color: var(--primary); min-width: 20px; text-align: center; font-variant-numeric: tabular-nums; }
-.queue-title { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.queue-meta { font-size: 10px; color: var(--text-tertiary); }
-.queue-empty { font-size: 12px; color: var(--text-tertiary); text-align: center; padding: 16px; font-style: italic; }
+.q-num { font-weight: 700; color: var(--primary-text); min-width: 32px; text-align: center; font-variant-numeric: tabular-nums; }
+.q-name { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-meta { font-size: 13px; color: var(--text-tertiary); }
+.q-empty { text-align: center; padding: 24px; font-size: 14px; color: var(--text-tertiary); font-style: italic; }
 
-.prompt-tabs { display: flex; gap: 2px; margin-bottom: 12px; flex-wrap: wrap; }
-.prompt-tab {
-  padding: 6px 14px; font-size: 11px; font-weight: 600; border: 1px solid var(--border);
-  border-radius: var(--radius-sm); cursor: pointer; background: var(--bg); color: var(--text-secondary); transition: all 0.15s;
+/* === Sub labels === */
+.sub-lbl {
+  font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;
+  color: var(--text-secondary); margin: 18px 0 10px;
 }
-.prompt-tab:hover { background: var(--surface-hover); }
-.prompt-tab.active { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); }
-.prompt-editor {
-  width: 100%; min-height: 180px; padding: 12px; font-size: 12px; font-family: var(--mono);
-  line-height: 1.6; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  color: var(--text); resize: vertical; transition: border-color 0.15s;
+.sub-lbl:first-child { margin-top: 0; }
+
+/* === System info === */
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.info-row { display: flex; justify-content: space-between; padding: 10px 12px; background: var(--bg); border-radius: var(--radius-sm); font-size: 14px; gap: 12px; }
+.info-key { color: var(--text-secondary); font-weight: 500; }
+.info-val { font-weight: 600; font-family: var(--mono); font-size: 13px; text-align: right; word-break: break-all; }
+
+/* === Prompt tabs === */
+.ptabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+.ptab {
+  padding: 10px 18px; font-size: 14px; font-weight: 600; border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); cursor: pointer; background: var(--bg); color: var(--text-secondary);
+  font-family: inherit; transition: all 0.15s; min-height: 44px;
 }
-.prompt-editor:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
-
-.process-item {
-  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
-  background: var(--bg); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 12px;
+.ptab:hover { background: var(--surface-hover); }
+.ptab.active { background: var(--primary-soft); color: var(--primary-text); border-color: var(--primary); }
+.peditor {
+  width: 100%; min-height: 220px; padding: 16px; font-size: 14px; font-family: var(--mono);
+  line-height: 1.7; background: var(--bg); border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text); resize: vertical;
 }
-.process-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.process-dot.building { background: var(--warning); animation: pulse 2s ease-in-out infinite; }
-.process-dot.reviewing { background: var(--error); animation: pulse 2s ease-in-out infinite; }
-.process-dot.queued { background: var(--text-tertiary); }
+.peditor:focus { outline: none; border-color: var(--primary); box-shadow: var(--focus-ring); }
 
-.sys-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-@media (max-width: 640px) { .sys-grid { grid-template-columns: 1fr; } }
-.sys-item { display: flex; justify-content: space-between; padding: 6px 10px; background: var(--bg); border-radius: var(--radius-sm); font-size: 12px; }
-.sys-key { color: var(--text-secondary); font-weight: 500; }
-.sys-val { font-weight: 600; font-family: var(--mono); font-size: 11px; text-align: right; word-break: break-all; }
+/* === Process items === */
+.proc-item { display: flex; align-items: center; gap: 10px; padding: 11px 16px; background: var(--bg); border-radius: var(--radius-sm); margin-bottom: 8px; font-size: 14px; }
+.proc-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.proc-dot.building { background: var(--warning); animation: pulse 2s ease-in-out infinite; }
+.proc-dot.reviewing { background: var(--error); animation: pulse 2s ease-in-out infinite; }
+.proc-dot.queued { background: var(--text-tertiary); }
 
-.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 14px; }
-.stat-card { text-align: center; padding: 12px; background: var(--bg); border-radius: var(--radius-sm); border: 1px solid var(--border); }
-.stat-card-value { font-size: 22px; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
-.stat-card-label { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.3px; margin-top: 2px; }
-
-#toasts { position: fixed; bottom: 20px; right: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 6px; }
-.toast {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 10px 14px; font-size: 12px; box-shadow: var(--shadow-lg); max-width: 340px;
-  animation: toastIn 0.2s ease; transition: opacity 0.3s;
+/* === Interactive Timeline === */
+.tl-box {
+  background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius);
+  padding: 18px; margin-bottom: 16px;
 }
-@keyframes toastIn { from { opacity: 0; } }
+.tl-toolbar {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap;
+}
+.tl-zoom-btn {
+  width: 44px; height: 44px; border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--text); cursor: pointer; font-size: 20px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; font-family: inherit;
+  transition: background 0.15s;
+}
+.tl-zoom-btn:hover { background: var(--surface-hover); border-color: var(--border-hover); }
+.tl-zoom-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.tl-range-info {
+  font-size: 14px; color: var(--text-secondary); font-weight: 500;
+  padding: 8px 14px; background: var(--bg); border-radius: var(--radius-sm);
+  border: 1px solid var(--border); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.tl-viewport {
+  position: relative; height: 80px; overflow: hidden;
+  border-radius: var(--radius-sm); background: var(--bg);
+  user-select: none; -webkit-user-select: none; cursor: grab; touch-action: none;
+}
+.tl-viewport.panning { cursor: grabbing; }
+.tl-rail {
+  position: absolute; top: 50%; left: 0; right: 0; height: 3px;
+  background: var(--border); border-radius: 2px; transform: translateY(-50%); pointer-events: none;
+}
+.tl-now-line {
+  position: absolute; top: calc(50% - 16px); width: 3px; height: 32px;
+  background: var(--primary); border-radius: 2px; z-index: 1;
+  transform: translateX(-50%); pointer-events: none;
+}
+.tl-point {
+  position: absolute; top: 50%; width: 18px; height: 18px; border-radius: 50%;
+  transform: translate(-50%, -50%); cursor: pointer; z-index: 2;
+  border: 2.5px solid var(--surface); box-shadow: 0 0 0 1px var(--border);
+  transition: transform 0.12s, box-shadow 0.12s; padding: 0;
+  background: none; font-size: 0; line-height: 0;
+}
+.tl-point:hover, .tl-point:focus-visible {
+  transform: translate(-50%, -50%) scale(1.35);
+  box-shadow: 0 0 0 2.5px var(--primary); z-index: 3; outline: none;
+}
+.tl-point.sel {
+  transform: translate(-50%, -50%) scale(1.5);
+  box-shadow: 0 0 0 3px var(--primary); z-index: 4;
+}
+.tl-point.hot { background: var(--error); }
+.tl-point.hourly { background: var(--warning); }
+.tl-point.daily { background: var(--success); }
+.tl-point.manual { background: var(--purple); }
+.tl-tip {
+  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  background: var(--text); color: var(--bg); font-size: 13px; font-weight: 500;
+  padding: 6px 10px; border-radius: 4px; white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity 0.12s; z-index: 10;
+}
+.tl-point:hover .tl-tip { opacity: 1; }
+.tl-time-row {
+  display: flex; justify-content: space-between; padding: 6px 4px 0;
+}
+.tl-time-mark {
+  font-size: 13px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; font-weight: 500;
+}
+.tl-minimap {
+  position: relative; height: 28px; margin-top: 12px;
+  background: var(--bg); border-radius: 4px; border: 1.5px solid var(--border); overflow: hidden;
+  cursor: pointer;
+}
+.tl-mm-vp {
+  position: absolute; top: 2px; bottom: 2px;
+  background: var(--primary-soft); border: 1.5px solid var(--primary); border-radius: 3px;
+  min-width: 8px; transition: left 0.08s, width 0.08s;
+}
+.tl-mm-dot {
+  position: absolute; top: 50%; width: 4px; height: 4px; border-radius: 50%;
+  transform: translate(-50%, -50%); pointer-events: none;
+}
+.tl-legend { display: flex; gap: 16px; margin: 14px 0 6px; flex-wrap: wrap; }
+.tl-legend-item { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-tertiary); }
+.tl-legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+.tl-detail {
+  margin: 14px 0 0; padding: 16px 18px; background: var(--bg); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); display: flex; align-items: center; gap: 14px;
+  animation: fadeIn 0.15s ease;
+}
+.tl-detail-info { flex: 1; }
+.tl-detail-title { font-size: 15px; font-weight: 600; margin-bottom: 3px; }
+.tl-detail-meta { font-size: 13px; color: var(--text-tertiary); line-height: 1.5; }
+.tl-detail-time { font-size: 20px; font-weight: 700; color: var(--primary-text); font-variant-numeric: tabular-nums; min-width: 100px; text-align: center; }
+.tl-detail-actions { display: flex; gap: 8px; }
+
+/* === Danger zone === */
+.danger-box {
+  padding: 16px 18px; background: var(--error-soft); border: 1px solid var(--error);
+  border-radius: var(--radius-sm); display: flex; align-items: center; gap: 14px;
+}
+.danger-info { flex: 1; }
+.danger-title { font-size: 15px; font-weight: 600; color: var(--error-text); }
+.danger-desc { font-size: 14px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5; }
+
+/* === Auth === */
+.pin-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+.pin-overlay.hidden { display: none; }
+.pin-box { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 36px 40px; box-shadow: var(--shadow-lg); text-align: center; max-width: 380px; width: 100%; }
+.pin-logo { font-size: 40px; color: var(--primary-text); margin-bottom: 10px; }
+.pin-title { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+.pin-submit { width: 100%; margin-top: 14px; padding: 12px; font-size: 15px; font-weight: 600; font-family: inherit; background: var(--primary); color: #fff; border: none; border-radius: var(--radius-sm); cursor: pointer; text-decoration: none; display: block; text-align: center; min-height: 44px; }
+.pin-submit:hover { background: var(--primary-hover); }
+.pin-submit:focus-visible { outline: 2px solid var(--primary-text); outline-offset: 2px; box-shadow: var(--focus-ring); }
+
+/* === Toasts === */
+#toasts { position: fixed; bottom: 20px; right: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 8px; }
+.toast { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 14px 18px; font-size: 14px; box-shadow: var(--shadow-lg); max-width: 380px; animation: fadeIn 0.15s ease; transition: opacity 0.3s; line-height: 1.5; }
+.toast[role="alert"] { }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .toast-error { border-left: 3px solid var(--error); }
 .toast-success { border-left: 3px solid var(--success); }
 .toast-info { border-left: 3px solid var(--primary); }
 
-.sec-label { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
-.sec-label-mt { margin-top: 12px; }
-
-/* Timeline DR */
-.tl-wrap { margin: 16px 0 8px; }
-.tl-track { position: relative; height: 40px; margin: 0 16px; }
-.tl-rail { position: absolute; top: 18px; left: 0; right: 0; height: 4px; background: var(--border); border-radius: 2px; }
-.tl-now { position: absolute; top: 10px; right: -2px; width: 4px; height: 20px; background: var(--primary); border-radius: 2px; z-index: 2; }
-.tl-dot {
-  position: absolute; top: 13px; width: 14px; height: 14px; border-radius: 50%;
-  cursor: pointer; transform: translateX(-7px); z-index: 3;
-  border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border);
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-.tl-dot:hover { transform: translateX(-7px) scale(1.3); box-shadow: 0 0 0 2px var(--primary); }
-.tl-dot.selected { transform: translateX(-7px) scale(1.4); box-shadow: 0 0 0 3px var(--primary); z-index: 4; }
-.tl-dot.hot { background: var(--error); }
-.tl-dot.hourly { background: var(--warning); }
-.tl-dot.daily { background: var(--success); }
-.tl-dot.manual { background: #8B5CF6; }
-.tl-labels { display: flex; justify-content: space-between; padding: 0 12px; margin-top: 2px; }
-.tl-label { font-size: 9px; color: var(--text-tertiary); font-weight: 500; font-variant-numeric: tabular-nums; }
-.tl-legend { display: flex; gap: 14px; margin: 10px 0 4px 16px; flex-wrap: wrap; }
-.tl-legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-tertiary); }
-.tl-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
-.tl-detail {
-  margin: 12px 0 0; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); display: flex; align-items: center; gap: 12px;
-  animation: toastIn 0.15s ease;
-}
-.tl-detail-info { flex: 1; }
-.tl-detail-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
-.tl-detail-meta { font-size: 11px; color: var(--text-tertiary); }
-.tl-detail-time { font-size: 18px; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; min-width: 90px; text-align: center; }
-.tl-tip {
-  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
-  background: var(--text); color: var(--bg); font-size: 10px; font-weight: 500;
-  padding: 3px 8px; border-radius: 3px; white-space: nowrap; pointer-events: none;
-  opacity: 0; transition: opacity 0.15s;
-}
-.tl-dot:hover .tl-tip { opacity: 1; }
-
-::-webkit-scrollbar { width: 5px; }
+/* === Scrollbar === */
+::-webkit-scrollbar { width: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
 
-.pin-overlay {
-  position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center;
-  background: var(--bg); transition: opacity 0.3s;
+/* === Responsive === */
+@media (max-width: 768px) {
+  :root { --sidebar-w: 0px; }
+  .sidebar { position: fixed; inset: 0; width: 260px; transform: translateX(-100%); transition: transform 0.2s; z-index: 100; }
+  .sidebar.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
+  .sb-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 99; }
+  .sidebar.open ~ .sb-overlay { display: block; }
+  .menu-btn { display: flex; align-items: center; justify-content: center; }
+  .cfg-grid { grid-template-columns: 1fr; }
+  .info-grid { grid-template-columns: 1fr; }
+  .content { padding: 20px; }
 }
-.pin-overlay.hidden { display: none; }
-.pin-box {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 32px 36px; box-shadow: var(--shadow-lg); text-align: center; max-width: 360px; width: 100%;
+@media (max-width: 640px) {
+  .stats-grid { grid-template-columns: 1fr 1fr; }
+  .pills { display: none; }
 }
-.pin-logo { font-size: 36px; color: var(--primary); margin-bottom: 8px; }
-.pin-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
-.pin-sub { font-size: 12px; color: var(--text-secondary); margin-bottom: 20px; }
-.pin-input {
-  width: 100%; padding: 10px 14px; font-size: 16px; font-family: var(--mono); text-align: center;
-  letter-spacing: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  color: var(--text); transition: border-color 0.15s;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
-.pin-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
-.pin-err { font-size: 11px; color: var(--error); margin-top: 8px; min-height: 16px; }
-.pin-submit {
-  width: 100%; margin-top: 12px; padding: 10px; font-size: 13px; font-weight: 600; font-family: inherit;
-  background: var(--primary); color: #fff; border: none; border-radius: var(--radius-sm); cursor: pointer; transition: background 0.15s;
-}
-.pin-submit:hover { background: var(--primary-hover); }
-.pin-submit:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 <body>
-  <div class="pin-overlay hidden" id="pin-overlay">
+  <a href="#content" class="skip-link">Skip to main content</a>
+
+  <div class="pin-overlay hidden" id="pin-overlay" role="dialog" aria-modal="true" aria-label="Authentication required">
     <div class="pin-box" id="access-denied-box" style="display:none">
       <div class="pin-logo" aria-hidden="true">&#9670;</div>
-      <div class="pin-title">Access Denied</div>
-      <div style="font-size:13px;color:var(--text-secondary);margin-top:8px;text-align:center">Admin role required to access the control panel.</div>
-      <a href="#" id="denied-back-link" class="pin-submit" style="display:block;text-align:center;text-decoration:none;margin-top:16px">Back to Kanban Board</a>
+      <h1 class="pin-title">Access Denied</h1>
+      <p style="font-size:14px;color:var(--text-secondary);margin-top:10px;line-height:1.5">Admin role required to access the control panel.</p>
+      <a href="#" id="denied-back-link" class="pin-submit" style="margin-top:18px">Back to Kanban Board</a>
     </div>
   </div>
-  <div class="cp-header">
-    <div class="cp-logo" aria-hidden="true">&#9670;</div>
-    <div><div class="cp-title">Control Panel</div><span class="cp-subtitle">Claude Kanban &middot; made by Claude for Claude</span></div>
-    <div class="cp-header-right">
-      <a href="#" class="cp-link" id="back-link" title="Back to Kanban Board">&larr; Kanban Board</a>
-      <button class="cp-btn cp-btn-icon" id="theme-toggle" title="Toggle theme" aria-label="Toggle dark mode">
-        <svg id="ico-light" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-        <svg id="ico-dark" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="display:none"><path d="M13.36 10.06A6 6 0 015.94 2.64 7 7 0 1013.36 10.06z"/></svg>
-      </button>
-    </div>
+
+  <div class="layout" id="layout" style="display:none">
+    <aside class="sidebar" id="sidebar" aria-label="Control panel navigation">
+      <div class="sb-brand">
+        <div class="sb-logo">
+          <span class="sb-diamond" aria-hidden="true">&#9670;</span>
+          <span class="sb-title">Control Panel</span>
+        </div>
+        <div class="sb-sub">Claude Kanban; made by Claude for Claude</div>
+      </div>
+      <nav class="sb-nav" id="sb-nav" aria-label="Page navigation"></nav>
+      <div class="sb-footer" role="group" aria-label="Quick actions">
+        <a href="#" class="sb-foot-btn" id="back-link">Back to Board</a>
+        <button class="sb-foot-btn" id="theme-toggle" aria-label="Toggle dark mode">Theme</button>
+      </div>
+    </aside>
+    <div class="sb-overlay" id="sb-overlay" aria-hidden="true"></div>
+
+    <main class="main" role="main">
+      <header class="main-header">
+        <button class="menu-btn" id="menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">&#9776;</button>
+        <h1 class="main-title" id="main-title">Overview</h1>
+        <div class="pills" id="header-pills" aria-label="Status indicators" role="status"></div>
+        <button class="theme-btn" id="theme-toggle-2" title="Toggle theme" aria-label="Toggle dark mode">
+          <svg id="ico-light" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          <svg id="ico-dark" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="display:none"><path d="M13.36 10.06A6 6 0 015.94 2.64 7 7 0 1013.36 10.06z"/></svg>
+        </button>
+      </header>
+      <div class="main-scroll">
+        <div class="content" id="content" role="region" aria-label="Page content" aria-live="polite"></div>
+      </div>
+    </main>
   </div>
-  <div class="cp-body" id="cp-body"></div>
-  <div id="toasts"></div>
+  <div id="toasts" aria-live="assertive" role="log" aria-label="Notifications"></div>
 
 <script>
 (function() {
 'use strict';
 
-// --- DOM helper (safe — no innerHTML) ---
+// ── DOM helper (no innerHTML) ──
 function el(tag, attrs, kids) {
   var e = document.createElement(tag);
   if (typeof attrs === 'string') { e.className = attrs; attrs = null; }
@@ -297,7 +493,7 @@ function el(tag, attrs, kids) {
       else if (k === 'selected') { if (attrs[k]) e.selected = true; }
       else if (k === 'checked') { if (attrs[k]) e.checked = true; }
       else if (k.slice(0, 2) === 'on') e.addEventListener(k.slice(2), attrs[k]);
-      else e.setAttribute(k, attrs[k]);
+      else if (attrs[k] !== undefined && attrs[k] !== null) e.setAttribute(k, attrs[k]);
     }
   }
   if (kids !== undefined && kids !== null) {
@@ -311,45 +507,55 @@ function el(tag, attrs, kids) {
   }
   return e;
 }
+function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
 
-function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
-
-// --- Dark mode ---
+// ── Dark mode ──
 var isDark = localStorage.getItem('dark-mode');
 if (isDark === null) isDark = window.matchMedia('(prefers-color-scheme: dark)').matches ? '1' : '';
 if (isDark) document.body.classList.add('dark');
-function syncThemeIcons() {
+function syncIcons() {
   var d = document.body.classList.contains('dark');
   document.getElementById('ico-light').style.display = d ? 'none' : '';
   document.getElementById('ico-dark').style.display = d ? '' : 'none';
 }
-syncThemeIcons();
-document.getElementById('theme-toggle').onclick = function() {
+syncIcons();
+function toggleTheme() {
   document.body.classList.toggle('dark');
   localStorage.setItem('dark-mode', document.body.classList.contains('dark') ? '1' : '');
-  syncThemeIcons();
-};
+  syncIcons();
+}
+document.getElementById('theme-toggle').onclick = toggleTheme;
+document.getElementById('theme-toggle-2').onclick = toggleTheme;
 
-// --- Back link to public kanban board ---
-// Control panel is served from admin server (different port), so resolve the public board URL
+// ── Back link ──
 (function() {
-  var adminPort = parseInt(location.port, 10);
-  var boardPort = adminPort - 1; // ADMIN_PORT defaults to PORT + 1
+  var p = parseInt(location.port, 10);
+  var boardPort = p - 1;
   document.getElementById('back-link').href = location.protocol + '//localhost:' + boardPort;
 })();
 
-// --- Session-based auth (HTTP-only cookies — no tokens in frontend) ---
+// ── Mobile sidebar ──
+var sidebar = document.getElementById('sidebar');
+var overlay = document.getElementById('sb-overlay');
+var menuBtn = document.getElementById('menu-btn');
+menuBtn.onclick = function() {
+  var isOpen = sidebar.classList.toggle('open');
+  menuBtn.setAttribute('aria-expanded', String(isOpen));
+};
+overlay.onclick = function() {
+  sidebar.classList.remove('open');
+  menuBtn.setAttribute('aria-expanded', 'false');
+};
 
+// ── Auth ──
 function checkSession() {
   return fetch('/auth/session').then(function(r) { return r.json(); }).then(function(d) {
     if (d.authenticated && d.user.role === 'admin') {
       document.getElementById('pin-overlay').classList.add('hidden');
       initApp();
     } else if (d.authenticated) {
-      // Authenticated but not admin — show access denied (not redirect loop)
       showAccessDenied();
     } else {
-      // Not authenticated — redirect to SSO login
       window.location.href = '/auth/login?return=' + encodeURIComponent(location.pathname);
     }
   }).catch(function() {
@@ -358,42 +564,31 @@ function checkSession() {
 }
 
 function showAccessDenied() {
-  var overlay = document.getElementById('pin-overlay');
-  overlay.classList.remove('hidden');
+  var ov = document.getElementById('pin-overlay');
+  ov.classList.remove('hidden');
   document.getElementById('access-denied-box').style.display = '';
-  var adminPort = parseInt(location.port, 10);
-  var boardPort = adminPort - 1;
-  document.getElementById('denied-back-link').href = location.protocol + '//localhost:' + boardPort;
+  var p = parseInt(location.port, 10);
+  document.getElementById('denied-back-link').href = location.protocol + '//localhost:' + (p - 1);
 }
 
-function showLoginPage() {
-  window.location.href = '/auth/login?return=' + encodeURIComponent(location.pathname);
-}
-
-// --- API (no tokens — session cookie sent automatically by browser) ---
+// ── API ──
 function api(method, url, body) {
   var opts = { method: method, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } };
   if (body) opts.body = JSON.stringify(body);
   return fetch(url, opts).then(function(r) {
-    if (r.status === 401) {
-      showLoginPage();
-      throw new Error('Auth required');
-    }
-    if (r.status === 403) {
-      toast('Admin access required', 'error');
-      throw new Error('Forbidden');
-    }
+    if (r.status === 401) { window.location.href = '/auth/login?return=' + encodeURIComponent(location.pathname); throw new Error('Auth'); }
+    if (r.status === 403) { toast('Admin access required', 'error'); throw new Error('Forbidden'); }
     return r.json();
   });
 }
 
 function toast(msg, type) {
-  var t = el('div', 'toast toast-' + (type || 'info'), msg);
+  var t = el('div', { class: 'toast toast-' + (type || 'info'), role: 'alert' }, msg);
   document.getElementById('toasts').appendChild(t);
   setTimeout(function() { t.style.opacity = '0'; setTimeout(function() { t.remove(); }, 300); }, 4000);
 }
 
-// --- Time helpers ---
+// ── Time helpers ──
 function formatReset(iso) {
   if (!iso) return '';
   var diff = new Date(iso) - new Date();
@@ -408,125 +603,335 @@ function timeAgo(iso) {
   return m < 60 ? m + 'm ago' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm ago';
 }
 function fmtUptime(s) { var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h > 0 ? h + 'h ' + m + 'm' : m + 'm'; }
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+function fmtDate(iso) {
+  var d = new Date(iso);
+  var day = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+  var mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  return day + ' ' + mon + ' ' + d.getDate() + ', ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+function fmtAgo(ms) {
+  var mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return mins + 'm ago';
+  var hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ' + (mins % 60) + 'm ago';
+  return Math.floor(hrs / 24) + 'd ' + (hrs % 24) + 'h ago';
+}
 
-// --- Section builder ---
-function section(id, dotColor, title, badgeId, open) {
-  var badge = badgeId ? el('span', { class: 'cp-section-badge', id: badgeId, style: 'background:var(--primary-soft);color:var(--primary)' }, '--') : null;
-  var header = el('div', 'cp-section-header', [
-    el('div', { class: 'cp-section-dot', style: 'background:' + dotColor }),
-    el('div', 'cp-section-title', title),
-    badge,
-    el('div', 'cp-section-arrow', '\u25B6'),
+// ── Config field builders ──
+function cfgNumber(key, label, val, help) {
+  var inputId = 'cfg-' + key;
+  var helpId = help ? inputId + '-help' : null;
+  var inp = el('input', { type: 'number', class: 'cfg-input', id: inputId, 'data-key': key, value: String(val != null ? val : ''), min: '0', 'aria-label': label, 'aria-describedby': helpId || undefined });
+  var lbl = el('label', { class: 'cfg-label', for: inputId }, label);
+  return el('div', 'cfg-item', [lbl, inp, help ? el('div', { class: 'cfg-help', id: helpId }, help) : null]);
+}
+function cfgText(key, label, val, help, full) {
+  var inputId = 'cfg-' + key;
+  var helpId = help ? inputId + '-help' : null;
+  var inp = el('input', { type: 'text', class: 'cfg-input', id: inputId, 'data-key': key, value: val || '', 'aria-label': label, 'aria-describedby': helpId || undefined });
+  var lbl = el('label', { class: 'cfg-label', for: inputId }, label);
+  var item = el('div', 'cfg-item', [lbl, inp, help ? el('div', { class: 'cfg-help', id: helpId }, help) : null]);
+  if (full) item.classList.add('full');
+  return item;
+}
+function cfgSelect(key, label, val, options, help) {
+  var inputId = 'cfg-' + key;
+  var helpId = help ? inputId + '-help' : null;
+  var sel = el('select', { class: 'cfg-input', id: inputId, 'data-key': key, 'aria-label': label, 'aria-describedby': helpId || undefined });
+  options.forEach(function(o) { sel.appendChild(el('option', { value: o, selected: o === val }, o)); });
+  var lbl = el('label', { class: 'cfg-label', for: inputId }, label);
+  return el('div', 'cfg-item', [lbl, sel, help ? el('div', { class: 'cfg-help', id: helpId }, help) : null]);
+}
+function cfgToggle(key, label, checked, help) {
+  var inputId = 'cfg-' + key;
+  var helpId = help ? inputId + '-help' : null;
+  var cb = el('input', { type: 'checkbox', class: 'cfg-switch', id: inputId, 'data-key': key, checked: checked, role: 'switch', 'aria-checked': String(!!checked), 'aria-describedby': helpId || undefined });
+  cb.addEventListener('change', function() { cb.setAttribute('aria-checked', String(cb.checked)); });
+  return el('div', 'cfg-item', [
+    el('label', { class: 'cfg-toggle', for: inputId }, [cb, el('span', 'cfg-switch-label', label)]),
+    help ? el('div', { class: 'cfg-help', id: helpId }, help) : null
   ]);
-  var body = el('div', { class: 'cp-section-body', id: id + '-body' });
-  var sec = el('div', { class: 'cp-section' + (open ? ' open' : ''), id: 'sec-' + id }, [header, body]);
-  header.addEventListener('click', function() { sec.classList.toggle('open'); });
-  return sec;
 }
 
-// --- Build page structure (called after auth) ---
-var _appInited = false;
-function buildPageSections() {
-  var cpBody = document.getElementById('cp-body');
-  cpBody.appendChild(section('mode', '#8B5CF6', 'Mode & Discovery', 'mode-badge', true));
-  cpBody.appendChild(section('usage', 'var(--primary)', 'Claude Max Usage', 'usage-badge', true));
-  cpBody.appendChild(section('pipeline', 'var(--success)', 'Pipeline & Queue', 'pipeline-badge', true));
-  cpBody.appendChild(section('build', 'var(--warning)', 'Build Configuration', null, true));
-  cpBody.appendChild(section('review', '#EF4444', 'Review & Usage Limits', null, false));
-  cpBody.appendChild(section('prompts', '#A855F7', 'Custom Instructions', null, false));
-  cpBody.appendChild(section('processes', 'var(--warning)', 'Active Processes', 'proc-badge', false));
-  cpBody.appendChild(section('system', 'var(--text-tertiary)', 'System Information', null, false));
-  cpBody.appendChild(section('backups', '#10B981', 'Database Backups', 'backup-badge', false));
-  cpBody.appendChild(section('board-usage', '#3B82F6', 'Board Session Usage', null, false));
-}
-
-// --- Usage rendering ---
-function makeUsageBar(name, pct, resetsAt) {
-  var cls = pct >= 80 ? 'usage-danger' : pct >= 50 ? 'usage-warn' : 'usage-ok';
-  return el('div', 'usage-bar-wrap', [
-    el('div', 'usage-bar-label', [el('span', 'usage-bar-name', name), el('span', 'usage-bar-pct', pct + '%')]),
-    el('div', 'usage-bar-track', [el('div', { class: 'usage-bar-fill ' + cls, style: 'width:' + Math.min(pct, 100) + '%' })]),
-    el('div', 'usage-bar-meta', resetsAt ? 'Resets ' + formatReset(resetsAt) : ''),
-  ]);
-}
-
-function renderUsage(d) {
-  var body = document.getElementById('usage-body');
-  clear(body);
-  if (!d || !d.plan) { body.appendChild(el('div', 'queue-empty', 'No plan data. Check ~/.claude/.credentials.json')); return; }
-  var sp = d.plan.session ? d.plan.session.utilization : null;
-  var wp = d.plan.weekly ? d.plan.weekly.utilization : null;
-  if (sp !== null) {
-    body.appendChild(makeUsageBar('Current Session', sp, d.plan.session.resetsAt));
-    var badge = document.getElementById('usage-badge');
-    if (badge) {
-      badge.textContent = sp + '%';
-      badge.style.background = sp >= 80 ? 'var(--error-soft)' : sp >= 50 ? 'var(--warning-soft)' : 'var(--primary-soft)';
-      badge.style.color = sp >= 80 ? 'var(--error)' : sp >= 50 ? 'var(--warning)' : 'var(--primary)';
-    }
+function collectInputs(container) {
+  var updates = {};
+  var inputs = container.querySelectorAll('.cfg-input');
+  for (var i = 0; i < inputs.length; i++) {
+    var inp = inputs[i];
+    updates[inp.getAttribute('data-key')] = inp.type === 'number' ? Number(inp.value) : inp.value;
   }
-  if (wp !== null) body.appendChild(makeUsageBar('Weekly (All Models)', wp, d.plan.weekly.resetsAt));
-  if (d.plan.sonnet && d.plan.sonnet.utilization !== null) body.appendChild(makeUsageBar('Sonnet Only', d.plan.sonnet.utilization, d.plan.sonnet.resetsAt));
-  body.appendChild(el('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-top:8px' }, [
-    el('span', 'usage-bar-meta', 'Auto-pause at ' + (d.plan.pauseThreshold || 80) + '% \u00B7 Cached: ' + (d.plan.cachedAt ? timeAgo(d.plan.cachedAt) : 'never')),
-    el('button', { class: 'cp-btn', style: 'font-size:10px;padding:4px 10px', onclick: function() {
-      api('POST', '/api/usage/refresh').then(function(r) { renderUsage(r); toast('Usage refreshed', 'success'); });
-    } }, 'Refresh Now'),
-  ]));
+  var switches = container.querySelectorAll('.cfg-switch');
+  for (var j = 0; j < switches.length; j++) {
+    updates[switches[j].getAttribute('data-key')] = switches[j].checked;
+  }
+  return updates;
 }
 
-// --- Pipeline ---
+// ══════════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════════
+var NAV = [
+  { id: 'overview',  icon: '\u25A6', label: 'Overview',       color: 'var(--primary)' },
+  { id: 'pipeline',  icon: '\u25B6', label: 'Pipeline',       color: 'var(--success)',  badgeId: 'nav-pipe-badge' },
+  { id: 'config',    icon: '\u2699', label: 'Configuration',  color: 'var(--text-tertiary)' },
+  { id: 'prompts',   icon: '\u270E', label: 'Custom Prompts', color: 'var(--purple)' },
+  { id: 'usage',     icon: '\u25D0', label: 'Usage',          color: 'var(--primary)',   badgeId: 'nav-usage-badge' },
+  { id: 'backups',   icon: '\u21BB', label: 'Backups',        color: 'var(--success)',   badgeId: 'nav-backup-badge' },
+  { id: 'system',    icon: '\u2318', label: 'System',         color: 'var(--text-tertiary)' },
+  { id: 'users',     icon: '\u263A', label: 'User Mgmt',     color: 'var(--primary)',    external: '/users' },
+];
+
+var _activePage = 'overview';
+
+function buildNav() {
+  var nav = document.getElementById('sb-nav');
+  clear(nav);
+  nav.appendChild(el('div', 'sb-label', 'Navigation'));
+  NAV.forEach(function(n) {
+    var badge = n.badgeId ? el('span', { class: 'nav-badge', id: n.badgeId, 'aria-label': n.label + ' status' }, '--') : null;
+    var item = el('button', {
+      class: 'nav-item' + (n.id === _activePage ? ' active' : ''),
+      id: 'nav-' + n.id,
+      'data-page': n.id,
+      role: 'tab',
+      'aria-selected': n.id === _activePage ? 'true' : 'false',
+      'aria-controls': 'page-' + n.id,
+      onclick: n.external
+        ? function() { window.location.href = n.external; }
+        : function() { switchPage(n.id); }
+    }, [
+      el('span', { class: 'nav-icon', 'aria-hidden': 'true' }, n.icon),
+      n.label,
+      badge
+    ]);
+    nav.appendChild(item);
+  });
+}
+
+function switchPage(id) {
+  _activePage = id;
+  // Update nav active state + ARIA
+  var items = document.querySelectorAll('.nav-item');
+  for (var i = 0; i < items.length; i++) {
+    var isActive = items[i].getAttribute('data-page') === id;
+    items[i].classList.toggle('active', isActive);
+    items[i].setAttribute('aria-selected', String(isActive));
+  }
+  // Update pages
+  var pages = document.querySelectorAll('.page');
+  for (var j = 0; j < pages.length; j++) {
+    pages[j].classList.toggle('active', pages[j].id === 'page-' + id);
+  }
+  // Update header title
+  var entry = NAV.find(function(n) { return n.id === id; });
+  document.getElementById('main-title').textContent = entry ? entry.label : id;
+  // Close mobile sidebar
+  sidebar.classList.remove('open');
+  // Scroll to top
+  document.querySelector('.main-scroll').scrollTop = 0;
+}
+
+// ══════════════════════════════════════════════
+// PAGE BUILDERS
+// ══════════════════════════════════════════════
+function buildPages() {
+  var content = document.getElementById('content');
+  clear(content);
+  content.appendChild(buildOverviewPage());
+  content.appendChild(buildPipelinePage());
+  content.appendChild(buildConfigPage());
+  content.appendChild(buildPromptsPage());
+  content.appendChild(buildUsagePage());
+  content.appendChild(buildBackupsPage());
+  content.appendChild(buildSystemPage());
+}
+
+// ── OVERVIEW ──
+function buildOverviewPage() {
+  var page = el('div', { class: 'page active', id: 'page-overview', role: 'tabpanel', 'aria-labelledby': 'nav-overview' });
+  page.appendChild(el('h2', 'page-heading', 'Overview'));
+  page.appendChild(el('p', 'page-desc', 'System health at a glance. Key metrics update in real time.'));
+  page.appendChild(el('div', { class: 'stats-grid', id: 'ov-stats' }));
+  page.appendChild(el('div', { id: 'ov-usage' }));
+
+  var twoCol = el('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px' });
+  var activeBox = el('div', 'card', [
+    el('div', 'card-head', [el('div', { class: 'card-dot', style: 'background:var(--warning)' }), el('div', 'card-title', 'Active Processes')]),
+    el('div', { class: 'card-body', id: 'ov-active' })
+  ]);
+  var queueBox = el('div', 'card', [
+    el('div', 'card-head', [el('div', { class: 'card-dot', style: 'background:var(--info)' }), el('div', 'card-title', 'Queue')]),
+    el('div', { class: 'card-body', id: 'ov-queue' })
+  ]);
+  twoCol.appendChild(activeBox);
+  twoCol.appendChild(queueBox);
+  page.appendChild(twoCol);
+  return page;
+}
+
+function renderOverview(pipe, queue, acts, usage) {
+  var statsEl = document.getElementById('ov-stats');
+  if (!statsEl) return;
+  clear(statsEl);
+
+  var active = queue.active || [], queued = queue.queue || [];
+  var actKeys = Object.keys(acts || {});
+
+  var pipeText = pipe.paused ? 'Paused' : 'Running';
+  var sp = (usage && usage.plan && usage.plan.session) ? usage.plan.session.utilization : '--';
+
+  [[pipeText, 'Pipeline'], [String(active.length), 'Active Builds'], [String(queued.length), 'Queued'], [String(sp) + (sp !== '--' ? '%' : ''), 'Usage'], [String(actKeys.length), 'Processes']].forEach(function(s) {
+    statsEl.appendChild(el('div', 'stat-box', [el('div', 'stat-val', s[0]), el('div', 'stat-lbl', s[1])]));
+  });
+
+  // Usage bars
+  var ub = document.getElementById('ov-usage');
+  clear(ub);
+  if (usage && usage.plan && usage.plan.session) {
+    ub.appendChild(makeUsageBar('Session Usage', usage.plan.session.utilization, usage.plan.session.resetsAt));
+  }
+  if (usage && usage.plan && usage.plan.weekly) {
+    ub.appendChild(makeUsageBar('Weekly Usage', usage.plan.weekly.utilization, usage.plan.weekly.resetsAt));
+  }
+
+  // Header pills
+  updatePills(pipe, sp);
+
+  // Active
+  var activeEl = document.getElementById('ov-active');
+  clear(activeEl);
+  if (!actKeys.length) { activeEl.appendChild(el('div', 'q-empty', 'No active processes')); }
+  else {
+    actKeys.forEach(function(id) {
+      var a = acts[id];
+      var dotCls = (a.step === 'build' || a.step === 'fix') ? 'building' : a.step === 'review' ? 'reviewing' : 'queued';
+      activeEl.appendChild(el('div', 'proc-item', [
+        el('div', 'proc-dot ' + dotCls),
+        el('div', { style: 'flex:1' }, [el('span', { style: 'font-weight:600' }, 'Card #' + id + ' '), el('span', { style: 'color:var(--text-tertiary)' }, (a.step || '') + ' - ' + (a.detail || ''))]),
+      ]));
+    });
+  }
+
+  // Queue
+  var qEl = document.getElementById('ov-queue');
+  clear(qEl);
+  if (!queued.length) { qEl.appendChild(el('div', 'q-empty', 'Queue empty')); }
+  else {
+    queued.forEach(function(q) {
+      qEl.appendChild(el('div', 'q-item', [el('span', 'q-num', String(q.position)), el('span', 'q-name', 'Card #' + q.cardId), el('span', 'q-meta', q.priority + ' priority')]));
+    });
+  }
+}
+
+function updatePills(pipe, usagePct) {
+  var pills = document.getElementById('header-pills');
+  clear(pills);
+  var pipeDotCls = pipe.paused ? 'red' : 'green';
+  pills.appendChild(el('div', 'pill', [el('div', 'pill-dot ' + pipeDotCls), pipe.paused ? 'Paused' : 'Running']));
+  if (usagePct !== '--' && usagePct != null) {
+    var pct = Number(usagePct);
+    var uCls = pct >= 80 ? 'red' : pct >= 50 ? 'amber' : 'green';
+    pills.appendChild(el('div', 'pill', [el('div', 'pill-dot ' + uCls), usagePct + '%']));
+  }
+}
+
+// ── PIPELINE ──
+function buildPipelinePage() {
+  var page = el('div', { class: 'page', id: 'page-pipeline', role: 'tabpanel', 'aria-labelledby': 'nav-pipeline' });
+  page.appendChild(el('h2', 'page-heading', 'Pipeline'));
+  page.appendChild(el('p', 'page-desc', 'Build pipeline status, controls, active builds and queue.'));
+  page.appendChild(el('div', { id: 'pipe-content' }));
+  return page;
+}
+
 function renderPipeline(pipe, queue, acts) {
-  var paused = pipe.paused;
-  var body = document.getElementById('pipeline-body');
-  var badge = document.getElementById('pipeline-badge');
+  var body = document.getElementById('pipe-content');
+  if (!body) return;
   clear(body);
+
+  var paused = pipe.paused;
+
+  // Update nav badge
+  var badge = document.getElementById('nav-pipe-badge');
   if (badge) {
     badge.textContent = paused ? 'Paused' : 'Running';
     badge.style.background = paused ? 'var(--error-soft)' : 'var(--success-soft)';
-    badge.style.color = paused ? 'var(--error)' : 'var(--success)';
+    badge.style.color = paused ? 'var(--error-text)' : 'var(--success-text)';
   }
-  var controls = el('div', 'pipeline-controls');
+
+  // Status bar
+  var controls = el('div', { style: 'display:flex;gap:8px' });
   if (paused) {
-    controls.appendChild(el('button', { class: 'cp-btn cp-btn-primary', onclick: function() { api('POST', '/api/pipeline/resume').then(loadPipeline); } }, 'Resume'));
+    controls.appendChild(el('button', { class: 'btn btn-primary', onclick: function() { api('POST', '/api/pipeline/resume').then(loadPipeline); } }, 'Resume'));
   } else {
-    controls.appendChild(el('button', { class: 'cp-btn', onclick: function() { api('POST', '/api/pipeline/pause').then(loadPipeline); } }, 'Pause'));
+    controls.appendChild(el('button', { class: 'btn', onclick: function() { api('POST', '/api/pipeline/pause').then(loadPipeline); } }, 'Pause'));
   }
-  controls.appendChild(el('button', { class: 'cp-btn cp-btn-danger', onclick: function() { if (confirm('Kill all active builds and pause pipeline?')) api('POST', '/api/pipeline/kill-all').then(loadPipeline); } }, 'Kill All'));
-  body.appendChild(el('div', 'pipeline-status', [
-    el('div', 'pipeline-dot ' + (paused ? 'paused' : 'running')),
-    el('div', { class: 'pipeline-text', style: 'flex:1' }, paused ? 'Pipeline Paused' : 'Pipeline Running'),
+  controls.appendChild(el('button', { class: 'btn btn-danger', onclick: function() { if (confirm('Kill all active builds and pause pipeline?')) api('POST', '/api/pipeline/kill-all').then(loadPipeline); } }, 'Kill All'));
+
+  body.appendChild(el('div', 'pipe-bar', [
+    el('div', 'pipe-dot ' + (paused ? 'off' : 'on')),
+    el('div', 'pipe-label', paused ? 'Pipeline Paused' : 'Pipeline Running'),
     controls,
   ]));
+
   var active = queue.active || [], queued = queue.queue || [];
-  var statsRow = el('div', 'stats-row');
+
+  // Stats
+  var statsRow = el('div', 'stats-grid');
   [[active.length, 'Active Builds'], [queued.length, 'Queued'], [Object.keys(acts || {}).length, 'Activities']].forEach(function(s) {
-    statsRow.appendChild(el('div', 'stat-card', [el('div', 'stat-card-value', String(s[0])), el('div', 'stat-card-label', s[1])]));
+    statsRow.appendChild(el('div', 'stat-box', [el('div', 'stat-val', String(s[0])), el('div', 'stat-lbl', s[1])]));
   });
   body.appendChild(statsRow);
+
+  // Active builds
   if (active.length) {
-    body.appendChild(el('div', 'sec-label', 'Active Builds'));
+    body.appendChild(el('div', 'sub-lbl', 'Active Builds'));
     active.forEach(function(a) {
       var act = acts[a.cardId] || {};
-      var stopBtn = el('button', { class: 'cp-btn cp-btn-danger', style: 'font-size:10px;padding:3px 8px', onclick: function() { api('POST', '/api/cards/' + a.cardId + '/stop').then(loadPipeline); } }, 'Stop');
-      body.appendChild(el('div', 'queue-item', [
-        el('span', { class: 'queue-pos', style: 'color:var(--warning)' }, '#' + a.cardId),
-        el('span', 'queue-title', act.detail || 'Building...'),
-        stopBtn,
+      body.appendChild(el('div', 'q-item', [
+        el('span', { class: 'q-num', style: 'color:var(--warning-text)' }, '#' + a.cardId),
+        el('span', 'q-name', act.detail || 'Building...'),
+        el('button', { class: 'btn btn-danger btn-sm', onclick: function() { api('POST', '/api/cards/' + a.cardId + '/stop').then(loadPipeline); } }, 'Stop'),
       ]));
     });
   }
+
+  // Queue
   if (queued.length) {
-    body.appendChild(el('div', 'sec-label sec-label-mt', 'Queue'));
+    body.appendChild(el('div', { class: 'sub-lbl', style: 'margin-top:20px' }, 'Queue'));
     queued.forEach(function(q) {
-      body.appendChild(el('div', 'queue-item', [
-        el('span', 'queue-pos', String(q.position)),
-        el('span', 'queue-title', 'Card #' + q.cardId),
-        el('span', 'queue-meta', q.priority + ' priority'),
+      body.appendChild(el('div', 'q-item', [
+        el('span', 'q-num', String(q.position)),
+        el('span', 'q-name', 'Card #' + q.cardId),
+        el('span', 'q-meta', q.priority + ' priority'),
       ]));
     });
   } else if (!active.length) {
-    body.appendChild(el('div', 'queue-empty', 'No active builds or queued cards'));
+    body.appendChild(el('div', 'q-empty', 'No active builds or queued cards'));
+  }
+
+  // Processes
+  var actKeys = Object.keys(acts);
+  if (actKeys.length) {
+    body.appendChild(el('div', { class: 'sub-lbl', style: 'margin-top:20px' }, 'All Processes'));
+    actKeys.forEach(function(id) {
+      var a = acts[id];
+      var dotCls = (a.step === 'build' || a.step === 'fix') ? 'building' : a.step === 'review' ? 'reviewing' : 'queued';
+      body.appendChild(el('div', 'proc-item', [
+        el('div', 'proc-dot ' + dotCls),
+        el('div', { style: 'flex:1' }, [
+          el('div', { style: 'font-weight:600' }, 'Card #' + id),
+          el('div', { style: 'font-size:13px;color:var(--text-tertiary)' }, (a.step || '') + ' - ' + (a.detail || '')),
+        ]),
+        el('span', 'q-meta', timeAgo(new Date(a.timestamp).toISOString())),
+      ]));
+    });
   }
 }
 
@@ -535,167 +940,196 @@ function loadPipeline() {
     .then(function(r) { renderPipeline(r[0], r[1], r[2]); });
 }
 
-// --- Config fields ---
-function cfgNumber(key, label, val, help) {
-  var inp = el('input', { type: 'number', class: 'cfg-input', 'data-key': key, value: String(val), min: '0' });
-  return el('div', 'cfg-item', [el('div', 'cfg-label', label), inp, el('div', 'cfg-help', help)]);
-}
-function cfgText(key, label, val, help) {
-  var inp = el('input', { type: 'text', class: 'cfg-input', 'data-key': key, value: val || '' });
-  return el('div', 'cfg-item', [el('div', 'cfg-label', label), inp, el('div', 'cfg-help', help)]);
-}
-function cfgSelect(key, label, val, options, help) {
-  var sel = el('select', { class: 'cfg-input', 'data-key': key });
-  options.forEach(function(o) { sel.appendChild(el('option', { value: o, selected: o === val }, o)); });
-  return el('div', 'cfg-item', [el('div', 'cfg-label', label), sel, el('div', 'cfg-help', help)]);
+// ── CONFIGURATION ──
+function buildConfigPage() {
+  var page = el('div', { class: 'page', id: 'page-config', role: 'tabpanel', 'aria-labelledby': 'nav-config' });
+  page.appendChild(el('h2', 'page-heading', 'Configuration'));
+  page.appendChild(el('p', 'page-desc', 'All configurable parameters organized by concern. Changes take effect immediately.'));
+  page.appendChild(el('div', { id: 'cfg-content' }));
+  return page;
 }
 
-function saveSection(sectionId) {
-  var container = document.getElementById(sectionId + '-body');
-  var inputs = container.querySelectorAll('.cfg-input');
-  var updates = {};
-  inputs.forEach(function(inp) { updates[inp.getAttribute('data-key')] = inp.type === 'number' ? Number(inp.value) : inp.value; });
-  api('PUT', '/api/config', updates).then(function(res) { toast('Updated: ' + Object.keys(res.changed || {}).join(', '), 'success'); });
-}
-
-// --- Mode & Discovery ---
-var _modeState = {};
-
-function cfgCheckbox(key, label, checked, help) {
-  var cb = el('input', { type: 'checkbox', 'data-key': key, checked: checked, style: 'width:auto;margin-right:6px' });
-  return el('div', 'cfg-item', [el('label', { style: 'display:flex;align-items:center;font-size:12px;font-weight:500;cursor:pointer' }, [cb, label]), el('div', 'cfg-help', help)]);
-}
-
-function renderMode(d) {
-  _modeState = d;
-  var body = document.getElementById('mode-body');
-  var badge = document.getElementById('mode-badge');
+function renderConfig(cfg, modeState) {
+  var body = document.getElementById('cfg-content');
+  if (!body) return;
   clear(body);
+  var r = cfg.runtime;
 
-  if (badge) {
-    badge.textContent = d.mode === 'single-project' ? 'Single' : 'Global';
-    badge.style.background = d.mode === 'single-project' ? 'rgba(139,92,246,0.1)' : 'var(--primary-soft)';
-    badge.style.color = d.mode === 'single-project' ? '#8B5CF6' : 'var(--primary)';
+  // Helper: build a config card
+  function cfgCard(dot, title, hint, bodyId, fields, saveLabel, saveFn) {
+    var card = el('div', 'card');
+    card.appendChild(el('div', 'card-head', [el('div', { class: 'card-dot', style: 'background:' + dot }), el('div', 'card-title', title), el('div', 'card-hint', hint)]));
+    var bd = el('div', { class: 'card-body', id: bodyId });
+    bd.appendChild(el('div', 'cfg-grid', fields));
+    card.appendChild(bd);
+    card.appendChild(el('div', 'card-foot', [el('button', { class: 'btn btn-primary', onclick: saveFn || function() { saveConfig(bodyId); } }, saveLabel)]));
+    return card;
   }
 
-  var grid = el('div', 'cfg-grid', [
-    cfgSelect('mode', 'Operating Mode', d.mode, ['global', 'single-project'], 'Global: multi-project. Single: autonomous CI/CD for one project'),
-    cfgText('singleProjectPath', 'Project Path', d.singleProjectPath, 'Absolute path to the project folder (single-project mode)'),
-    cfgCheckbox('autoPromoteBrainstorm', 'Auto-Promote Brainstorm', d.autoPromoteBrainstorm, 'Automatically decompose brainstorm ideas into todo tasks'),
-    cfgNumber('maxBrainstormQueue', 'Max Brainstorm Queue', d.maxBrainstormQueue || 3, 'Max brainstorm cards queued at once (1-10)'),
-    cfgNumber('discoveryIntervalMins', 'Discovery Interval (min)', d.discoveryIntervalMins || 30, 'How often to scan project for improvements (0 = disabled)'),
-    cfgNumber('maxChildCards', 'Max Child Cards', d.maxChildCards || 10, 'Max todo tasks per brainstorm initiative (1-20)'),
-  ]);
-  body.appendChild(grid);
-
-  // Status info
-  var statusParts = [];
-  if (d.discoveryRunning) statusParts.push('Discovery scan running');
-  if (d.hasActiveInitiative) statusParts.push('Active initiative in progress');
-  if (d.activeBrainstorms > 0) statusParts.push(d.activeBrainstorms + ' brainstorm card(s) queued');
-  if (d.lastDiscoveryAt) statusParts.push('Last scan: ' + timeAgo(d.lastDiscoveryAt));
-  if (statusParts.length > 0) {
-    body.appendChild(el('div', { style: 'font-size:11px;color:var(--text-tertiary);margin-top:10px;line-height:1.6' }, statusParts.join(' \u00B7 ')));
-  }
-
-  body.appendChild(el('div', { style: 'display:flex;gap:8px;margin-top:14px;justify-content:flex-end' }, [
-    el('button', { class: 'cp-btn', onclick: function() {
-      api('POST', '/api/discovery/run').then(function() { toast('Discovery scan started', 'success'); loadMode(); });
-    } }, 'Run Discovery Now'),
-    el('button', { class: 'cp-btn cp-btn-primary', onclick: function() { saveMode(); } }, 'Save Mode Config'),
+  // ─── Mode & Project ───
+  var modeCard = el('div', 'card');
+  modeCard.appendChild(el('div', 'card-head', [el('div', { class: 'card-dot', style: 'background:var(--purple)' }), el('div', 'card-title', 'Mode & Project'), el('div', 'card-hint', 'How the board discovers and processes work')]));
+  var modeBody = el('div', { class: 'card-body', id: 'cfg-mode' });
+  modeBody.appendChild(el('div', 'cfg-grid', [
+    cfgSelect('mode', 'Operating Mode', modeState.mode, ['global', 'single-project'], 'Global: multi-project. Single: autonomous CI/CD'),
+    cfgText('singleProjectPath', 'Project Path', modeState.singleProjectPath, 'Absolute path (single-project mode)'),
+    cfgToggle('autoPromoteBrainstorm', 'Auto-Promote Brainstorm', modeState.autoPromoteBrainstorm, 'Auto-decompose brainstorm ideas into todo tasks'),
+    cfgNumber('maxBrainstormQueue', 'Max Brainstorm Queue', modeState.maxBrainstormQueue || 3, 'Concurrent brainstorm cards (1-10)'),
+    cfgNumber('discoveryIntervalMins', 'Discovery Interval (min)', modeState.discoveryIntervalMins || 30, 'Project scan frequency. 0 = disabled'),
+    cfgNumber('maxChildCards', 'Max Child Cards', modeState.maxChildCards || 10, 'Max todo tasks per brainstorm (1-20)'),
   ]));
-}
+  modeCard.appendChild(modeBody);
+  var modeStatus = [];
+  if (modeState.discoveryRunning) modeStatus.push('Discovery scan running');
+  if (modeState.hasActiveInitiative) modeStatus.push('Active initiative');
+  if (modeState.lastDiscoveryAt) modeStatus.push('Last scan: ' + timeAgo(modeState.lastDiscoveryAt));
+  if (modeStatus.length) modeCard.appendChild(el('div', { style: 'padding:0 16px 12px;font-size:13px;color:var(--text-tertiary)' }, modeStatus.join(' \u00B7 ')));
+  modeCard.appendChild(el('div', 'card-foot', [
+    el('button', { class: 'btn', onclick: function() { api('POST', '/api/discovery/run').then(function() { toast('Discovery started', 'success'); loadMode(); }); } }, 'Run Discovery'),
+    el('button', { class: 'btn btn-primary', onclick: function() {
+      var updates = collectInputs(document.getElementById('cfg-mode'));
+      api('PUT', '/api/mode', updates).then(function(res) { toast('Mode saved: ' + Object.keys(res.changed || {}).join(', '), 'success'); if (res.state) _modeState = res.state; });
+    } }, 'Save Mode'),
+  ]));
+  body.appendChild(modeCard);
 
-function saveMode() {
-  var container = document.getElementById('mode-body');
-  var inputs = container.querySelectorAll('.cfg-input');
-  var checkboxes = container.querySelectorAll('input[type="checkbox"]');
-  var updates = {};
-  inputs.forEach(function(inp) {
-    var key = inp.getAttribute('data-key');
-    updates[key] = inp.type === 'number' ? Number(inp.value) : inp.value;
-  });
-  checkboxes.forEach(function(cb) {
-    updates[cb.getAttribute('data-key')] = cb.checked;
-  });
-  api('PUT', '/api/mode', updates).then(function(res) {
-    toast('Mode updated: ' + Object.keys(res.changed || {}).join(', '), 'success');
-    if (res.state) renderMode(res.state);
-  });
-}
-
-function loadMode() {
-  api('GET', '/api/mode').then(renderMode);
-}
-
-function renderBuildConfig(r) {
-  var body = document.getElementById('build-body');
-  clear(body);
-  var grid = el('div', 'cfg-grid', [
+  // ─── Build & Timeouts ───
+  body.appendChild(cfgCard('var(--warning)', 'Build & Timeouts', 'Claude CLI parameters, concurrency, polling, and phase timeouts', 'cfg-build', [
     cfgNumber('maxConcurrentBuilds', 'Max Concurrent Builds', r.maxConcurrentBuilds, 'Parallel Claude sessions'),
-    cfgNumber('buildTimeoutMins', 'Build Timeout (min)', r.buildTimeoutMins, 'Hard cap fallback'),
+    cfgSelect('claudeModel', 'Claude Model', r.claudeModel, ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'], 'CLI --model flag'),
+    cfgSelect('claudeEffort', 'Effort Level', r.claudeEffort, ['low', 'medium', 'high'], 'CLI --effort flag'),
+    cfgNumber('buildTimeoutMins', 'Build Timeout (min)', r.buildTimeoutMins, 'Hard cap for build phase'),
     cfgNumber('idleTimeoutMins', 'Idle Timeout (min)', r.idleTimeoutMins, 'No log activity = stalled'),
-    cfgSelect('claudeModel', 'Claude Model', r.claudeModel, ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'], 'CLI model flag'),
-    cfgSelect('claudeEffort', 'Effort Level', r.claudeEffort, ['low', 'medium', 'high'], 'CLI effort flag'),
-    cfgNumber('maxDoneVisible', 'Done Column Limit', r.maxDoneVisible, '0 = show all'),
-    cfgNumber('maxArchiveVisible', 'Archive Limit', r.maxArchiveVisible, '0 = show all · DB keeps everything'),
-    cfgNumber('backupRetentionDays', 'Backup Retention (days)', r.backupRetentionDays, 'Daily backups kept this many days'),
-    cfgText('webhookUrl', 'Webhook URL', r.webhookUrl, 'POST on card state changes'),
-  ]);
-  body.appendChild(grid);
-  body.appendChild(el('div', { style: 'margin-top:14px;text-align:right' }, [
-    el('button', { class: 'cp-btn cp-btn-primary', onclick: function() { saveSection('build'); } }, 'Save Build Config'),
-  ]));
-}
+    cfgNumber('pollIntervalMs', 'Poll Interval (ms)', r.pollIntervalMs, 'How often to check build/brainstorm progress'),
+    cfgNumber('brainstormTimeoutMins', 'Brainstorm Timeout (min)', r.brainstormTimeoutMins, 'Max time for brainstorm phase'),
+    cfgNumber('decomposeTimeoutMins', 'Decompose Timeout (min)', r.decomposeTimeoutMins, 'Max time for spec decomposition'),
+    cfgNumber('selfHealTimeoutMins', 'Self-Heal Timeout (min)', r.selfHealTimeoutMins, 'Max time for auto-fix phase'),
+    cfgNumber('discoveryTimeoutMins', 'Discovery Timeout (min)', r.discoveryTimeoutMins, 'Max time for project discovery scan'),
+  ], 'Save Build & Timeouts'));
 
-function renderReviewConfig(r) {
-  var body = document.getElementById('review-body');
-  clear(body);
-  var grid = el('div', 'cfg-grid', [
-    cfgNumber('maxReviewFixAttempts', 'Max Review Fix Attempts', r.maxReviewFixAttempts, 'Auto-fix before human review'),
+  // ─── Review & Quality ───
+  body.appendChild(cfgCard('var(--error)', 'Review & Quality', 'Review attempts, self-heal retries, and spec approval gating', 'cfg-review', [
+    cfgNumber('maxReviewFixAttempts', 'Max Review Fix Attempts', r.maxReviewFixAttempts, 'Auto-fix cycles before human review'),
     cfgNumber('maxFixAttempts', 'Max Self-Heal Attempts', r.maxFixAttempts, 'Error auto-fix retries'),
-    cfgNumber('usagePausePct', 'Usage Pause Threshold (%)', r.usagePausePct, 'Auto-pause pipeline at this %'),
+    cfgToggle('specApprovalGate', 'Spec Approval Gate', r.specApprovalGate, 'Hold cards at spec-ready for human approval'),
+  ], 'Save Review'));
+
+  // ─── Intelligence & Brainstorm ───
+  body.appendChild(cfgCard('var(--info)', 'Intelligence & Brainstorm', 'Multi-lens analysis, creative constraints, spec feedback, and auto-labeling', 'cfg-intel', [
+    cfgToggle('multiLensBrainstorm', 'Multi-Lens Brainstorm', r.multiLensBrainstorm, 'Force multi-perspective analysis before spec writing'),
+    cfgToggle('specFeedbackLoop', 'Spec Feedback Loop', r.specFeedbackLoop, 'Score spec effectiveness and learn patterns'),
+    cfgNumber('creativeConstraintPct', 'Creative Constraint %', r.creativeConstraintPct, 'Brainstorms receiving a thinking constraint (0-100)'),
+    cfgNumber('confrontationalPct', 'Confrontational %', r.confrontationalPct, 'Brainstorms receiving spec challenges (0-100)'),
+    cfgNumber('autoLabelConfidence', 'Auto-Label Confidence', r.autoLabelConfidence, 'Min confidence to apply auto-labels (1-100)'),
+    cfgNumber('labelScoreThreshold', 'Label Score Threshold', r.labelScoreThreshold, 'Accumulated score needed to label (1-100)'),
+    cfgNumber('maxAutoLabels', 'Max Auto-Labels', r.maxAutoLabels, 'Cap on labels applied per card (1-10)'),
+  ], 'Save Intelligence'));
+
+  // ─── Rate Limiting ───
+  body.appendChild(cfgCard('var(--purple)', 'Rate Limiting', 'API request throttling and SSE connection limits', 'cfg-rate', [
+    cfgNumber('rateLimitGeneralBurst', 'General API Burst', r.rateLimitGeneralBurst, 'Token bucket size for general endpoints'),
+    cfgNumber('rateLimitGeneralRefill', 'General API Refill/sec', r.rateLimitGeneralRefill, 'Tokens added per second'),
+    cfgNumber('rateLimitAuthBurst', 'Auth Burst', r.rateLimitAuthBurst, 'Token bucket for auth endpoints'),
+    cfgNumber('rateLimitAuthRefill', 'Auth Refill/sec', r.rateLimitAuthRefill, 'Auth tokens per second'),
+    cfgNumber('sseMaxPerIp', 'SSE Max Per IP', r.sseMaxPerIp, 'Max SSE connections per IP address'),
+    cfgNumber('sseMaxTotal', 'SSE Max Total', r.sseMaxTotal, 'Global max SSE connections'),
+  ], 'Save Rate Limits'));
+
+  // ─── Sessions & Auth ───
+  body.appendChild(cfgCard('#10B981', 'Sessions & Auth', 'Session lifetime, JWT token duration, and connection caps', 'cfg-sessions', [
+    cfgNumber('sessionMaxAgeMins', 'Session Max Age (min)', r.sessionMaxAgeMins, 'Session cookie lifetime. 1440 = 24h'),
+    cfgNumber('maxSessions', 'Max Concurrent Sessions', r.maxSessions, 'In-memory session store cap'),
+    cfgNumber('jwtTtlMins', 'JWT Token TTL (min)', r.jwtTtlMins, 'JWT expiry. 1440 = 24h'),
+  ], 'Save Sessions'));
+
+  // ─── Safety & Limits ───
+  body.appendChild(cfgCard('var(--error)', 'Safety & Limits', 'Usage thresholds, card caps, error handling, and rate-limit detection', 'cfg-limits', [
+    cfgNumber('usagePausePct', 'Usage Pause Threshold (%)', r.usagePausePct, 'Auto-pause pipeline at this Claude Max %'),
     cfgNumber('maxHourlySessions', 'Max Hourly Sessions', r.maxHourlySessions, '0 = unlimited'),
     cfgNumber('maxWeeklySessions', 'Max Weekly Sessions', r.maxWeeklySessions, '0 = unlimited'),
-  ]);
-  body.appendChild(grid);
-  body.appendChild(el('div', { style: 'margin-top:14px;text-align:right' }, [
-    el('button', { class: 'cp-btn cp-btn-primary', onclick: function() { saveSection('review'); } }, 'Save Review & Limits'),
-  ]));
+    cfgNumber('maxTotalCards', 'Max Total Cards', r.maxTotalCards, 'Hard cap on card creation (spam prevention)'),
+    cfgNumber('maxArchived', 'Max Archived Cards', r.maxArchived, 'Archived cards kept in memory'),
+    cfgNumber('heartbeatIntervalMs', 'Heartbeat Interval (ms)', r.heartbeatIntervalMs, 'Watchdog heartbeat write frequency'),
+    cfgNumber('rateLimitMinPolls', 'Rate Limit Min Polls', r.rateLimitMinPolls, 'Polls before rate-limit detection kicks in'),
+    cfgNumber('maxUncaughtBeforeExit', 'Max Uncaught Before Exit', r.maxUncaughtBeforeExit, 'Unhandled exceptions before server restart'),
+  ], 'Save Safety'));
+
+  // ─── Usage Recovery ───
+  body.appendChild(cfgCard('var(--primary)', 'Usage Recovery', 'Cache TTL, rate-limit recovery timing, and API polling', 'cfg-recovery', [
+    cfgNumber('usageCacheTtlMins', 'Usage Cache TTL (min)', r.usageCacheTtlMins, 'How long to cache Claude Max usage data'),
+    cfgNumber('maxRecoveryWaitHours', 'Max Recovery Wait (hours)', r.maxRecoveryWaitHours, 'Max wait for rate-limit reset'),
+    cfgNumber('recoveryFallbackMins', 'Recovery Fallback (min)', r.recoveryFallbackMins, 'Retry interval when no reset time available'),
+    cfgNumber('maxRecoveryPollsPerHour', 'Max Recovery Polls/Hour', r.maxRecoveryPollsPerHour, 'API polls per hour during recovery'),
+  ], 'Save Recovery'));
+
+  // ─── Retention & Cleanup ───
+  body.appendChild(cfgCard('var(--success)', 'Retention & Cleanup', 'Data retention periods and background scan intervals', 'cfg-retention', [
+    cfgNumber('logRetentionDays', 'Log Retention (days)', r.logRetentionDays, 'Build/brainstorm log files kept'),
+    cfgNumber('snapshotArchiveRetentionDays', 'Snapshot Archive (days)', r.snapshotArchiveRetentionDays, 'Archived snapshots kept'),
+    cfgNumber('maxAuditRows', 'Max Audit Rows', r.maxAuditRows, 'Audit log table size before pruning'),
+    cfgNumber('runtimeStaleHours', 'Runtime Stale (hours)', r.runtimeStaleHours, 'Runtime scripts older than this are cleaned'),
+    cfgNumber('backupRetentionDays', 'Backup Retention (days)', r.backupRetentionDays, 'Daily backups kept'),
+    cfgNumber('snapshotMaxFileSizeMb', 'Snapshot Max File (MB)', r.snapshotMaxFileSizeMb, 'Max single file size in snapshots'),
+    cfgNumber('logScanIntervalSecs', 'Log Scan Interval (sec)', r.logScanIntervalSecs, 'Error scanner frequency'),
+    cfgNumber('analysisIntervalMins', 'Analysis Interval (min)', r.analysisIntervalMins, 'Intelligence analysis frequency'),
+    cfgNumber('housekeepingIntervalMins', 'Housekeeping Interval (min)', r.housekeepingIntervalMins, 'Cleanup job frequency'),
+  ], 'Save Retention'));
+
+  // ─── Display & Webhooks ───
+  body.appendChild(cfgCard('var(--text-tertiary)', 'Display & Webhooks', 'Column visibility limits and event notifications', 'cfg-display', [
+    cfgNumber('maxDoneVisible', 'Done Column Limit', r.maxDoneVisible, '0 = show all'),
+    cfgNumber('maxArchiveVisible', 'Archive Limit', r.maxArchiveVisible, '0 = show all. DB keeps everything'),
+    cfgText('webhookUrl', 'Webhook URL', r.webhookUrl, 'POST on card state changes', true),
+  ], 'Save Display'));
 }
 
-function loadConfig() {
-  api('GET', '/api/config').then(function(d) { renderBuildConfig(d.runtime); renderReviewConfig(d.runtime); renderSystem(d); });
+function saveConfig(containerId) {
+  var container = document.getElementById(containerId);
+  var updates = collectInputs(container);
+  api('PUT', '/api/config', updates).then(function(res) { toast('Saved: ' + Object.keys(res.changed || {}).join(', '), 'success'); });
 }
 
-// --- Custom Instructions ---
+// ── CUSTOM PROMPTS ──
 var _prompts = {}, _activeTab = 'buildInstructions';
-var tabDefs = [
+var TAB_DEFS = [
   { key: 'buildInstructions', label: 'Build' },
   { key: 'reviewCriteria', label: 'Review' },
   { key: 'brainstormInstructions', label: 'Brainstorm' },
   { key: 'qualityGates', label: 'Quality Gates' },
 ];
 
+function buildPromptsPage() {
+  var page = el('div', { class: 'page', id: 'page-prompts', role: 'tabpanel', 'aria-labelledby': 'nav-prompts' });
+  page.appendChild(el('h2', 'page-heading', 'Custom Prompts'));
+  page.appendChild(el('p', 'page-desc', 'Instructions appended to default prompts for each pipeline phase.'));
+  page.appendChild(el('div', { id: 'prompts-content' }));
+  return page;
+}
+
 function renderPrompts() {
-  var body = document.getElementById('prompts-body');
+  var body = document.getElementById('prompts-content');
+  if (!body) return;
   clear(body);
-  var tabs = el('div', 'prompt-tabs');
-  tabDefs.forEach(function(t) {
-    tabs.appendChild(el('div', { class: 'prompt-tab' + (t.key === _activeTab ? ' active' : ''), onclick: function() {
-      var editor = document.getElementById('prompt-editor');
-      if (editor) _prompts[_activeTab] = editor.value;
+
+  var tabs = el('div', 'ptabs');
+  TAB_DEFS.forEach(function(t) {
+    tabs.appendChild(el('button', { class: 'ptab' + (t.key === _activeTab ? ' active' : ''), onclick: function() {
+      var ed = document.getElementById('prompt-editor');
+      if (ed) _prompts[_activeTab] = ed.value;
       _activeTab = t.key;
       renderPrompts();
     } }, t.label));
   });
   body.appendChild(tabs);
-  var editor = el('textarea', { class: 'prompt-editor', id: 'prompt-editor' });
+
+  var tabDef = TAB_DEFS.find(function(t) { return t.key === _activeTab; });
+  var editor = el('textarea', { class: 'peditor', id: 'prompt-editor', 'aria-label': (tabDef ? tabDef.label : '') + ' custom instructions' });
   editor.value = _prompts[_activeTab] || '';
   body.appendChild(editor);
-  body.appendChild(el('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-top:10px' }, [
+
+  body.appendChild(el('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-top:12px' }, [
     el('span', 'cfg-help', 'Appended to default prompts for each phase.'),
-    el('button', { class: 'cp-btn cp-btn-primary', onclick: function() {
+    el('button', { class: 'btn btn-primary', onclick: function() {
       var ed = document.getElementById('prompt-editor');
       if (ed) _prompts[_activeTab] = ed.value;
       api('PUT', '/api/custom-prompts', _prompts).then(function() { toast('Custom instructions saved', 'success'); });
@@ -707,151 +1141,540 @@ function loadPrompts() {
   api('GET', '/api/custom-prompts').then(function(d) { _prompts = d; renderPrompts(); });
 }
 
-// --- Active Processes ---
-function loadProcesses() {
-  api('GET', '/api/activities').then(function(acts) {
-    var body = document.getElementById('processes-body');
-    var badge = document.getElementById('proc-badge');
-    var keys = Object.keys(acts);
-    clear(body);
-    if (badge) badge.textContent = String(keys.length);
-    if (!keys.length) { body.appendChild(el('div', 'queue-empty', 'No active processes')); return; }
-    keys.forEach(function(id) {
-      var a = acts[id];
-      var dotCls = (a.step === 'build' || a.step === 'fix') ? 'building' : a.step === 'review' ? 'reviewing' : 'queued';
-      body.appendChild(el('div', 'process-item', [
-        el('div', 'process-dot ' + dotCls),
-        el('div', { style: 'flex:1' }, [
-          el('div', { style: 'font-weight:600' }, 'Card #' + id),
-          el('div', { style: 'font-size:10px;color:var(--text-tertiary)' }, (a.step || '') + ' \u00B7 ' + (a.detail || '')),
-        ]),
-        el('span', 'queue-meta', timeAgo(new Date(a.timestamp).toISOString())),
+// ── USAGE ──
+function buildUsagePage() {
+  var page = el('div', { class: 'page', id: 'page-usage', role: 'tabpanel', 'aria-labelledby': 'nav-usage' });
+  page.appendChild(el('h2', 'page-heading', 'Usage'));
+  page.appendChild(el('p', 'page-desc', 'Claude Max plan usage and board session tracking.'));
+
+  // Claude Max section
+  page.appendChild(el('div', 'card', [
+    el('div', 'card-head', [
+      el('div', { class: 'card-dot', style: 'background:var(--primary)' }),
+      el('div', 'card-title', 'Claude Max Plan'),
+    ]),
+    el('div', { class: 'card-body', id: 'usage-plan' }),
+  ]));
+
+  // Board sessions section
+  page.appendChild(el('div', 'card', [
+    el('div', 'card-head', [
+      el('div', { class: 'card-dot', style: 'background:var(--info)' }),
+      el('div', 'card-title', 'Board Session Usage'),
+    ]),
+    el('div', { class: 'card-body', id: 'usage-board' }),
+  ]));
+
+  return page;
+}
+
+function makeUsageBar(name, pct, resetsAt) {
+  var cls = pct >= 80 ? 'u-danger' : pct >= 50 ? 'u-warn' : 'u-ok';
+  return el('div', 'ubar', [
+    el('div', 'ubar-top', [el('span', 'ubar-name', name), el('span', 'ubar-pct', pct + '%')]),
+    el('div', { class: 'ubar-track', role: 'progressbar', 'aria-valuenow': String(Math.min(pct, 100)), 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-label': name + ': ' + pct + '%' }, [
+      el('div', { class: 'ubar-fill ' + cls, style: 'width:' + Math.min(pct, 100) + '%' })
+    ]),
+    resetsAt ? el('div', 'ubar-sub', 'Resets ' + formatReset(resetsAt)) : null,
+  ]);
+}
+
+function renderUsage(d) {
+  // Plan
+  var planEl = document.getElementById('usage-plan');
+  if (planEl) {
+    clear(planEl);
+    if (!d || !d.plan) { planEl.appendChild(el('div', 'q-empty', 'No plan data. Check ~/.claude/.credentials.json')); }
+    else {
+      var sp = d.plan.session ? d.plan.session.utilization : null;
+      var wp = d.plan.weekly ? d.plan.weekly.utilization : null;
+      if (sp !== null) planEl.appendChild(makeUsageBar('Current Session', sp, d.plan.session.resetsAt));
+      if (wp !== null) planEl.appendChild(makeUsageBar('Weekly (All Models)', wp, d.plan.weekly.resetsAt));
+      if (d.plan.sonnet && d.plan.sonnet.utilization !== null) planEl.appendChild(makeUsageBar('Sonnet Only', d.plan.sonnet.utilization, d.plan.sonnet.resetsAt));
+
+      // Update nav badge
+      if (sp !== null) {
+        var badge = document.getElementById('nav-usage-badge');
+        if (badge) {
+          badge.textContent = sp + '%';
+          badge.style.background = sp >= 80 ? 'var(--error-soft)' : sp >= 50 ? 'var(--warning-soft)' : 'var(--primary-soft)';
+          badge.style.color = sp >= 80 ? 'var(--error-text)' : sp >= 50 ? 'var(--warning-text)' : 'var(--primary-text)';
+        }
+      }
+
+      planEl.appendChild(el('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-top:10px' }, [
+        el('span', 'ubar-sub', 'Auto-pause at ' + (d.plan.pauseThreshold || 80) + '% \u00B7 Cached: ' + (d.plan.cachedAt ? timeAgo(d.plan.cachedAt) : 'never')),
+        el('button', { class: 'btn btn-sm', onclick: function() {
+          api('POST', '/api/usage/refresh').then(function(r) { renderUsage(r); toast('Usage refreshed', 'success'); });
+        } }, 'Refresh'),
       ]));
-    });
+    }
+  }
+
+  // Board
+  var boardEl = document.getElementById('usage-board');
+  if (boardEl && d && d.board) {
+    clear(boardEl);
+    var b = d.board;
+    var statsRow = el('div', 'stats-grid');
+    statsRow.appendChild(el('div', 'stat-box', [el('div', 'stat-val', String(b.hourly.count)), el('div', 'stat-lbl', 'Last Hour' + (b.hourly.limit ? ' / ' + b.hourly.limit : ''))]));
+    statsRow.appendChild(el('div', 'stat-box', [el('div', 'stat-val', String(b.weekly.count)), el('div', 'stat-lbl', 'Last 7 Days' + (b.weekly.limit ? ' / ' + b.weekly.limit : ''))]));
+    boardEl.appendChild(statsRow);
+
+    function breakdownList(title, data) {
+      if (!data || !data.length) return;
+      boardEl.appendChild(el('div', 'sub-lbl', title));
+      data.forEach(function(r) { boardEl.appendChild(el('div', 'q-item', [el('span', 'q-num', String(r.cnt)), el('span', 'q-name', r.type)])); });
+    }
+    breakdownList('Last Hour by Type', b.hourlyBreakdown);
+    breakdownList('Last 7 Days by Type', b.weeklyBreakdown);
+  }
+}
+
+// ── BACKUPS (Interactive Timeline) ──
+var _selectedBackup = null;
+var _tl = { data:[], viewStart:0, viewEnd:0, fullStart:0, fullEnd:0, zoom:1, zoomOutBtn:null, zoomInBtn:null };
+
+function buildBackupsPage() {
+  var page = el('div', { class: 'page', id: 'page-backups', role: 'tabpanel', 'aria-labelledby': 'nav-backups' });
+  page.appendChild(el('h2', 'page-heading', 'Backups'));
+  page.appendChild(el('p', 'page-desc', 'Interactive timeline for disaster recovery. Scroll to zoom, drag to pan, click a point to restore.'));
+  page.appendChild(el('div', { id: 'backups-content' }));
+  return page;
+}
+
+function renderBackups(data) {
+  var body = document.getElementById('backups-content');
+  if (!body) return;
+  var list = data.backups || [];
+  clear(body);
+
+  var badge = document.getElementById('nav-backup-badge');
+  if (badge) badge.textContent = String(list.length);
+
+  body.appendChild(el('div', { style: 'display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap' }, [
+    el('button', { class: 'btn btn-primary', onclick: function() {
+      api('POST', '/api/backups/create', { label: '' }).then(function() { _selectedBackup = null; loadBackups(); });
+    } }, 'Create Backup Now'),
+    el('span', 'cfg-help', 'Auto: hot every 5min; hourly (24); daily (' + (data.retentionDays || 7) + 'd). Scroll the timeline to zoom in.'),
+  ]));
+
+  if (!list.length) {
+    body.appendChild(el('div', 'q-empty', 'No backups yet. First auto-backup runs within 5 minutes.'));
+    return;
+  }
+
+  initTimeline(list, data.retentionDays || 7, body);
+
+  // Stats
+  var tiers = { hot: 0, hourly: 0, daily: 0 };
+  list.forEach(function(b) { tiers[b.tier] = (tiers[b.tier] || 0) + 1; });
+  var totalSize = list.reduce(function(s, b) { return s + b.size; }, 0);
+  var statsRow = el('div', { class: 'stats-grid', style: 'margin-top:16px' });
+  [[list.length, 'Total'], [fmtSize(totalSize), 'Disk Usage'], [tiers.hourly, 'Hourly'], [tiers.daily, 'Daily']].forEach(function(s) {
+    statsRow.appendChild(el('div', 'stat-box', [el('div', 'stat-val', String(s[0])), el('div', 'stat-lbl', s[1])]));
+  });
+  body.appendChild(statsRow);
+}
+
+// ── Timeline engine ──
+function pad2(n) { return n < 10 ? '0' + n : String(n); }
+
+function fmtTimeLabel(ts, viewRange) {
+  var d = new Date(ts);
+  var mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if (viewRange > 2 * 86400000) {
+    return mon[d.getMonth()] + ' ' + d.getDate();
+  } else if (viewRange > 3600000) {
+    return d.getDate() + ' ' + mon[d.getMonth()] + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  } else {
+    return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+  }
+}
+
+function fmtRange(ms) {
+  if (ms > 86400000) return (ms / 86400000).toFixed(1).replace(/\.0$/, '') + ' days';
+  if (ms > 3600000) return (ms / 3600000).toFixed(1).replace(/\.0$/, '') + ' hours';
+  return Math.round(ms / 60000) + ' min';
+}
+
+function tierColor(b) {
+  if (b.file && b.file.includes('manual')) return 'var(--purple)';
+  return b.tier === 'hot' ? 'var(--error)' : b.tier === 'hourly' ? 'var(--warning)' : 'var(--success)';
+}
+
+function tierClass(b) {
+  return (b.file && b.file.includes('manual')) ? 'manual' : b.tier;
+}
+
+function initTimeline(backups, retDays, container) {
+  var now = Date.now();
+  var sorted = backups.slice().sort(function(a, b) { return a.mtime - b.mtime; });
+
+  _tl.data = sorted;
+  _tl.fullEnd = now;
+  _tl.fullStart = now - retDays * 86400000;
+  if (sorted[0] && sorted[0].mtime < _tl.fullStart) _tl.fullStart = sorted[0].mtime - 3600000;
+  _tl.viewStart = _tl.fullStart;
+  _tl.viewEnd = now;
+  _tl.zoom = 1;
+
+  // ── Build DOM ──
+  var zoomOutBtn = el('button', { class: 'tl-zoom-btn', 'aria-label': 'Zoom out', title: 'Zoom out (or press -)', onclick: function() { tlZoomBy(0.5); } }, '\u2212');
+  var zoomInBtn = el('button', { class: 'tl-zoom-btn', 'aria-label': 'Zoom in', title: 'Zoom in (or press +)', onclick: function() { tlZoomBy(2); } }, '+');
+  var rangeLabel = el('span', { class: 'tl-range-info', id: 'tl-range', 'aria-live': 'polite' });
+  var resetBtn = el('button', { class: 'btn btn-sm', style: 'margin-left:auto', onclick: function() { tlResetZoom(); } }, 'Reset Zoom');
+  _tl.zoomOutBtn = zoomOutBtn;
+  _tl.zoomInBtn = zoomInBtn;
+
+  var viewport = el('div', {
+    class: 'tl-viewport', id: 'tl-vp', tabindex: '0',
+    'aria-label': 'Backup timeline. Scroll to zoom, drag to pan, click a dot to select. Keyboard: +/- to zoom, arrows to pan, 0 to reset.',
+  });
+  viewport.appendChild(el('div', 'tl-rail'));
+  viewport.appendChild(el('div', { id: 'tl-dots' }));
+
+  var timeRow = el('div', { class: 'tl-time-row', id: 'tl-times' });
+  var mmVp = el('div', { class: 'tl-mm-vp', id: 'tl-mm-vp' });
+  var mmDots = el('div', { id: 'tl-mm-dots' });
+  var minimap = el('div', { class: 'tl-minimap', id: 'tl-mm', 'aria-label': 'Timeline overview. Click to jump.' }, [mmDots, mmVp]);
+
+  var legend = el('div', 'tl-legend', [
+    el('div', 'tl-legend-item', [el('div', { class: 'tl-legend-dot', style: 'background:var(--error)' }), 'Hot (5min)']),
+    el('div', 'tl-legend-item', [el('div', { class: 'tl-legend-dot', style: 'background:var(--warning)' }), 'Hourly']),
+    el('div', 'tl-legend-item', [el('div', { class: 'tl-legend-dot', style: 'background:var(--success)' }), 'Daily']),
+    el('div', 'tl-legend-item', [el('div', { class: 'tl-legend-dot', style: 'background:var(--purple)' }), 'Manual']),
+  ]);
+
+  var detailBox = el('div', { id: 'tl-detail-box', 'aria-live': 'polite' });
+
+  var box = el('div', 'tl-box', [
+    el('div', 'tl-toolbar', [zoomOutBtn, zoomInBtn, rangeLabel, resetBtn]),
+    viewport, timeRow, minimap, legend,
+  ]);
+  container.appendChild(box);
+  container.appendChild(detailBox);
+
+  // Minimap dots (static)
+  var fullRange = _tl.fullEnd - _tl.fullStart;
+  sorted.forEach(function(b) {
+    var pct = ((b.mtime - _tl.fullStart) / fullRange) * 100;
+    mmDots.appendChild(el('div', { class: 'tl-mm-dot', style: 'left:' + pct + '%;background:' + tierColor(b) }));
+  });
+
+  tlUpdateView();
+
+  // ── Wheel zoom ──
+  viewport.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    var rect = viewport.getBoundingClientRect();
+    var centerPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    var factor = e.deltaY < 0 ? 1.4 : 1 / 1.4;
+    tlZoomAt(factor, centerPct);
+  }, { passive: false });
+
+  // ── Drag pan ──
+  var drag = null;
+  viewport.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return;
+    drag = { x: e.clientX, vs: _tl.viewStart, ve: _tl.viewEnd };
+    viewport.classList.add('panning');
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', function(e) {
+    if (!drag) return;
+    var rect = viewport.getBoundingClientRect();
+    var dx = e.clientX - drag.x;
+    var timeRange = drag.ve - drag.vs;
+    var shift = -(dx / rect.width) * timeRange;
+    _tl.viewStart = drag.vs + shift;
+    _tl.viewEnd = drag.ve + shift;
+    tlClampView();
+    tlUpdateView();
+  });
+  document.addEventListener('mouseup', function() {
+    if (drag) { drag = null; viewport.classList.remove('panning'); }
+  });
+
+  // ── Touch pan + pinch zoom ──
+  var lastTouches = null;
+  viewport.addEventListener('touchstart', function(e) {
+    if (e.touches.length === 1) {
+      drag = { x: e.touches[0].clientX, vs: _tl.viewStart, ve: _tl.viewEnd };
+      viewport.classList.add('panning');
+    }
+    if (e.touches.length === 2) lastTouches = [e.touches[0].clientX, e.touches[1].clientX];
+    e.preventDefault();
+  }, { passive: false });
+  viewport.addEventListener('touchmove', function(e) {
+    if (e.touches.length === 1 && drag) {
+      var dx = e.touches[0].clientX - drag.x;
+      var timeRange = drag.ve - drag.vs;
+      var rect = viewport.getBoundingClientRect();
+      var shift = -(dx / rect.width) * timeRange;
+      _tl.viewStart = drag.vs + shift;
+      _tl.viewEnd = drag.ve + shift;
+      tlClampView();
+      tlUpdateView();
+    }
+    if (e.touches.length === 2 && lastTouches) {
+      var prevDist = Math.abs(lastTouches[1] - lastTouches[0]);
+      var curDist = Math.abs(e.touches[1].clientX - e.touches[0].clientX);
+      if (prevDist > 10 && curDist > 10) {
+        var factor = curDist / prevDist;
+        var rect2 = viewport.getBoundingClientRect();
+        var mid = ((e.touches[0].clientX + e.touches[1].clientX) / 2 - rect2.left) / rect2.width;
+        tlZoomAt(factor, Math.max(0, Math.min(1, mid)));
+      }
+      lastTouches = [e.touches[0].clientX, e.touches[1].clientX];
+    }
+    e.preventDefault();
+  }, { passive: false });
+  viewport.addEventListener('touchend', function() {
+    drag = null; lastTouches = null; viewport.classList.remove('panning');
+  });
+
+  // ── Keyboard ──
+  viewport.addEventListener('keydown', function(e) {
+    var range = _tl.viewEnd - _tl.viewStart;
+    if (e.key === 'ArrowLeft') { e.preventDefault(); tlPan(-range * 0.15); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); tlPan(range * 0.15); }
+    else if (e.key === '+' || e.key === '=') { e.preventDefault(); tlZoomBy(1.5); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); tlZoomBy(1 / 1.5); }
+    else if (e.key === '0' || e.key === 'Home') { e.preventDefault(); tlResetZoom(); }
+  });
+
+  // ── Minimap click to jump ──
+  minimap.addEventListener('click', function(e) {
+    var rect = minimap.getBoundingClientRect();
+    var pct = (e.clientX - rect.left) / rect.width;
+    var viewRange = _tl.viewEnd - _tl.viewStart;
+    var center = _tl.fullStart + pct * (_tl.fullEnd - _tl.fullStart);
+    _tl.viewStart = center - viewRange / 2;
+    _tl.viewEnd = center + viewRange / 2;
+    tlClampView();
+    tlUpdateView();
   });
 }
 
-// --- Factory Reset Overlay ---
-function showResetOverlay(port) {
-  var style = document.createElement('style');
-  style.textContent = '@keyframes kspin{to{transform:rotate(360deg)}}';
-  document.head.appendChild(style);
+function tlZoomBy(factor) { tlZoomAt(factor, 0.5); }
 
-  var overlay = el('div', { style: 'position:fixed;inset:0;z-index:10000;background:var(--bg);display:flex;align-items:center;justify-content:center' });
-  var box = el('div', { style: 'max-width:420px;text-align:center;padding:32px' });
-
-  var spinner = el('div', { style: 'width:44px;height:44px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:kspin .8s linear infinite;margin:0 auto 20px' });
-  box.appendChild(spinner);
-  box.appendChild(el('div', { style: 'font-size:18px;font-weight:700;color:var(--text);margin-bottom:6px' }, 'Factory Reset'));
-
-  var statusEl = el('div', { style: 'font-size:13px;color:var(--text-secondary);margin-bottom:20px' }, 'Shutting down server...');
-  box.appendChild(statusEl);
-
-  var stepsEl = el('div', { style: 'text-align:left;font-family:var(--mono);font-size:12px;line-height:2.2;color:var(--text-secondary)' });
-  box.appendChild(stepsEl);
-
-  box.appendChild(el('div', { style: 'margin-top:20px;font-size:11px;color:var(--text-tertiary)' }, 'Do not close this tab.'));
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-
-  var steps = ['Shutting down server', 'Deleting old files', 'Cloning repository', 'Installing dependencies', 'Starting server'];
-  var current = 0;
-
-  function render() {
-    clear(stepsEl);
-    for (var i = 0; i < steps.length; i++) {
-      var done = i < current;
-      var active = i === current;
-      var color = done ? 'var(--success)' : active ? 'var(--primary)' : 'var(--text-tertiary)';
-      var icon = done ? '[done] ' : active ? '[....] ' : '[    ] ';
-      stepsEl.appendChild(el('div', { style: 'color:' + color + (active ? ';font-weight:600' : '') }, icon + steps[i]));
-    }
-    if (current < steps.length) statusEl.textContent = steps[current] + '...';
-  }
-  render();
-
-  // Timer-based progress (approximate — actual work runs in detached script)
-  setTimeout(function() { current = 1; render(); }, 4000);
-  setTimeout(function() { current = 2; render(); }, 10000);
-  setTimeout(function() { current = 3; render(); }, 25000);
-  setTimeout(function() { current = 4; render(); }, 50000);
-
-  // Poll health starting after 15s
-  var startTime = Date.now();
-  var maxWait = 300000; // 5 min
-  setTimeout(function() {
-    var poll = setInterval(function() {
-      if (Date.now() - startTime > maxWait) {
-        clearInterval(poll);
-        spinner.style.animation = 'none';
-        spinner.style.borderColor = 'var(--error)';
-        statusEl.textContent = 'Taking too long. Check _kanban_reset.log in parent folder.';
-        return;
-      }
-      fetch('http://localhost:' + port + '/health', { mode: 'no-cors' })
-        .then(function() {
-          clearInterval(poll);
-          current = 5;
-          clear(stepsEl);
-          for (var i = 0; i < steps.length; i++) {
-            stepsEl.appendChild(el('div', { style: 'color:var(--success)' }, '[done] ' + steps[i]));
-          }
-          stepsEl.appendChild(el('div', { style: 'color:var(--success);font-weight:600' }, '[done] Ready'));
-          spinner.style.animation = 'none';
-          spinner.style.borderColor = 'var(--success)';
-          spinner.style.borderTopColor = 'var(--success)';
-          statusEl.textContent = 'Reset complete! Redirecting...';
-          setTimeout(function() { window.location.href = 'http://localhost:' + port + '/'; }, 2000);
-        })
-        .catch(function() {}); // still down, keep polling
-    }, 3000);
-  }, 15000);
+function tlZoomAt(factor, centerPct) {
+  var range = _tl.viewEnd - _tl.viewStart;
+  var center = _tl.viewStart + range * centerPct;
+  var newRange = range / factor;
+  var fullRange = _tl.fullEnd - _tl.fullStart;
+  if (newRange > fullRange) newRange = fullRange;
+  if (newRange < 180000) newRange = 180000; // min 3 minutes
+  _tl.viewStart = center - newRange * centerPct;
+  _tl.viewEnd = center + newRange * (1 - centerPct);
+  _tl.zoom = fullRange / newRange;
+  tlClampView();
+  tlUpdateView();
 }
 
-// --- System Info ---
+function tlPan(deltaMs) {
+  _tl.viewStart += deltaMs;
+  _tl.viewEnd += deltaMs;
+  tlClampView();
+  tlUpdateView();
+}
+
+function tlResetZoom() {
+  _tl.viewStart = _tl.fullStart;
+  _tl.viewEnd = _tl.fullEnd;
+  _tl.zoom = 1;
+  tlUpdateView();
+}
+
+function tlClampView() {
+  var range = _tl.viewEnd - _tl.viewStart;
+  if (_tl.viewStart < _tl.fullStart) { _tl.viewStart = _tl.fullStart; _tl.viewEnd = _tl.fullStart + range; }
+  if (_tl.viewEnd > _tl.fullEnd) { _tl.viewEnd = _tl.fullEnd; _tl.viewStart = _tl.fullEnd - range; }
+  if (_tl.viewStart < _tl.fullStart) _tl.viewStart = _tl.fullStart;
+}
+
+function tlUpdateView() {
+  tlRenderDots();
+  tlRenderTimeLabels();
+  tlRenderMinimapVp();
+  tlRenderRangeLabel();
+  tlUpdateBtnState();
+  if (_selectedBackup) {
+    var box = document.getElementById('tl-detail-box');
+    if (box) renderBackupDetail(_selectedBackup, box);
+  }
+}
+
+function tlRenderDots() {
+  var dotsEl = document.getElementById('tl-dots');
+  if (!dotsEl) return;
+  clear(dotsEl);
+  var vs = _tl.viewStart, ve = _tl.viewEnd, range = ve - vs;
+  if (range <= 0) return;
+
+  // Now marker
+  if (_tl.fullEnd >= vs && _tl.fullEnd <= ve) {
+    var nowPct = ((_tl.fullEnd - vs) / range) * 100;
+    dotsEl.appendChild(el('div', { class: 'tl-now-line', style: 'left:' + nowPct + '%', 'aria-hidden': 'true' }));
+  }
+
+  // Backup dots
+  _tl.data.forEach(function(b) {
+    if (b.mtime < vs || b.mtime > ve) return;
+    var pct = ((b.mtime - vs) / range) * 100;
+    var isSel = _selectedBackup && _selectedBackup.path === b.path;
+    var dot = el('button', {
+      class: 'tl-point ' + tierClass(b) + (isSel ? ' sel' : ''),
+      style: 'left:' + pct + '%',
+      'aria-label': b.file + ', ' + fmtDate(b.modified) + ', ' + fmtSize(b.size),
+      onclick: function(e) {
+        e.stopPropagation();
+        _selectedBackup = b;
+        tlRenderDots();
+        renderBackupDetail(b, document.getElementById('tl-detail-box'));
+      }
+    });
+    dot.appendChild(el('span', 'tl-tip', fmtDate(b.modified)));
+    dotsEl.appendChild(dot);
+  });
+}
+
+function tlRenderTimeLabels() {
+  var labelsEl = document.getElementById('tl-times');
+  if (!labelsEl) return;
+  clear(labelsEl);
+  var range = _tl.viewEnd - _tl.viewStart;
+  var w = labelsEl.offsetWidth || 600;
+  var count = Math.max(2, Math.min(8, Math.floor(w / 100)));
+  for (var i = 0; i < count; i++) {
+    var t = _tl.viewStart + (i / (count - 1)) * range;
+    labelsEl.appendChild(el('span', 'tl-time-mark', fmtTimeLabel(t, range)));
+  }
+}
+
+function tlRenderMinimapVp() {
+  var mmVp = document.getElementById('tl-mm-vp');
+  if (!mmVp) return;
+  var fullRange = _tl.fullEnd - _tl.fullStart;
+  var startPct = ((_tl.viewStart - _tl.fullStart) / fullRange) * 100;
+  var widthPct = ((_tl.viewEnd - _tl.viewStart) / fullRange) * 100;
+  mmVp.style.left = startPct + '%';
+  mmVp.style.width = widthPct + '%';
+}
+
+function tlRenderRangeLabel() {
+  var label = document.getElementById('tl-range');
+  if (!label) return;
+  var range = _tl.viewEnd - _tl.viewStart;
+  var zoomStr = _tl.zoom <= 1.05 ? 'Full range' : Math.round(_tl.zoom) + 'x zoom';
+  label.textContent = zoomStr + ' \u00B7 ' + fmtRange(range);
+}
+
+function tlUpdateBtnState() {
+  var fullRange = _tl.fullEnd - _tl.fullStart;
+  var range = _tl.viewEnd - _tl.viewStart;
+  if (_tl.zoomOutBtn) _tl.zoomOutBtn.disabled = range >= fullRange * 0.99;
+  if (_tl.zoomInBtn) _tl.zoomInBtn.disabled = range <= 180000;
+}
+
+function renderBackupDetail(b, container) {
+  clear(container);
+  var ageMs = Date.now() - b.mtime;
+  var tierLabel = (b.file && b.file.includes('manual')) ? 'Manual' : b.tier.charAt(0).toUpperCase() + b.tier.slice(1);
+
+  container.appendChild(el('div', 'tl-detail', [
+    el('div', 'tl-detail-time', fmtAgo(ageMs)),
+    el('div', { style: 'width:4px;height:36px;border-radius:2px;background:' + tierColor(b), 'aria-hidden': 'true' }),
+    el('div', 'tl-detail-info', [
+      el('div', 'tl-detail-title', b.file),
+      el('div', 'tl-detail-meta', tierLabel + ' \u00B7 ' + fmtSize(b.size) + ' \u00B7 ' + fmtDate(b.modified)),
+    ]),
+    el('div', 'tl-detail-actions', [
+      el('button', { class: 'btn btn-danger', onclick: function() {
+        if (confirm('Restore database to this point?\n\n' + b.file + '\n' + fmtDate(b.modified) + '\n\nCurrent DB will be safety-backed up first.')) {
+          api('POST', '/api/backups/restore', { backupPath: b.path, confirm: true }).then(function(r) {
+            if (r.success) toast('Restored! Restart server to apply.', 'success');
+            else toast('Restore failed: ' + r.reason, 'error');
+          });
+        }
+      } }, 'Restore'),
+    ]),
+  ]));
+}
+
+function loadBackups() { api('GET', '/api/backups').then(renderBackups); }
+
+// ── SYSTEM ──
+function buildSystemPage() {
+  var page = el('div', { class: 'page', id: 'page-system', role: 'tabpanel', 'aria-labelledby': 'nav-system' });
+  page.appendChild(el('h2', 'page-heading', 'System'));
+  page.appendChild(el('p', 'page-desc', 'Server information, housekeeping, and danger zone controls.'));
+  page.appendChild(el('div', { id: 'sys-content' }));
+  return page;
+}
+
 function renderSystem(d) {
-  var body = document.getElementById('system-body');
+  var body = document.getElementById('sys-content');
+  if (!body) return;
   clear(body);
   var e = d.env, s = d.status;
-  var grid = el('div', 'sys-grid');
+
+  // Server info card
+  var infoCard = el('div', 'card');
+  infoCard.appendChild(el('div', 'card-head', [el('div', { class: 'card-dot', style: 'background:var(--text-tertiary)' }), el('div', 'card-title', 'Server Information')]));
+  var infoBody = el('div', 'card-body');
+  var grid = el('div', 'info-grid');
   [
     ['Platform', e.platform], ['Node', e.nodeVersion], ['Server PID', e.pid], ['Port', e.port],
     ['Projects Root', e.projectsRoot], ['Uptime', fmtUptime(e.uptime)], ['Memory', e.memoryMB + ' MB'],
     ['Active Pollers', s.activePollers], ['Active Fixes', s.activeFixes], ['Pipeline', s.pipelinePaused ? 'Paused' : 'Running'],
   ].forEach(function(pair) {
-    grid.appendChild(el('div', 'sys-item', [el('span', 'sys-key', pair[0]), el('span', 'sys-val', String(pair[1]))]));
+    grid.appendChild(el('div', 'info-row', [el('span', 'info-key', pair[0]), el('span', 'info-val', String(pair[1]))]));
   });
-  body.appendChild(grid);
+  infoBody.appendChild(grid);
+  infoCard.appendChild(infoBody);
+  body.appendChild(infoCard);
 
-  // --- Housekeeping ---
-  body.appendChild(el('div', { class: 'sec-label sec-label-mt', style: 'margin-top:18px' }, 'Data Housekeeping'));
-  var hkContainer = el('div', { id: 'hk-stats' });
-  body.appendChild(hkContainer);
-  api('GET', '/api/housekeeping').then(function(hk) { renderHousekeeping(hk, hkContainer); });
+  // Housekeeping card
+  var hkCard = el('div', 'card');
+  hkCard.appendChild(el('div', 'card-head', [el('div', { class: 'card-dot', style: 'background:var(--success)' }), el('div', 'card-title', 'Data Housekeeping')]));
+  var hkBody = el('div', { class: 'card-body', id: 'hk-stats' });
+  hkCard.appendChild(hkBody);
+  body.appendChild(hkCard);
+  api('GET', '/api/housekeeping').then(function(hk) { renderHousekeeping(hk, document.getElementById('hk-stats')); });
 
-  // --- Factory Reset ---
-  body.appendChild(el('div', { class: 'sec-label sec-label-mt', style: 'margin-top:18px;color:var(--error)' }, 'Danger Zone'));
-  var resetBox = el('div', { style: 'padding:14px 16px;background:var(--error-soft);border:1px solid var(--error);border-radius:var(--radius-sm);display:flex;align-items:center;gap:12px' }, [
-    el('div', { style: 'flex:1' }, [
-      el('div', { style: 'font-size:13px;font-weight:600;color:var(--error)' }, 'Factory Reset'),
-      el('div', { style: 'font-size:11px;color:var(--text-secondary);margin-top:2px' }, 'Delete entire project folder, git clone fresh, install deps, restart server. Your .env is preserved.'),
+  // Danger zone
+  var dangerCard = el('div', 'card', [
+    el('div', { class: 'card-head', style: 'border-bottom-color:var(--error)' }, [
+      el('div', { class: 'card-dot', style: 'background:var(--error)' }),
+      el('div', { class: 'card-title', style: 'color:var(--error-text)' }, 'Danger Zone'),
     ]),
-    el('button', { class: 'cp-btn cp-btn-danger', style: 'white-space:nowrap', onclick: function() {
-      var pass1 = confirm('FACTORY RESET\n\nThis will:\n- Delete the entire project folder\n- Git clone a fresh copy from remote\n- Install dependencies\n- Restart the server automatically\n\nYour .env file will be preserved.\nThis cannot be undone. Continue?');
-      if (!pass1) return;
-      var pass2 = prompt('Type RESET to confirm:');
-      if (pass2 !== 'RESET') { toast('Factory reset cancelled', 'info'); return; }
-      api('POST', '/api/factory-reset', { confirm: true }).then(function(r) {
-        if (r.success) showResetOverlay(r.port);
-      });
-    } }, 'Factory Reset'),
+    el('div', 'card-body', [
+      el('div', 'danger-box', [
+        el('div', 'danger-info', [
+          el('div', 'danger-title', 'Factory Reset'),
+          el('div', 'danger-desc', 'Delete entire project folder, git clone fresh, install deps, restart server. Your .env is preserved.'),
+        ]),
+        el('button', { class: 'btn btn-danger', style: 'white-space:nowrap', onclick: function() {
+          var pass1 = confirm('FACTORY RESET\n\nThis will:\n- Delete the entire project folder\n- Git clone a fresh copy from remote\n- Install dependencies\n- Restart the server\n\nYour .env file will be preserved.\nThis cannot be undone. Continue?');
+          if (!pass1) return;
+          var pass2 = prompt('Type RESET to confirm:');
+          if (pass2 !== 'RESET') { toast('Factory reset cancelled', 'info'); return; }
+          api('POST', '/api/factory-reset', { confirm: true }).then(function(r) {
+            if (r.success) showResetOverlay(r.port);
+          });
+        } }, 'Factory Reset'),
+      ]),
+    ]),
   ]);
-  body.appendChild(resetBox);
+  body.appendChild(dangerCard);
 }
 
 function renderHousekeeping(hk, container) {
+  if (!container) return;
   clear(container);
-  var grid = el('div', 'sys-grid');
+  var grid = el('div', 'info-grid');
   [
     ['Logs', fmtSize(hk.logs.size) + ' (' + hk.logs.files + ' files)'],
     ['Snapshots', fmtSize(hk.snapshots.size) + ' (' + hk.snapshots.files + ' files)'],
@@ -860,233 +1683,151 @@ function renderHousekeeping(hk, container) {
     ['Backups', fmtSize(hk.backups.size) + ' (' + hk.backups.files + ' files)'],
     ['Total .data/', fmtSize(hk.total)],
   ].forEach(function(pair) {
-    grid.appendChild(el('div', 'sys-item', [el('span', 'sys-key', pair[0]), el('span', 'sys-val', pair[1])]));
+    grid.appendChild(el('div', 'info-row', [el('span', 'info-key', pair[0]), el('span', 'info-val', pair[1])]));
   });
   container.appendChild(grid);
-  container.appendChild(el('div', { style: 'display:flex;gap:8px;align-items:center;margin-top:10px' }, [
-    el('button', { class: 'cp-btn', onclick: function() {
+  container.appendChild(el('div', { style: 'display:flex;gap:8px;align-items:center;margin-top:12px' }, [
+    el('button', { class: 'btn', onclick: function() {
       api('POST', '/api/housekeeping/run').then(function(r) {
-        var msg = 'Cleaned: ' + r.logs + ' logs, ' + r.markers + ' markers, ' + r.runtime + ' scripts, ' + r.snapshotArchive + ' archives, ' + r.audit + ' audit rows';
-        toast(msg, 'success');
+        toast('Cleaned: ' + r.logs + ' logs, ' + r.markers + ' markers, ' + r.runtime + ' scripts, ' + r.snapshotArchive + ' archives, ' + r.audit + ' audit', 'success');
         api('GET', '/api/housekeeping').then(function(hk2) { renderHousekeeping(hk2, container); });
       });
     } }, 'Run Cleanup Now'),
-    el('span', 'cfg-help', 'Auto-runs every 30min. Prunes logs >7d, stale scripts >24h, archives >14d, audit >10K rows.'),
+    el('span', 'cfg-help', 'Auto-runs every 30min. Prunes logs >7d, scripts >24h, archives >14d, audit >10K rows.'),
   ]));
 }
 
-// --- Board Usage ---
-function loadBoardUsage() {
-  api('GET', '/api/usage').then(function(d) {
-    if (!d || !d.board) return;
-    var b = d.board, body = document.getElementById('board-usage-body');
-    clear(body);
-    var statsRow = el('div', 'stats-row');
-    statsRow.appendChild(el('div', 'stat-card', [
-      el('div', 'stat-card-value', String(b.hourly.count)),
-      el('div', 'stat-card-label', 'Last Hour' + (b.hourly.limit ? ' / ' + b.hourly.limit : '')),
-    ]));
-    statsRow.appendChild(el('div', 'stat-card', [
-      el('div', 'stat-card-value', String(b.weekly.count)),
-      el('div', 'stat-card-label', 'Last 7 Days' + (b.weekly.limit ? ' / ' + b.weekly.limit : '')),
-    ]));
-    body.appendChild(statsRow);
-    function breakdownList(title, data) {
-      if (!data || !data.length) return;
-      body.appendChild(el('div', 'sec-label' + (title.includes('7') ? ' sec-label-mt' : ''), title));
-      data.forEach(function(r) {
-        body.appendChild(el('div', 'queue-item', [el('span', 'queue-pos', String(r.cnt)), el('span', 'queue-title', r.type)]));
-      });
+// ── Factory Reset Overlay ──
+function showResetOverlay(port) {
+  var style = document.createElement('style');
+  style.textContent = '@keyframes kspin{to{transform:rotate(360deg)}}';
+  document.head.appendChild(style);
+
+  var ov = el('div', { style: 'position:fixed;inset:0;z-index:10000;background:var(--bg);display:flex;align-items:center;justify-content:center' });
+  var box = el('div', { style: 'max-width:420px;text-align:center;padding:32px' });
+  var spinner = el('div', { style: 'width:44px;height:44px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:kspin .8s linear infinite;margin:0 auto 20px' });
+  box.appendChild(spinner);
+  box.appendChild(el('div', { style: 'font-size:20px;font-weight:700;margin-bottom:8px' }, 'Factory Reset'));
+
+  var statusEl = el('div', { style: 'font-size:15px;color:var(--text-secondary);margin-bottom:20px;line-height:1.5' }, 'Shutting down server...');
+  box.appendChild(statusEl);
+
+  var stepsEl = el('div', { style: 'text-align:left;font-family:var(--mono);font-size:14px;line-height:2.2;color:var(--text-secondary)' });
+  box.appendChild(stepsEl);
+  box.appendChild(el('div', { style: 'margin-top:20px;font-size:13px;color:var(--text-tertiary)' }, 'Do not close this tab.'));
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+
+  var steps = ['Shutting down server', 'Deleting old files', 'Cloning repository', 'Installing dependencies', 'Starting server'];
+  var current = 0;
+
+  function render() {
+    clear(stepsEl);
+    for (var i = 0; i < steps.length; i++) {
+      var done = i < current, active = i === current;
+      var color = done ? 'var(--success)' : active ? 'var(--primary)' : 'var(--text-tertiary)';
+      var icon = done ? '[done] ' : active ? '[....] ' : '[    ] ';
+      stepsEl.appendChild(el('div', { style: 'color:' + color + (active ? ';font-weight:600' : '') }, icon + steps[i]));
     }
-    breakdownList('Last Hour by Type', b.hourlyBreakdown);
-    breakdownList('Last 7 Days by Type', b.weeklyBreakdown);
-  });
-}
-
-// --- Database Backups — Timeline DR ---
-function fmtSize(bytes) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / 1048576).toFixed(1) + ' MB';
-}
-
-function fmtDate(iso) {
-  var d = new Date(iso);
-  var day = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
-  var mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
-  return day + ' ' + mon + ' ' + d.getDate() + ', ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-}
-
-function fmtAgo(ms) {
-  var mins = Math.floor(ms / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return mins + 'm ago';
-  var hrs = Math.floor(mins / 60);
-  if (hrs < 24) return hrs + 'h ' + (mins % 60) + 'm ago';
-  var days = Math.floor(hrs / 24);
-  return days + 'd ' + (hrs % 24) + 'h ago';
-}
-
-var _selectedBackup = null;
-
-function renderBackups(data) {
-  var body = document.getElementById('backups-body');
-  var badge = document.getElementById('backup-badge');
-  var list = data.backups || [];
-  clear(body);
-  if (badge) badge.textContent = String(list.length);
-
-  // Controls row
-  var controls = el('div', { style: 'display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap' }, [
-    el('button', { class: 'cp-btn cp-btn-primary', onclick: function() {
-      api('POST', '/api/backups/create', { label: '' }).then(function() { _selectedBackup = null; loadBackups(); });
-    } }, 'Create Backup Now'),
-    el('span', 'cfg-help', 'Auto: hot every 5min \u00B7 hourly (24) \u00B7 daily (' + (data.retentionDays || 7) + 'd). Click a point to restore.'),
-  ]);
-  body.appendChild(controls);
-
-  if (!list.length) {
-    body.appendChild(el('div', 'queue-empty', 'No backups yet. First auto-backup runs within 5 minutes of server start.'));
-    return;
+    if (current < steps.length) statusEl.textContent = steps[current] + '...';
   }
+  render();
 
-  // --- Timeline ---
-  var now = Date.now();
-  var retDays = data.retentionDays || 7;
-  var rangeMs = retDays * 86400000;
-  var oldest = now - rangeMs;
+  setTimeout(function() { current = 1; render(); }, 4000);
+  setTimeout(function() { current = 2; render(); }, 10000);
+  setTimeout(function() { current = 3; render(); }, 25000);
+  setTimeout(function() { current = 4; render(); }, 50000);
 
-  // Filter to visible range + sort oldest first
-  var visible = list.filter(function(b) { return b.mtime >= oldest; });
-  visible.sort(function(a, b) { return a.mtime - b.mtime; });
-
-  // If all backups are newer than range (e.g. first day), expand range to cover them
-  if (visible.length > 0 && visible[0].mtime > oldest) {
-    oldest = Math.min(oldest, visible[0].mtime - 3600000); // 1h padding
-  }
-
-  var track = el('div', 'tl-track');
-  track.appendChild(el('div', 'tl-rail'));
-  track.appendChild(el('div', 'tl-now'));
-
-  // Detail container (below timeline)
-  var detailBox = el('div', { id: 'tl-detail-box' });
-
-  // Place dots
-  visible.forEach(function(b) {
-    var pct = Math.max(0, Math.min(100, ((b.mtime - oldest) / (now - oldest)) * 100));
-    var tierClass = b.file.includes('manual') ? 'manual' : b.tier;
-    var dot = el('div', { class: 'tl-dot ' + tierClass + ((_selectedBackup && _selectedBackup.path === b.path) ? ' selected' : ''), style: 'left:' + pct + '%' });
-    dot.appendChild(el('div', 'tl-tip', fmtDate(b.modified)));
-    dot.addEventListener('click', function(e) {
-      e.stopPropagation();
-      _selectedBackup = b;
-      // Update selection visuals
-      var allDots = track.querySelectorAll('.tl-dot');
-      for (var i = 0; i < allDots.length; i++) allDots[i].classList.remove('selected');
-      dot.classList.add('selected');
-      renderDetail(b, detailBox);
-    });
-    track.appendChild(dot);
-  });
-
-  var wrap = el('div', 'tl-wrap');
-  wrap.appendChild(track);
-
-  // Day labels under timeline
-  var labels = el('div', 'tl-labels');
-  for (var d = retDays; d >= 0; d--) {
-    var lbl = d === 0 ? 'Now' : d + 'd';
-    labels.appendChild(el('span', 'tl-label', lbl));
-  }
-  wrap.appendChild(labels);
-  body.appendChild(wrap);
-
-  // Legend
-  var legend = el('div', 'tl-legend', [
-    el('div', 'tl-legend-item', [el('div', { class: 'tl-legend-dot', style: 'background:var(--error)' }), 'Hot (5min)']),
-    el('div', 'tl-legend-item', [el('div', { class: 'tl-legend-dot', style: 'background:var(--warning)' }), 'Hourly']),
-    el('div', 'tl-legend-item', [el('div', { class: 'tl-legend-dot', style: 'background:var(--success)' }), 'Daily']),
-    el('div', 'tl-legend-item', [el('div', { class: 'tl-legend-dot', style: 'background:#8B5CF6' }), 'Manual']),
-  ]);
-  body.appendChild(legend);
-
-  // Show detail if we have a selection
-  if (_selectedBackup) {
-    var match = visible.find(function(b) { return b.path === _selectedBackup.path; });
-    if (match) renderDetail(match, detailBox);
-  }
-  body.appendChild(detailBox);
-
-  // Summary stats
-  var tiers = { hot: 0, hourly: 0, daily: 0 };
-  list.forEach(function(b) { tiers[b.tier] = (tiers[b.tier] || 0) + 1; });
-  var totalSize = list.reduce(function(s, b) { return s + b.size; }, 0);
-  var statsRow = el('div', { class: 'stats-row', style: 'margin-top:14px' });
-  [[list.length, 'Total Backups'], [fmtSize(totalSize), 'Disk Usage'], [tiers.hourly, 'Hourly'], [tiers.daily, 'Daily']].forEach(function(s) {
-    statsRow.appendChild(el('div', 'stat-card', [el('div', 'stat-card-value', String(s[0])), el('div', 'stat-card-label', s[1])]));
-  });
-  body.appendChild(statsRow);
-}
-
-function renderDetail(b, container) {
-  clear(container);
-  var ageMs = Date.now() - b.mtime;
-  var tierLabel = b.file.includes('manual') ? 'Manual' : b.tier.charAt(0).toUpperCase() + b.tier.slice(1);
-  var tierColor = b.tier === 'hot' ? 'var(--error)' : b.tier === 'hourly' ? 'var(--warning)' : 'var(--success)';
-  if (b.file.includes('manual')) tierColor = '#8B5CF6';
-
-  var detail = el('div', 'tl-detail', [
-    el('div', 'tl-detail-time', fmtAgo(ageMs)),
-    el('div', { style: 'width:4px;height:32px;border-radius:2px;background:' + tierColor }),
-    el('div', 'tl-detail-info', [
-      el('div', 'tl-detail-title', b.file),
-      el('div', 'tl-detail-meta', tierLabel + ' \u00B7 ' + fmtSize(b.size) + ' \u00B7 ' + fmtDate(b.modified)),
-    ]),
-    el('button', { class: 'cp-btn cp-btn-danger', style: 'font-size:12px;padding:8px 18px;white-space:nowrap', onclick: function() {
-      if (confirm('Restore database to this point?\n\n' + b.file + '\n' + fmtDate(b.modified) + '\n\nCurrent DB will be safety-backed up first.\nServer restart required after restore.')) {
-        api('POST', '/api/backups/restore', { backupPath: b.path }).then(function(r) {
-          if (r.success) toast('Restored! Restart server to apply.', 'success');
-          else toast('Restore failed: ' + r.reason, 'error');
-        });
+  var startTime = Date.now();
+  setTimeout(function() {
+    var poll = setInterval(function() {
+      if (Date.now() - startTime > 300000) {
+        clearInterval(poll);
+        spinner.style.animation = 'none'; spinner.style.borderColor = 'var(--error)';
+        statusEl.textContent = 'Taking too long. Check _kanban_reset.log in parent folder.';
+        return;
       }
-    } }, 'Restore'),
-  ]);
-  container.appendChild(detail);
+      fetch('http://localhost:' + port + '/health', { mode: 'no-cors' }).then(function() {
+        clearInterval(poll);
+        current = 5;
+        clear(stepsEl);
+        for (var i = 0; i < steps.length; i++) stepsEl.appendChild(el('div', { style: 'color:var(--success)' }, '[done] ' + steps[i]));
+        stepsEl.appendChild(el('div', { style: 'color:var(--success);font-weight:600' }, '[done] Ready'));
+        spinner.style.animation = 'none'; spinner.style.borderColor = 'var(--success)'; spinner.style.borderTopColor = 'var(--success)';
+        statusEl.textContent = 'Reset complete! Redirecting...';
+        setTimeout(function() { window.location.href = 'http://localhost:' + port + '/'; }, 2000);
+      }).catch(function() {});
+    }, 3000);
+  }, 15000);
 }
 
-function loadBackups() {
-  api('GET', '/api/backups').then(renderBackups);
-}
-
-// --- SSE ---
+// ══════════════════════════════════════════════
+// SSE
+// ══════════════════════════════════════════════
 var es = new EventSource('/api/events');
 es.addEventListener('toast', function(e) { var d = JSON.parse(e.data); toast(d.message, d.type); });
-es.addEventListener('pipeline-state', function() { loadPipeline(); });
+es.addEventListener('pipeline-state', function() { loadPipeline(); loadOverview(); });
 es.addEventListener('config-updated', function() { loadConfig(); });
-es.addEventListener('mode-updated', function(e) { try { renderMode(JSON.parse(e.data)); } catch (_) { loadMode(); } });
+es.addEventListener('mode-updated', function(e) { try { _modeState = JSON.parse(e.data); loadConfig(); } catch (_) { loadMode(); loadConfig(); } });
 es.addEventListener('discovery-state', function() { loadMode(); });
-es.addEventListener('usage-update', function(e) { renderUsage(JSON.parse(e.data)); });
-es.addEventListener('queue-update', function() { loadPipeline(); });
-es.addEventListener('card-activity', function() { loadProcesses(); });
+es.addEventListener('usage-update', function(e) { try { renderUsage(JSON.parse(e.data)); } catch (_) {} });
+es.addEventListener('queue-update', function() { loadPipeline(); loadOverview(); });
+es.addEventListener('card-activity', function() { loadOverview(); });
 
-// --- Init (called after PIN auth) ---
+// ══════════════════════════════════════════════
+// DATA LOADING
+// ══════════════════════════════════════════════
+var _modeState = {};
+var _cachedUsage = null;
+var _cachedPipe = { paused: false };
+var _cachedQueue = { active: [], queue: [] };
+var _cachedActs = {};
+
+function loadOverview() {
+  Promise.all([api('GET', '/api/pipeline'), api('GET', '/api/queue'), api('GET', '/api/activities')])
+    .then(function(r) {
+      _cachedPipe = r[0]; _cachedQueue = r[1]; _cachedActs = r[2];
+      renderOverview(_cachedPipe, _cachedQueue, _cachedActs, _cachedUsage);
+    });
+}
+
+function loadMode() {
+  api('GET', '/api/mode').then(function(d) { _modeState = d; });
+}
+
+function loadConfig() {
+  Promise.all([api('GET', '/api/config'), api('GET', '/api/mode')])
+    .then(function(r) {
+      _modeState = r[1];
+      renderConfig(r[0], _modeState);
+      renderSystem(r[0]);
+    });
+}
+
+// ══════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════
+var _appInited = false;
+
 function initApp() {
   if (_appInited) return;
   _appInited = true;
-  buildPageSections();
-  loadMode();
-  api('GET', '/api/usage').then(renderUsage);
+
+  document.getElementById('layout').style.display = '';
+  buildNav();
+  buildPages();
+
+  // Load all data
+  api('GET', '/api/usage').then(function(d) { _cachedUsage = d; renderUsage(d); loadOverview(); });
   loadPipeline();
   loadConfig();
   loadPrompts();
-  loadProcesses();
   loadBackups();
-  loadBoardUsage();
-  setInterval(function() { loadPipeline(); loadProcesses(); }, 30000);
+
+  // Periodic refresh
+  setInterval(function() { loadPipeline(); loadOverview(); }, 30000);
 }
 
-// Kick off session check
 checkSession();
 
 })();

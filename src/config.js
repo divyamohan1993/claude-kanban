@@ -64,9 +64,65 @@ const runtime = {
   specFeedbackLoop: (process.env.SPEC_FEEDBACK_LOOP || 'true') === 'true',
   // Percentage of brainstorms that receive confrontational spec challenges (0-100)
   confrontationalPct: Number(process.env.CONFRONTATIONAL_PCT) || 70,
+  // Spec approval gate: if true, brainstorm outputs go to 'spec-ready' status for human approval
+  specApprovalGate: (process.env.SPEC_APPROVAL_GATE || 'false') === 'true',
+
+  // --- Rate-Limit Recovery ---
+  heartbeatIntervalMs: Number(process.env.HEARTBEAT_INTERVAL_MS) || 30 * 1000,
+  rateLimitMinPolls: Number(process.env.RATE_LIMIT_MIN_POLLS) || 6,
+
+  // --- Polling & Timeouts ---
+  pollIntervalMs: Number(process.env.POLL_INTERVAL_MS) || 5000,
+  brainstormTimeoutMins: Number(process.env.BRAINSTORM_TIMEOUT_MINS) || 30,
+  decomposeTimeoutMins: Number(process.env.DECOMPOSE_TIMEOUT_MINS) || 15,
+  selfHealTimeoutMins: Number(process.env.SELF_HEAL_TIMEOUT_MINS) || 10,
+  discoveryTimeoutMins: Number(process.env.DISCOVERY_TIMEOUT_MINS) || 30,
+
+  // --- Rate Limiting ---
+  rateLimitGeneralBurst: Number(process.env.RATE_LIMIT_GENERAL_BURST) || 200,
+  rateLimitGeneralRefill: Number(process.env.RATE_LIMIT_GENERAL_REFILL) || 100,
+  rateLimitAuthBurst: Number(process.env.RATE_LIMIT_AUTH_BURST) || 5,
+  rateLimitAuthRefill: Number(process.env.RATE_LIMIT_AUTH_REFILL) || 1,
+  sseMaxPerIp: Number(process.env.SSE_MAX_PER_IP) || 5,
+  sseMaxTotal: Number(process.env.SSE_MAX_TOTAL) || 200,
+
+  // --- Sessions ---
+  sessionMaxAgeMins: Number(process.env.SESSION_MAX_AGE_MINS) || 1440,
+  maxSessions: Number(process.env.MAX_SESSIONS) || 10000,
+  jwtTtlMins: Number(process.env.JWT_TTL_MINS) || 1440,
+
+  // --- Data Retention ---
+  logRetentionDays: Number(process.env.LOG_RETENTION_DAYS) || 7,
+  snapshotArchiveRetentionDays: Number(process.env.SNAPSHOT_ARCHIVE_RETENTION_DAYS) || 14,
+  maxAuditRows: Number(process.env.MAX_AUDIT_ROWS) || 10000,
+  runtimeStaleHours: Number(process.env.RUNTIME_STALE_HOURS) || 24,
+  maxArchived: Number(process.env.MAX_ARCHIVED) || 50,
+
+  // --- Intelligence Thresholds ---
+  autoLabelConfidence: Number(process.env.AUTO_LABEL_CONFIDENCE) || 40,
+  labelScoreThreshold: Number(process.env.LABEL_SCORE_THRESHOLD) || 60,
+  maxAutoLabels: Number(process.env.MAX_AUTO_LABELS) || 3,
+
+  // --- Card & Snapshot Limits ---
+  maxTotalCards: Number(process.env.MAX_TOTAL_CARDS) || 500,
+  snapshotMaxFileSizeMb: Number(process.env.SNAPSHOT_MAX_FILE_SIZE_MB) || 10,
+
+  // --- Server Intervals ---
+  logScanIntervalSecs: Number(process.env.LOG_SCAN_INTERVAL_SECS) || 30,
+  analysisIntervalMins: Number(process.env.ANALYSIS_INTERVAL_MINS) || 30,
+  housekeepingIntervalMins: Number(process.env.HOUSEKEEPING_INTERVAL_MINS) || 60,
+
+  // --- Error Handling ---
+  maxUncaughtBeforeExit: Number(process.env.MAX_UNCAUGHT_BEFORE_EXIT) || 10,
+
+  // --- Usage Recovery ---
+  usageCacheTtlMins: Number(process.env.USAGE_CACHE_TTL_MINS) || 55,
+  maxRecoveryWaitHours: Number(process.env.MAX_RECOVERY_WAIT_HOURS) || 6,
+  recoveryFallbackMins: Number(process.env.RECOVERY_FALLBACK_MINS) || 30,
+  maxRecoveryPollsPerHour: Number(process.env.MAX_RECOVERY_POLLS_PER_HOUR) || 2,
 };
 
-// Housekeeping constants
+// Legacy aliases — use runtime.xxx in new code
 const LOG_RETENTION_DAYS = 7;
 const SNAPSHOT_ARCHIVE_RETENTION_DAYS = 14;
 const MAX_AUDIT_ROWS = 10000;

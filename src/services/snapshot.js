@@ -1,9 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const { SNAPSHOT_ROOT, SNAPSHOT_ARCHIVE } = require('../config');
+const { SNAPSHOT_ROOT, SNAPSHOT_ARCHIVE, runtime } = require('../config');
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.data', '.pnpm-store']);
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 function archiveSnapshot(snapDir) {
   if (!fs.existsSync(snapDir)) return;
@@ -29,7 +28,7 @@ function walkDir(dir, base) {
     } else {
       try {
         const stat = fs.statSync(full);
-        if (stat.size <= MAX_FILE_SIZE) files.push(rel);
+        if (stat.size <= runtime.snapshotMaxFileSizeMb * 1024 * 1024) files.push(rel);
       } catch (_) {}
     }
   }

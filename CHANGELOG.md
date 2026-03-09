@@ -2,6 +2,187 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.1.0] - 2026-03-09
+
+### Changed
+- **WCAG 2.2 AAA compliance**: Full accessibility overhaul of main board, modals, and login page
+  - Color contrast: All text meets 7:1 ratio (normal) / 4.5:1 (large) in both light and dark themes
+  - Light mode: text-secondary #44403C, text-tertiary #504C47, primary #9A5B0A, success #15572A, error #991B1B
+  - Dark mode: text-secondary #C4C0BC, text-tertiary #C1BDB9, primary #F5B73B, success #4ADE80, error #FCA5A5
+  - Font sizes: Minimum 12px across entire UI (was 9px in labels, badges, timestamps)
+  - Line heights: 1.5+ on all body text for readability
+  - Target sizes: All interactive elements meet 44x44px minimum (icon buttons, modal close, idea controls)
+  - Focus indicators: 3px outline + box-shadow on all interactive elements via `focus-visible`
+  - Skip-to-content link for keyboard navigation bypass
+  - Reduced motion: `prefers-reduced-motion` media query on all transitions
+- **Focus trapping**: MutationObserver auto-traps focus inside active modals (Tab cycles through focusable elements)
+- **Card accessibility**: Cards are keyboard-navigable with `tabindex="0"`, `role="article"`, `aria-label`, Enter key opens detail
+- **Toast accessibility**: ARIA `role="status"` and `aria-live="polite"` on toast notifications, 6s display duration
+- **Card spacing**: Increased gap between cards (5px to 10px), card padding (10px to 12px/14px), list padding (5px to 8px) for clear visual separation
+- **Login page**: AAA-compliant colors, minimum 44px button height, focus-visible styles, reduced motion support
+- **Semantic HTML**: Added `role="banner"` on header, `role="main"` on board, `aria-modal="true"` on all 8 modals
+
+## [3.0.0] - 2026-03-09
+
+### Added
+- **First-run setup wizard**: `/auth/setup` appears automatically on fresh install
+  - 3-step wizard: create super admin account, configure SSO provider, review and confirm
+  - Permanently locked after completion (requires reclone/reinstall to access again)
+  - Password strength meter with visual feedback
+- **Super Admin role**: New top-level role above admin in the hierarchy
+  - `superadmin > admin > user` role chain
+  - Only one superadmin account allowed (created during setup)
+  - Superadmin has exclusive access to user management and SSO configuration
+  - Cannot be deleted or disabled via the UI
+- **DB-backed user store**: Replaces hardcoded user array with SQLite `users` table
+  - AES-256-GCM field-level encryption for sensitive data (email)
+  - Master encryption key auto-generated and stored in config table
+  - Argon2id password hashing (64MB, 3 iterations, timing-safe rejection)
+  - Default users (admin/admin, user/user) seeded on first run
+- **User management suite**: Full CRUD for super admins at `/users` on admin server
+  - Create, edit, delete users with role assignment
+  - Role-based access control: superadmin can assign admin or user roles
+  - Enable/disable accounts without deletion
+  - Protected superadmin account (cannot be deleted or role-changed)
+  - Control panel nav link to user management page
+- **SSO configuration**: Choose between built-in auth, OIDC, SAML 2.0, or LDAP
+  - OIDC: issuer URL, client ID, client secret, redirect URI
+  - SAML: entry point, issuer/entity ID, IdP certificate
+  - LDAP: server URL, bind DN, bind password, search base, search filter
+  - All secrets encrypted with AES-256-GCM at rest
+  - Configuration stored in DB config table
+- **User management API**: RESTful endpoints (superadmin-only)
+  - `GET /api/users` — list all users
+  - `POST /api/users` — create user
+  - `PUT /api/users/:id` — update user
+  - `DELETE /api/users/:id` — delete user
+  - `GET /api/sso-config` — get SSO configuration (redacted secrets)
+- **`requireSuperAdmin` middleware**: New SSO middleware for superadmin-only routes
+- **Setup redirect middleware**: All routes redirect to `/auth/setup` until first-run setup is complete
+
+### Changed
+- **`requireAdmin` middleware**: Now accepts both `admin` and `superadmin` roles
+- **Session check**: Returns `userManagement: true` for superadmin sessions, `adminPath` for both admin and superadmin
+- **Admin redirect**: Accepts superadmin role in addition to admin
+
+## [2.8.0] - 2026-03-09
+
+### Changed
+- **WCAG 2.2 AAA compliance**: Full accessibility overhaul of control panel
+  - Color contrast: All text meets 7:1 minimum ratio. Added `-text` variants for all accent colors
+  - Font sizes: Minimum 13px across entire UI (was 9px). Body text 14-15px
+  - Line height: Base 1.6, descriptions 1.5 for improved readability
+  - Focus indicators: Global `focus-visible` ring on all interactive elements
+  - Target sizes: All buttons, toggles, nav items meet 44px minimum
+  - Skip-to-content link for keyboard navigation
+  - Semantic HTML: `<h1>`/`<h2>` headings, `<main>`, `<nav>`, `<p>` elements
+  - ARIA: `role="tab/tabpanel"`, `aria-selected`, `aria-controls`, `aria-labelledby`, `aria-expanded`, `role="switch"` with `aria-checked`, `role="progressbar"` on usage bars, `aria-live` regions, `aria-describedby` on config inputs linked to help text
+  - Toggle switches: Larger (44x24px), `role="switch"`, keyboard-focusable with visible ring
+  - Toasts: `role="alert"`, container `aria-live="assertive"`
+  - Reduced motion: Already supported via `prefers-reduced-motion`
+- **Interactive backup timeline**: Replaces static dot timeline with zoomable, pannable explorer
+  - Mouse wheel zoom centered on cursor position (min 3 minutes, max full range)
+  - Click-and-drag panning when zoomed in
+  - Touch support: single-finger pan, pinch-to-zoom
+  - Keyboard: +/- zoom, arrow keys pan, 0/Home resets
+  - Minimap bar showing full range with viewport indicator, click to jump
+  - Adaptive time labels (days/hours/minutes) based on zoom level
+  - Zoom level display with range indicator
+  - Click any dot to select and show detail panel with restore button
+
+## [2.7.0] - 2026-03-09
+
+### Changed
+- **Control panel redesign**: Replaced accordion-based layout with enterprise sidebar + tab navigation. All 7 sections (Overview, Pipeline, Configuration, Custom Prompts, Usage, Backups, System) visible in fixed sidebar at all times. Anthropic Claude theme, system fonts only for fastest render on old hardware
+- **Full runtime configurability**: Extracted ~55 hardcoded constants from 12 service files into `runtime` config object. All parameters now live-configurable via admin control panel without server restart
+- **11 config cards**: Configuration page organized into Mode & Project, Build & Timeouts, Review & Quality, Intelligence & Brainstorm, Rate Limiting, Sessions & Auth, Safety & Limits, Usage Recovery, Retention & Cleanup, Display & Webhooks
+- **Service file updates**: Replaced hardcoded values in brainstorm.js, pipeline.js, auto-discover.js, rate-limit.js, session-store.js, sso/index.js, snapshot.js, intelligence.js, public.js, admin.js, server.js with runtime references
+- **Rate limiter dynamic config**: Token bucket CONFIG object now uses getters reading from runtime, allowing live rate-limit tuning
+- **Session store dynamic config**: Removed hardcoded MAX_AGE_MS and MAX_SESSIONS constants, reads from runtime.sessionMaxAgeMins and runtime.maxSessions
+- **getConfig/setConfig expansion**: usage.js now exposes all ~55 runtime fields via API with per-field validation (min/max bounds)
+
+## [2.6.0] - 2026-03-09
+
+### Changed
+- **DB indexes**: Added 7 indexes on cards (column_name+deleted_at, status, project_path, parent_card_id, updated_at), sessions (card_id), and claude_usage (started_at). All queries that filter/sort by these columns now use index scans instead of full table scans
+- **COUNT queries**: Added `countAll`, `countTotal`, `countByColumn`, `countByStatus`, `auditCount` prepared statements. Replaces `getAll().length` full table loads with O(1) index-backed counts. Used in `checkCardLimit`, `isPipelineIdle`, `autoArchiveDone`, `runHousekeeping`
+- **O(n\u00b2) \u2192 O(n) card enrichment**: `computeDisplay()` dependency and parent lookups now use a `Map<id, card>` built once per `enrichCards()` call. Previously iterated all cards for every dependency check (100 cards = 10,000 iterations; now 100 cards = 100 Map lookups)
+- **Aggregation queries**: Added `projectTrustStats` (count+avg score by project), `completedTitles` (done/archive titles), `reviewScores` (all scores), `getByColumn` (cards filtered by column). Eliminates `getAll().concat(getArchived())` full scans in intelligence, brainstorm, and auto-archive
+- **O(n*m) auto-labeling**: `autoLabel()` builds a `Map<keyword, rule>` for O(1) lookups instead of nested loop over words x rules. `bumpApplied` tracking uses Set of matched IDs
+- **N+1 elimination**: Eliminated 25+ duplicate `cards.get(id)` calls across route handlers. Each create/update/move handler now fetches the card once and reuses the result for broadcast + response
+- **Progressive trust SQL**: `getProjectTrust()` uses SQL `COUNT + AVG` aggregation with project index instead of loading all cards then filtering in JS
+- **Brainstorm completed work**: `buildBrainstormPrompt()` uses `getCompletedTitles()` SQL query instead of `getAll().concat(getArchived())` full scan
+- **Auto-archive targeted**: `autoArchiveDone()` uses `getByColumn('done')` (pre-sorted) instead of loading all cards and filtering
+- **analyzeAndTune single-pass**: Review scores collected in same loop as timeout/build stats (was separate `.filter().map()` pass)
+- **canBrainstorm merged**: Two separate iterations (brainstorm check + orphan check) consolidated into single pass
+- **getDiff merged**: Two passes over `originalFiles` (removed + modified) merged into single pass
+- **Removed resetStuckCards**: Superseded by `recoverOrphanedCards()` which has better recovery semantics (building to interrupted vs idle, fixing to fix-interrupted for priority resume)
+- **Server middleware dedup**: Extracted `applyCommonMiddleware()` function applied to both public and admin Express apps. Was 14 duplicate middleware registrations, now 7 in one function
+- **Server timeout dedup**: Extracted `hardenServer()` function for request/header/keep-alive timeouts. Was 8 duplicate property assignments, now 4 in one function
+- **Housekeeping single-pass**: Merged `dirSize()` and `countFiles()` into `dirStats()` that returns both size and file count in a single recursive traversal. Was 10 stat calls per directory (2 functions x 5 dirs), now 5
+- **Audit count optimization**: `runHousekeeping()` uses `audit.count()` (O(1) index query) instead of `audit.all().length` (loads all rows into memory)
+- **Trends single-pass**: `/api/trends` endpoint computes all stats (weekly buckets, totals, scores, approve rates) in a single iteration. Was 7 separate `.filter()` passes over the full card list
+- **Pipeline killAll single-pass**: Consolidated 3 separate iterations over all cards (brainstorm, fix, review) into a single loop
+- **Pipeline resume single-pass**: Consolidated 3 separate iterations (rate-limited, fix-interrupted, frozen) into a single loop
+- **Escalation dedup search**: `escalateToHuman()` uses `cards.search()` instead of `cards.getAll().find()` for existing escalation check
+- **Removed duplicate imports**: Eliminated redundant `runtime` require in server.js (was imported twice)
+- **Removed redundant DATA_DIR check**: Was checked 3 times across config.js, db/index.js, and server.js; removed the server.js duplicate
+
+## [2.5.0] - 2026-03-09
+
+### Added
+- **Rate-limit detection**: All polling loops (build, brainstorm, review, fix, decompose) now scan CLI log files for rate-limit error patterns (429, quota exceeded, usage limit, etc.). Detection triggers within 30 seconds instead of waiting 15-60 minutes for idle timeout
+- **Rate-limited card status**: New `rate-limited` card status preserves which phase (build, brainstorm, review) was interrupted. Cards auto-recover when usage resets, no manual intervention needed
+- **Smart usage recovery**: When pipeline pauses due to usage limits, reads `resets_at` from cached API data to predict exact reset time. Schedules auto-resume 1 minute after predicted reset. Max 2 API polls per hour to avoid hammering the endpoint. Falls back to 30-minute cache re-checks if no valid reset time available
+- **Pause reason tracking**: Pipeline pause now tracks reason (`user`, `usage-limit`, `rate-limit-detected`). Only usage-related pauses trigger auto-recovery. Manual pauses remain manual
+- **Crash resilience**: `uncaughtException` and `unhandledRejection` handlers prevent Node.js from crashing on transient errors. Orchestrator stays alive to resume pipeline when limits reset. Counter resets every 5 minutes; exits only after 10 rapid-fire failures (watchdog restarts)
+- **Heartbeat file**: Server writes `.data/.heartbeat` every 30 seconds with PID, uptime, memory, and pipeline state. Used by external watchdog for crash detection
+- **Watchdog scripts**: `watchdog.bat` (Windows) and `watchdog.sh` (Unix) monitor heartbeat file, auto-restart server on crash or hang. Kills orphaned node processes before restart. Can run as Task Scheduler job or systemd service
+- **Restart marker**: Server writes `.data/.restart-requested` when too many uncaught exceptions occur, signaling watchdog to perform clean restart
+
+### Changed
+- **Pipeline state broadcast**: `pipeline-state` SSE event now includes `pauseReason` field for UI to distinguish between manual and automatic pauses
+- **Crash recovery**: `recoverOrphanedCards()` now handles `rate-limited` status and auto-starts recovery poller if rate-limited cards exist from previous crash
+
+### Fixed
+- **review.js unused import**: Removed `getEffectiveProjectPath` import that was never used
+
+## [2.4.1] - 2026-03-09
+
+### Fixed
+- **Critical: brainstorm.js crash** — `log` variable shadowed the Pino logger with a file path string, causing `TypeError: log.error is not a function` when `decomposeSpec()` or auto-start-work failed. Both `executeBrainstorm()` and `decomposeSpec()` had the same bug. Renamed to `bsLogFile`/`dcLogFile`
+- **Crash recovery gap** — Cards in `queued` status were not recovered on server restart. Since the work queue is in-memory, these became zombie cards stuck in queue forever. Now reset to `idle` in their current column
+- **activeBuilds memory leak** — If `executeWork()` threw after `activeBuilds.set()`, the catch block in `processQueue()` never called `activeBuilds.delete()`, leaking the Map entry and permanently blocking that project path
+- **Folder creation ordering** — Project folder was created AFTER `snapshot.take()`, causing snapshot to fail on new projects. Moved `mkdirSync` before snapshot
+- **approve-spec missing guards** — Endpoint allowed approving any card regardless of status or column. Now requires `status === 'spec-ready'` AND `column_name === 'brainstorm'`
+- **Review finding null safety** — `computeDisplay()` could crash on malformed `review_data`: non-array findings, null finding objects, or findings with missing `message` field. Added `Array.isArray()` guard, null checks per finding, and `message` existence check before string operations
+- **Bulk-create column validation** — Invalid column names were accepted without validation. Now skips items with columns not in `VALID_COLUMNS`
+- **Command palette listener leak** — Every keystroke in the command palette created new click listeners on result rows. Replaced per-row `addEventListener` with event delegation on the `cmdResults` container
+- **Template rendering leak** — Templates were re-fetched from API on every modal open, creating new click listeners each time. Added template caching and event delegation on the grid
+- **SSE reconnect data loss** — On SSE disconnect/reconnect, no state sync occurred. Missed events left the UI stale. Now calls `loadCards()` + `loadQueue()` on reconnect
+- **Dependency index validation** — `decomposeSpec()` accepted negative or non-integer `depends_on_index` values from AI output. Now validates `Number.isInteger()`, `>= 0`, and `< childIds.length`
+
+### Added
+- **Trust level badge** — Cards with project paths now show progressive trust level (building/trusted/proven) as a badge. Computed server-side via `intelligence.getProjectTrust()`
+- **Custom prompt size limits** — Admin `PUT /api/custom-prompts` now validates each field against 100KB max. Prevents DoS via oversized prompt injection
+- **Snapshot path traversal protection** — `getDiff()` now validates the `projectPath` from snapshot manifests against `validateProjectPath()`. Prevents reading arbitrary files via tampered snapshot `_manifest.json`
+
+## [2.4.0] - 2026-03-09
+
+### Added
+- **Crash recovery**: On server startup, detects cards stuck in transient states (building, reviewing, fixing, brainstorming) from previous crashes. Resets each to a recoverable state: building cards become interrupted, reviewing cards reset to idle, fixing cards preserve review findings for resumption, brainstorming cards freeze for restart on resume. Logged with per-card detail
+- **Review score breakdown**: Card display now includes category-level finding counts (security, quality, performance, accessibility, completeness) with severity indicators. Replaces opaque single-number score with transparent breakdown visible on every card
+- **Build failure summaries**: Cards scoring below 8 show the top critical finding directly on the card badge. No more log diving to understand why a build scored low
+- **Progressive trust**: Per-project trust levels (new, building, trusted, proven) based on completed card count and average review scores. Proven projects (10+ builds, avg score >= 7.5) auto-approve at score 7 instead of 8. All threshold changes are checkpoint-protected
+- **Card templates**: Six pre-built templates (Bug Report, Feature, Refactor, Security Fix, Performance, Testing) with structured bodies, title prefixes, and default labels. Template picker grid in the idea modal
+- **Trend sparklines**: Weekly completion rate sparkline in the header stats bar. `GET /api/trends` endpoint returns 8-week completion history, score trends, auto-approve rate, and success rate
+- **Command palette**: `Ctrl+K` / `Cmd+K` opens a quick-action search overlay. Search actions (New Idea, Pause/Resume Pipeline, Toggle Dark Mode, View Archive, Metrics, Control Panel) and cards by title/labels. Full keyboard navigation with arrow keys, Enter to select, Escape to close
+- **Spec approval gate**: Optional `SPEC_APPROVAL_GATE=true` setting holds cards in brainstorm column after spec generation. User reviews spec and clicks "Approve Spec" to promote to todo. Skipped in single-project mode. Configurable via control panel
+
+### Changed
+- **Auto-approve threshold**: Now dynamic per project via progressive trust instead of hardcoded score >= 8. New projects still require 8, proven projects can auto-approve at 7
+- **Header stats**: Now includes trend sparkline and pass-rate indicator alongside existing Total/Active/Queued/Done counts
+
 ## [2.3.0] - 2026-03-09
 
 ### Added

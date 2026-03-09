@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>User Management - Claude Kanban</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0a;
+    color: #e5e5e5;
+    min-height: 100vh;
+    padding: 2rem;
+  }
+
+  .page-header {
+    max-width: 960px; margin: 0 auto 2rem;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .page-header h1 { font-size: 1.3rem; font-weight: 600; }
+  .page-header .subtitle { font-size: 0.75rem; color: #666; margin-top: 0.2rem; }
+  .header-actions { display: flex; gap: 0.75rem; align-items: center; }
+
+  .container { max-width: 960px; margin: 0 auto; }
+
+  .card {
+    background: #141414; border: 1px solid #2a2a2a; border-radius: 12px;
+    padding: 1.5rem; margin-bottom: 1.5rem;
+  }
+  .card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
+
+  .sso-status {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    font-size: 0.75rem; padding: 0.3rem 0.7rem; border-radius: 6px;
+    background: #1a1a1a; border: 1px solid #333;
+  }
+  .sso-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .sso-dot.active { background: #4a9; }
+  .sso-dot.inactive { background: #888; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  thead th {
+    text-align: left; padding: 0.6rem 0.8rem; color: #888;
+    font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em;
+    border-bottom: 1px solid #222;
+  }
+  tbody td {
+    padding: 0.7rem 0.8rem; border-bottom: 1px solid #1a1a1a;
+    vertical-align: middle;
+  }
+  tbody tr:hover { background: #1a1a1a; }
+
+  .role-badge {
+    display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px;
+    font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em;
+  }
+  .role-superadmin { background: #e8925a22; color: #e8925a; border: 1px solid #e8925a44; }
+  .role-admin { background: #3498db22; color: #5dade2; border: 1px solid #3498db44; }
+  .role-user { background: #2ecc7122; color: #58d68d; border: 1px solid #2ecc7144; }
+
+  .status-enabled { color: #4a9; }
+  .status-disabled { color: #e74c3c; }
+
+  .action-btn {
+    padding: 0.25rem 0.6rem; border: 1px solid #333; border-radius: 6px;
+    background: #1a1a1a; color: #ccc; font-size: 0.75rem; cursor: pointer;
+    transition: all 0.15s; margin-right: 0.3rem;
+  }
+  .action-btn:hover { background: #222; border-color: #555; }
+  .action-btn.danger { color: #e74c3c; border-color: #e74c3c33; }
+  .action-btn.danger:hover { background: #1a1010; }
+
+  button {
+    padding: 0.6rem 1.2rem; border: none; border-radius: 8px; font-size: 0.85rem;
+    font-weight: 600; cursor: pointer; transition: all 0.2s;
+  }
+  .btn-primary { background: #e8925a; color: #000; }
+  .btn-primary:hover { background: #d4783f; }
+  .btn-secondary { background: #222; color: #ccc; border: 1px solid #333; }
+  .btn-secondary:hover { background: #2a2a2a; }
+  .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
+
+  /* Modal */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 100; align-items: center; justify-content: center;
+  }
+  .modal-overlay.visible { display: flex; }
+  .modal {
+    background: #141414; border: 1px solid #2a2a2a; border-radius: 14px;
+    padding: 2rem; width: 100%; max-width: 440px;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+  }
+  .modal h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 1.2rem; }
+  .modal .field { margin-bottom: 0.8rem; }
+  .modal label { display: block; font-size: 0.78rem; color: #aaa; margin-bottom: 0.25rem; font-weight: 500; }
+  .modal input, .modal select {
+    width: 100%; padding: 0.55rem 0.8rem; background: #0d0d0d; border: 1px solid #333;
+    border-radius: 8px; color: #e5e5e5; font-size: 0.85rem; outline: none;
+  }
+  .modal input:focus, .modal select:focus { border-color: #e8925a; }
+  .modal .btn-row { display: flex; gap: 0.75rem; margin-top: 1.2rem; }
+  .modal .btn-row button { flex: 1; }
+  .modal .error-msg { color: #e74c3c; font-size: 0.78rem; margin-top: 0.5rem; min-height: 1em; }
+
+  .empty-state { text-align: center; padding: 2rem; color: #555; font-size: 0.85rem; }
+
+  .back-link {
+    color: #888; text-decoration: none; font-size: 0.8rem;
+    display: inline-flex; align-items: center; gap: 0.3rem;
+  }
+  .back-link:hover { color: #e8925a; }
+
+  .toast {
+    position: fixed; bottom: 2rem; right: 2rem; padding: 0.8rem 1.2rem;
+    background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+    font-size: 0.8rem; z-index: 200; opacity: 0; transition: opacity 0.3s;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  .toast.visible { opacity: 1; }
+  .toast.success { border-color: #4a944; color: #4a9; }
+  .toast.error { border-color: #e74c3c44; color: #e74c3c; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <h1>User Management</h1>
+    <div class="subtitle">Manage users, roles, and access control</div>
+  </div>
+  <div class="header-actions">
+    <span class="sso-status" id="sso-status">
+      <span class="sso-dot active"></span>
+      <span id="sso-provider-label">Built-in Auth</span>
+    </span>
+    <button class="btn-primary btn-sm" id="btn-add-user">+ New User</button>
+    <a href="/" class="back-link">&#x2190; Control Panel</a>
+  </div>
+</div>
+
+<div class="container">
+  <!-- User Table -->
+  <div class="card">
+    <h2>Users</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Display Name</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Last Login</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="users-table"></tbody>
+    </table>
+    <div class="empty-state" id="empty-state" style="display:none">No users found</div>
+  </div>
+
+  <!-- Role Info -->
+  <div class="card">
+    <h2>Role Hierarchy</h2>
+    <table>
+      <thead>
+        <tr><th>Role</th><th>Capabilities</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="role-badge role-superadmin">Super Admin</span></td>
+          <td>Full system control. User management, SSO configuration, control panel, all admin features. Only one allowed.</td>
+        </tr>
+        <tr>
+          <td><span class="role-badge role-admin">Admin</span></td>
+          <td>Control panel access, pipeline management, config editing. Cannot manage users or SSO.</td>
+        </tr>
+        <tr>
+          <td><span class="role-badge role-user">User</span></td>
+          <td>Board access: view cards, create cards, manage workflow. Future: layered permissions per user.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Create/Edit User Modal -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <h3 id="modal-title">New User</h3>
+    <input type="hidden" id="modal-user-id">
+    <div class="field">
+      <label for="modal-username">Username</label>
+      <input type="text" id="modal-username" maxlength="64" placeholder="johndoe" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="modal-display">Display Name</label>
+      <input type="text" id="modal-display" maxlength="100" placeholder="John Doe">
+    </div>
+    <div class="field">
+      <label for="modal-email">Email</label>
+      <input type="email" id="modal-email" maxlength="200" placeholder="john@example.com">
+    </div>
+    <div class="field">
+      <label for="modal-role">Role</label>
+      <select id="modal-role">
+        <option value="user">User</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="modal-password">Password</label>
+      <input type="password" id="modal-password" maxlength="128" placeholder="Min 4 characters">
+    </div>
+    <div class="field" id="field-enabled" style="display:none">
+      <label for="modal-enabled">Status</label>
+      <select id="modal-enabled">
+        <option value="1">Enabled</option>
+        <option value="0">Disabled</option>
+      </select>
+    </div>
+    <div class="error-msg" id="modal-error"></div>
+    <div class="btn-row">
+      <button class="btn-secondary" id="btn-modal-cancel">Cancel</button>
+      <button class="btn-primary" id="btn-modal-save">Create User</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal-overlay" id="delete-modal">
+  <div class="modal">
+    <h3>Delete User</h3>
+    <p style="font-size:0.85rem;color:#aaa;margin-bottom:1rem">
+      Are you sure you want to permanently delete <strong id="delete-username"></strong>?
+      This action cannot be undone.
+    </p>
+    <input type="hidden" id="delete-user-id">
+    <div class="error-msg" id="delete-error"></div>
+    <div class="btn-row">
+      <button class="btn-secondary" id="btn-delete-cancel">Cancel</button>
+      <button class="btn-primary" style="background:#e74c3c" id="btn-delete-confirm">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  var usersTable = document.getElementById('users-table');
+  var emptyState = document.getElementById('empty-state');
+  var userModal = document.getElementById('user-modal');
+  var deleteModal = document.getElementById('delete-modal');
+  var toastEl = document.getElementById('toast');
+  var toastTimer = null;
+
+  function toast(msg, type) {
+    toastEl.textContent = msg;
+    toastEl.className = 'toast visible ' + (type || 'success');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function() { toastEl.classList.remove('visible'); }, 3000);
+  }
+
+  function api(method, url, body, cb) {
+    var xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    if (body) xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onload = function() {
+      try { cb(null, JSON.parse(xhr.responseText), xhr.status); }
+      catch (_) { cb('Bad response'); }
+    };
+    xhr.onerror = function() { cb('Connection failed'); };
+    xhr.send(body ? JSON.stringify(body) : null);
+  }
+
+  // Helper to create elements safely (no innerHTML)
+  function el(tag, attrs, children) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      var keys = Object.keys(attrs);
+      for (var i = 0; i < keys.length; i++) {
+        if (keys[i] === 'className') node.className = attrs[keys[i]];
+        else if (keys[i] === 'textContent') node.textContent = attrs[keys[i]];
+        else if (keys[i].indexOf('on') === 0) node.addEventListener(keys[i].slice(2), attrs[keys[i]]);
+        else node.setAttribute(keys[i], attrs[keys[i]]);
+      }
+    }
+    if (children) {
+      if (typeof children === 'string') node.textContent = children;
+      else if (Array.isArray(children)) {
+        for (var c = 0; c < children.length; c++) {
+          if (children[c]) node.appendChild(children[c]);
+        }
+      }
+    }
+    return node;
+  }
+
+  function roleClass(role) {
+    if (role === 'superadmin') return 'role-badge role-superadmin';
+    if (role === 'admin') return 'role-badge role-admin';
+    return 'role-badge role-user';
+  }
+
+  function roleName(role) {
+    if (role === 'superadmin') return 'Super Admin';
+    if (role === 'admin') return 'Admin';
+    return 'User';
+  }
+
+  function renderUsers(users) {
+    while (usersTable.firstChild) usersTable.removeChild(usersTable.firstChild);
+
+    if (!users || users.length === 0) {
+      emptyState.style.display = 'block';
+      return;
+    }
+    emptyState.style.display = 'none';
+
+    for (var i = 0; i < users.length; i++) {
+      var u = users[i];
+      var tr = el('tr', null, [
+        el('td', null, u.username),
+        el('td', null, u.name || u.username),
+        el('td', null, [el('span', { className: roleClass(u.role) }, roleName(u.role))]),
+        el('td', null, [
+          el('span', { className: u.enabled !== false ? 'status-enabled' : 'status-disabled' },
+            u.enabled !== false ? 'Active' : 'Disabled')
+        ]),
+        el('td', { style: 'font-size:0.75rem;color:#888' }, u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : 'Never'),
+        el('td', null, buildActions(u)),
+      ]);
+      usersTable.appendChild(tr);
+    }
+  }
+
+  function buildActions(user) {
+    var frag = document.createDocumentFragment();
+    if (user.role !== 'superadmin') {
+      frag.appendChild(el('button', {
+        className: 'action-btn',
+        textContent: 'Edit',
+        onclick: function() { openEditModal(user); },
+      }));
+      frag.appendChild(el('button', {
+        className: 'action-btn danger',
+        textContent: 'Delete',
+        onclick: function() { openDeleteModal(user); },
+      }));
+    } else {
+      frag.appendChild(el('button', {
+        className: 'action-btn',
+        textContent: 'Edit',
+        onclick: function() { openEditModal(user); },
+      }));
+      frag.appendChild(el('span', { style: 'font-size:0.7rem;color:#555;margin-left:0.3rem' }, 'Protected'));
+    }
+    return frag;
+  }
+
+  function loadUsers() {
+    api('GET', '/api/users', null, function(err, data) {
+      if (err) { toast(err, 'error'); return; }
+      if (data.error) { toast(data.error, 'error'); return; }
+      renderUsers(data.users || data);
+    });
+  }
+
+  function loadSsoStatus() {
+    api('GET', '/api/sso-config', null, function(err, data) {
+      if (err) return;
+      var providerLabels = { builtin: 'Built-in Auth', oidc: 'OIDC', saml: 'SAML 2.0', ldap: 'LDAP' };
+      var label = document.getElementById('sso-provider-label');
+      if (data && data.provider) label.textContent = providerLabels[data.provider] || data.provider;
+    });
+  }
+
+  // Create user modal
+  document.getElementById('btn-add-user').addEventListener('click', function() {
+    document.getElementById('modal-title').textContent = 'New User';
+    document.getElementById('modal-user-id').value = '';
+    document.getElementById('modal-username').value = '';
+    document.getElementById('modal-username').disabled = false;
+    document.getElementById('modal-display').value = '';
+    document.getElementById('modal-email').value = '';
+    document.getElementById('modal-role').value = 'user';
+    document.getElementById('modal-password').value = '';
+    document.getElementById('modal-password').placeholder = 'Min 4 characters';
+    document.getElementById('field-enabled').style.display = 'none';
+    document.getElementById('modal-error').textContent = '';
+    document.getElementById('btn-modal-save').textContent = 'Create User';
+    userModal.classList.add('visible');
+  });
+
+  function openEditModal(user) {
+    document.getElementById('modal-title').textContent = 'Edit User';
+    document.getElementById('modal-user-id').value = user.sub;
+    document.getElementById('modal-username').value = user.username;
+    document.getElementById('modal-username').disabled = true;
+    document.getElementById('modal-display').value = user.name || '';
+    document.getElementById('modal-email').value = user.email || '';
+    document.getElementById('modal-role').value = user.role;
+    if (user.role === 'superadmin') {
+      document.getElementById('modal-role').disabled = true;
+    } else {
+      document.getElementById('modal-role').disabled = false;
+    }
+    document.getElementById('modal-password').value = '';
+    document.getElementById('modal-password').placeholder = 'Leave blank to keep current';
+    document.getElementById('field-enabled').style.display = 'block';
+    document.getElementById('modal-enabled').value = user.enabled !== false ? '1' : '0';
+    document.getElementById('modal-error').textContent = '';
+    document.getElementById('btn-modal-save').textContent = 'Save Changes';
+    userModal.classList.add('visible');
+  }
+
+  document.getElementById('btn-modal-cancel').addEventListener('click', function() {
+    userModal.classList.remove('visible');
+  });
+
+  document.getElementById('btn-modal-save').addEventListener('click', function() {
+    var errEl = document.getElementById('modal-error');
+    errEl.textContent = '';
+    var userId = document.getElementById('modal-user-id').value;
+    var isEdit = !!userId;
+
+    var payload = {
+      username: document.getElementById('modal-username').value.trim(),
+      displayName: document.getElementById('modal-display').value.trim(),
+      email: document.getElementById('modal-email').value.trim(),
+      role: document.getElementById('modal-role').value,
+    };
+
+    var pw = document.getElementById('modal-password').value;
+    if (pw) payload.password = pw;
+    if (isEdit) payload.enabled = document.getElementById('modal-enabled').value === '1';
+
+    if (!isEdit) {
+      if (!payload.username || payload.username.length < 2) { errEl.textContent = 'Username must be at least 2 characters'; return; }
+      if (!pw || pw.length < 4) { errEl.textContent = 'Password is required (min 4 characters)'; return; }
+    }
+
+    var method = isEdit ? 'PUT' : 'POST';
+    var url = isEdit ? '/api/users/' + userId : '/api/users';
+
+    api(method, url, payload, function(err, data, status) {
+      if (err) { errEl.textContent = err; return; }
+      if (data.error) { errEl.textContent = data.error; return; }
+      userModal.classList.remove('visible');
+      toast(isEdit ? 'User updated' : 'User created', 'success');
+      loadUsers();
+    });
+  });
+
+  // Delete modal
+  function openDeleteModal(user) {
+    document.getElementById('delete-username').textContent = user.username;
+    document.getElementById('delete-user-id').value = user.sub;
+    document.getElementById('delete-error').textContent = '';
+    deleteModal.classList.add('visible');
+  }
+
+  document.getElementById('btn-delete-cancel').addEventListener('click', function() {
+    deleteModal.classList.remove('visible');
+  });
+
+  document.getElementById('btn-delete-confirm').addEventListener('click', function() {
+    var userId = document.getElementById('delete-user-id').value;
+    var errEl = document.getElementById('delete-error');
+    errEl.textContent = '';
+
+    api('DELETE', '/api/users/' + userId, null, function(err, data) {
+      if (err) { errEl.textContent = err; return; }
+      if (data.error) { errEl.textContent = data.error; return; }
+      deleteModal.classList.remove('visible');
+      toast('User deleted', 'success');
+      loadUsers();
+    });
+  });
+
+  // Close modals on overlay click
+  userModal.addEventListener('click', function(e) { if (e.target === userModal) userModal.classList.remove('visible'); });
+  deleteModal.addEventListener('click', function(e) { if (e.target === deleteModal) deleteModal.classList.remove('visible'); });
+
+  // Keyboard: Escape closes modals
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      userModal.classList.remove('visible');
+      deleteModal.classList.remove('visible');
+    }
+  });
+
+  // Init
+  loadUsers();
+  loadSsoStatus();
+})();
+</script>
+</body>
+</html>

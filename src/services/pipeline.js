@@ -6,7 +6,7 @@ const { broadcast } = require('../lib/broadcast');
 const { killProcess } = require('../lib/process-manager');
 const { logPath, suggestName, sendWebhook } = require('../lib/helpers');
 const { log } = require('../lib/logger');
-const { runClaudeSilent } = require('./claude-runner');
+const { runClaudeSilent, detectRateLimit } = require('./claude-runner');
 const snapshot = require('./snapshot');
 const usageSvc = require('./usage');
 
@@ -20,6 +20,8 @@ const buildPids = new Map();       // cardId -> pid
 const workQueue = [];              // [{cardId, priority, projectPath, enqueuedAt}]
 const activeBuilds = new Map();    // projectPath -> cardId
 let pipelinePaused = false;
+let pauseReason = null;            // null | 'user' | 'usage-limit' | 'rate-limit-detected'
+let recoveryPoller = null;         // setInterval handle for usage recovery polling
 const activeFixes = new Set();     // sourceCardId set (self-heal)
 const fixAttempts = new Map();     // sourceCardId -> {count, lastAttempt}
 const reviewFixCount = new Map();  // cardId -> fix attempt count
@@ -31,13 +33,19 @@ function getPipelineState() {
   const brainstormSvcState = require('./brainstorm');
   return {
     paused: pipelinePaused,
+    pauseReason: pauseReason,
     activeCount: activeBuilds.size,
     queueLength: workQueue.length,
     fixCount: activeFixes.size,
     pollerCount: activePollers.size,
     activeBrainstorms: brainstormSvcState.getActiveBrainstorms(),
     brainstormQueueLength: brainstormSvcState.getBrainstormQueue().length,
-    pause: function() { pipelinePaused = true; broadcast('pipeline-state', { paused: true }); },
+    pause: function(reason) {
+      pipelinePaused = true;
+      pauseReason = reason || 'usage-limit';
+      broadcast('pipeline-state', { paused: true, pauseReason: pauseReason });
+      startRecoveryPoller();
+    },
   };
 }
 
@@ -85,20 +93,46 @@ function trackPhase(cardId, phase, action) {
 
 // --- Pipeline Pause ---
 
-function setPaused(paused) {
+function setPaused(paused, reason) {
   pipelinePaused = !!paused;
-  broadcast('pipeline-state', { paused: pipelinePaused });
-  sendWebhook('pipeline-' + (pipelinePaused ? 'paused' : 'resumed'), {});
-  if (!pipelinePaused) {
+  if (pipelinePaused) {
+    pauseReason = reason || 'user';
+    if (reason === 'usage-limit' || reason === 'rate-limit-detected') {
+      startRecoveryPoller();
+    }
+  } else {
+    const wasPauseReason = pauseReason;
+    pauseReason = null;
+    stopRecoveryPoller();
+
     // Lazy requires to avoid circular deps
     const brainstormSvc = require('./brainstorm');
     const reviewSvc = require('./review');
 
+    // Single pass: recover rate-limited, fix-interrupted, and frozen cards
     const allCards = cards.getAll();
-    // Restart fix-interrupted cards at top priority
     for (let i = 0; i < allCards.length; i++) {
       const c = allCards[i];
-      if (c.status === 'fix-interrupted' && c.column_name === 'todo') {
+
+      if (c.status === 'rate-limited') {
+        log.info({ cardId: c.id, column: c.column_name, title: c.title }, 'Recovering rate-limited card');
+        if (c.column_name === 'brainstorm') {
+          cards.setStatus(c.id, 'idle');
+          try { brainstormSvc.brainstorm(c.id); } catch (_) {}
+        } else if (c.column_name === 'working') {
+          cards.setStatus(c.id, 'idle');
+          cards.move(c.id, 'todo');
+          try { enqueue(c.id, 100); } catch (_) {}
+        } else if (c.column_name === 'review') {
+          cards.setStatus(c.id, 'idle');
+          try { reviewSvc.autoReview(c.id); } catch (_) {}
+        } else {
+          cards.setStatus(c.id, 'idle');
+          if (c.column_name !== 'todo') cards.move(c.id, 'todo');
+          try { enqueue(c.id, 50); } catch (_) {}
+        }
+        broadcast('card-updated', cards.get(c.id));
+      } else if (c.status === 'fix-interrupted' && c.column_name === 'todo') {
         try {
           const reviewData = c.review_data ? JSON.parse(c.review_data) : null;
           if (reviewData && reviewData.findings && reviewData.findings.length > 0) {
@@ -113,17 +147,15 @@ function setPaused(paused) {
           cards.setStatus(c.id, 'idle');
           try { enqueue(c.id, 100); } catch (__) {}
         }
-      }
-    }
-    // Restart frozen brainstorm cards (queued through concurrency-controlled brainstorm)
-    for (let j = 0; j < allCards.length; j++) {
-      if (allCards[j].status === 'frozen' && allCards[j].column_name === 'brainstorm') {
-        cards.setStatus(allCards[j].id, 'idle');
-        try { brainstormSvc.brainstorm(allCards[j].id); } catch (_) {}
+      } else if (c.status === 'frozen' && c.column_name === 'brainstorm') {
+        cards.setStatus(c.id, 'idle');
+        try { brainstormSvc.brainstorm(c.id); } catch (_) {}
       }
     }
     processQueue();
   }
+  broadcast('pipeline-state', { paused: pipelinePaused, pauseReason: pauseReason });
+  sendWebhook('pipeline-' + (pipelinePaused ? 'paused' : 'resumed'), { reason: pauseReason });
 }
 
 function isPaused() { return pipelinePaused; }
@@ -150,59 +182,42 @@ function killAll() {
   }
   activeBuilds.clear();
 
-  // 2. Freeze brainstorming cards + drain brainstorm queue
+  // 2-4. Single pass: freeze brainstorms, kill fixes, kill reviews
   const brainstormSvcKill = require('./brainstorm');
   const allCards = cards.getAll();
   for (let ci = 0; ci < allCards.length; ci++) {
     const c = allCards[ci];
-    if (c.status === 'brainstorming') {
+    if (c.status === 'brainstorming' || c.status === 'brainstorm-queued') {
       const bPid = buildPids.get(c.id);
       if (bPid) { killProcess(bPid); buildPids.delete(c.id); }
       cards.setStatus(c.id, 'frozen');
       setActivity(c.id, 'spec', 'Frozen — will restart on resume');
       broadcast('card-updated', cards.get(c.id));
-      killed.push({ id: c.id, title: c.title, phase: 'brainstorm' });
-    } else if (c.status === 'brainstorm-queued') {
-      cards.setStatus(c.id, 'frozen');
-      setActivity(c.id, 'spec', 'Frozen — will restart on resume');
+      killed.push({ id: c.id, title: c.title, phase: c.status === 'brainstorming' ? 'brainstorm' : 'brainstorm-queued' });
+    } else if (c.status === 'fixing') {
+      const fPid = buildPids.get(c.id);
+      if (fPid) { killProcess(fPid); buildPids.delete(c.id); }
+      const fPoller = activePollers.get(c.id);
+      if (fPoller) { clearInterval(fPoller); activePollers.delete(c.id); }
+      cards.setStatus(c.id, 'fix-interrupted');
+      cards.move(c.id, 'todo');
+      setActivity(c.id, 'queue', 'Fix interrupted — will resume at top priority');
       broadcast('card-updated', cards.get(c.id));
-      killed.push({ id: c.id, title: c.title, phase: 'brainstorm-queued' });
-    }
-  }
-  brainstormSvcKill.resetBrainstormState();
-
-  // 3. Kill fixing processes — preserve review findings
-  for (let fi = 0; fi < allCards.length; fi++) {
-    const fc = allCards[fi];
-    if (fc.status === 'fixing') {
-      const fPid = buildPids.get(fc.id);
-      if (fPid) { killProcess(fPid); buildPids.delete(fc.id); }
-      const fPoller = activePollers.get(fc.id);
-      if (fPoller) { clearInterval(fPoller); activePollers.delete(fc.id); }
-      cards.setStatus(fc.id, 'fix-interrupted');
-      cards.move(fc.id, 'todo');
-      setActivity(fc.id, 'queue', 'Fix interrupted — will resume at top priority');
-      broadcast('card-updated', cards.get(fc.id));
-      killed.push({ id: fc.id, title: fc.title, phase: 'fix' });
+      killed.push({ id: c.id, title: c.title, phase: 'fix' });
+    } else if (c.column_name === 'review' && c.status !== 'fix-interrupted') {
+      const rPid = buildPids.get(c.id);
+      if (rPid) { killProcess(rPid); buildPids.delete(c.id); }
+      const rPoller = activePollers.get(c.id);
+      if (rPoller) { clearInterval(rPoller); activePollers.delete(c.id); }
+      cards.setStatus(c.id, 'interrupted');
+      cards.move(c.id, 'todo');
+      setActivity(c.id, 'queue', 'Killed by master kill switch');
+      broadcast('card-updated', cards.get(c.id));
+      killed.push({ id: c.id, title: c.title, phase: 'review' });
     }
   }
   activeFixes.clear();
-
-  // 4. Kill review processes
-  for (let ri = 0; ri < allCards.length; ri++) {
-    const rc = allCards[ri];
-    if (rc.column_name === 'review' && rc.status !== 'fix-interrupted') {
-      const rPid = buildPids.get(rc.id);
-      if (rPid) { killProcess(rPid); buildPids.delete(rc.id); }
-      const rPoller = activePollers.get(rc.id);
-      if (rPoller) { clearInterval(rPoller); activePollers.delete(rc.id); }
-      cards.setStatus(rc.id, 'interrupted');
-      cards.move(rc.id, 'todo');
-      setActivity(rc.id, 'queue', 'Killed by master kill switch');
-      broadcast('card-updated', cards.get(rc.id));
-      killed.push({ id: rc.id, title: rc.title, phase: 'review' });
-    }
-  }
+  brainstormSvcKill.resetBrainstormState();
 
   // 5. Clear orphans
   for (const pollerEntry of activePollers) { clearInterval(pollerEntry[1]); }
@@ -464,6 +479,184 @@ function checkUnblock() {
   return unblocked;
 }
 
+// --- Rate-Limit Recovery ---
+// Smart recovery: uses cached usage data + resets_at timestamps to predict
+// when limits will reset. Schedules auto-resume 1 minute after predicted reset.
+// Max 2 API polls per hour to avoid hammering the usage endpoint.
+
+let recoveryApiPollCount = 0;    // API polls this hour
+let recoveryApiPollResetAt = 0;  // When to reset the hourly poll counter
+// Use runtime.maxRecoveryPollsPerHour instead of constant
+
+function startRecoveryPoller() {
+  if (recoveryPoller) return; // Already running
+
+  // Fetch fresh usage data (counts as 1 of max 2 polls/hr)
+  recoveryApiFetch().then(function() {
+    scheduleRecoveryResume();
+  });
+}
+
+// Fetch usage from API, respecting the 2-per-hour budget
+function recoveryApiFetch() {
+  const now = Date.now();
+  if (now > recoveryApiPollResetAt) {
+    recoveryApiPollCount = 0;
+    recoveryApiPollResetAt = now + 60 * 60 * 1000; // Reset counter in 1 hour
+  }
+
+  if (recoveryApiPollCount >= runtime.maxRecoveryPollsPerHour) {
+    log.info('Recovery: API poll budget exhausted (' + runtime.maxRecoveryPollsPerHour + '/hr) — using cached data');
+    return Promise.resolve(null);
+  }
+
+  recoveryApiPollCount++;
+  log.info({ poll: recoveryApiPollCount + '/' + runtime.maxRecoveryPollsPerHour }, 'Recovery: fetching fresh usage from API');
+
+  return usageSvc.fetchClaudeUsage(true).then(function(data) {
+    if (data) {
+      broadcast('usage-update', usageSvc.getUsageStats());
+    }
+    return data;
+  }).catch(function(err) {
+    log.error({ err: err.message }, 'Recovery API fetch failed');
+    return null;
+  });
+}
+
+// Compute when to auto-resume based on cached usage data and resets_at.
+// Uses consumption rate to predict when usage will hit 100%, then waits
+// for the resets_at time + 1 minute buffer.
+function scheduleRecoveryResume() {
+  if (recoveryPoller) { clearTimeout(recoveryPoller); recoveryPoller = null; }
+
+  const cached = usageSvc.getUsageStats();
+  if (!cached || !cached.plan) {
+    // No data — fallback: check again in 30 minutes using cache only
+    log.warn('Recovery: no usage data available — will retry in 30 min');
+    broadcast('toast', { message: 'No usage data — will retry recovery in 30 min', type: 'info' });
+    recoveryPoller = setTimeout(function() {
+      recoveryPoller = null;
+      recoveryApiFetch().then(function() { scheduleRecoveryResume(); });
+    }, 30 * 60 * 1000);
+    return;
+  }
+
+  const sessionPct = cached.plan.session ? cached.plan.session.utilization : 0;
+  const weeklyPct = cached.plan.weekly ? cached.plan.weekly.utilization : 0;
+  const threshold = runtime.usagePausePct;
+
+  // Already below threshold? Resume now
+  if (sessionPct < threshold && weeklyPct < threshold) {
+    log.info({ sessionPct, weeklyPct }, 'Usage already below threshold — auto-resuming');
+    broadcast('toast', { message: 'Usage below ' + threshold + '% — auto-resuming pipeline', type: 'success' });
+    sendWebhook('usage-recovered', { session: sessionPct, weekly: weeklyPct });
+    recoveryPoller = null;
+    setPaused(false);
+    return;
+  }
+
+  // Determine which limit is the bottleneck and when it resets
+  const sessionReset = cached.plan.session && cached.plan.session.resetsAt ? new Date(cached.plan.session.resetsAt).getTime() : 0;
+  const weeklyReset = cached.plan.weekly && cached.plan.weekly.resetsAt ? new Date(cached.plan.weekly.resetsAt).getTime() : 0;
+
+  let waitMs = 0;
+  let resetSource = '';
+  const now = Date.now();
+  const ONE_MINUTE = 60 * 1000;
+
+  if (sessionPct >= threshold && sessionReset > now) {
+    waitMs = sessionReset - now + ONE_MINUTE;
+    resetSource = 'session (5hr window resets at ' + new Date(sessionReset).toISOString() + ')';
+  } else if (weeklyPct >= threshold && weeklyReset > now) {
+    waitMs = weeklyReset - now + ONE_MINUTE;
+    resetSource = 'weekly (7-day window resets at ' + new Date(weeklyReset).toISOString() + ')';
+  }
+
+  // Sanity cap: never wait more than 6 hours. If resets_at is missing or far future, re-poll
+  const MAX_WAIT = runtime.maxRecoveryWaitHours * 60 * 60 * 1000;
+  if (waitMs <= 0 || waitMs > MAX_WAIT) {
+    // No valid reset time — fallback: use API poll to get fresh data in 30 min
+    waitMs = 30 * 60 * 1000;
+    resetSource = 'unknown (no valid resets_at — will re-check in 30 min)';
+  }
+
+  const waitMin = Math.round(waitMs / 60000);
+  const resumeAt = new Date(now + waitMs).toISOString();
+
+  log.info({ waitMin, resetSource, resumeAt, sessionPct, weeklyPct }, 'Recovery: scheduled auto-resume');
+  broadcast('toast', {
+    message: 'Pipeline paused (' + resetSource + '). Auto-resume in ' + waitMin + ' min at ' + resumeAt,
+    type: 'info',
+  });
+  sendWebhook('recovery-scheduled', { waitMin: waitMin, resumeAt: resumeAt, source: resetSource });
+
+  recoveryPoller = setTimeout(function() {
+    recoveryPoller = null;
+    // Fetch fresh data (2nd poll if within budget) to confirm limits have reset
+    recoveryApiFetch().then(function(data) {
+      const freshStats = usageSvc.getUsageStats();
+      const sPct = freshStats && freshStats.plan && freshStats.plan.session ? freshStats.plan.session.utilization : 0;
+      const wPct = freshStats && freshStats.plan && freshStats.plan.weekly ? freshStats.plan.weekly.utilization : 0;
+
+      if (sPct < threshold && wPct < threshold) {
+        log.info({ sessionPct: sPct, weeklyPct: wPct }, 'Usage confirmed below threshold — auto-resuming');
+        broadcast('toast', { message: 'Usage reset confirmed — auto-resuming pipeline!', type: 'success' });
+        sendWebhook('usage-recovered', { session: sPct, weekly: wPct });
+        setPaused(false);
+      } else {
+        // Still over — reschedule with fresh resets_at
+        log.info({ sessionPct: sPct, weeklyPct: wPct }, 'Still over threshold after scheduled resume — rescheduling');
+        broadcast('toast', { message: 'Still rate-limited (session: ' + sPct + '%, weekly: ' + wPct + '%). Rescheduling...', type: 'info' });
+        scheduleRecoveryResume();
+      }
+    });
+  }, waitMs);
+}
+
+function stopRecoveryPoller() {
+  if (recoveryPoller) {
+    clearTimeout(recoveryPoller);
+    recoveryPoller = null;
+    recoveryApiPollCount = 0;
+    log.info('Usage recovery poller stopped');
+  }
+}
+
+// Called by polling loops when rate-limit is detected in a child process.
+// Immediately pauses pipeline and sets card to rate-limited status.
+function handleRateLimitDetected(cardId, phase, logFile) {
+  const card = cards.get(cardId);
+  const title = card ? card.title : 'Card #' + cardId;
+
+  log.error({ cardId, phase, title }, 'Rate limit detected in CLI output — pausing pipeline');
+
+  // Kill the child process
+  const pid = buildPids.get(cardId);
+  if (pid) { killProcess(pid); buildPids.delete(cardId); }
+
+  // Set card to rate-limited (preserves column so recovery knows where to resume)
+  cards.setStatus(cardId, 'rate-limited');
+  setActivity(cardId, phase, 'Rate-limited — will auto-resume when limits reset');
+  broadcast('card-updated', cards.get(cardId));
+
+  // Release build lock without triggering processQueue (pipeline is about to pause)
+  if (card && card.project_path) {
+    activeBuilds.delete(card.project_path);
+  }
+
+  // Append to log
+  try { fs.appendFileSync(logFile, '\n---\n[' + new Date().toISOString() + '] RATE LIMIT DETECTED — pipeline paused, card will auto-recover\n'); } catch (_) {}
+
+  broadcast('toast', { message: 'Rate limit hit during ' + phase + ': ' + title + ' — pipeline paused, auto-recovery active', type: 'error' });
+  sendWebhook('rate-limit-detected', { cardId: cardId, title: title, phase: phase });
+
+  // Pause pipeline with rate-limit reason (starts recovery poller)
+  if (!pipelinePaused) {
+    setPaused(true, 'rate-limit-detected');
+  }
+}
+
 // --- Process Queue ---
 
 function processQueue() {
@@ -497,6 +690,7 @@ function processQueue() {
       log.error({ cardId: item.cardId, err: err.message }, 'executeWork failed');
       cards.setStatus(item.cardId, 'idle');
       cards.move(item.cardId, 'todo');
+      activeBuilds.delete(item.projectPath);
       broadcast('card-updated', cards.get(item.cardId));
     }
     broadcastQueuePositions();
@@ -521,6 +715,9 @@ function executeWork(cardId, projectPath) {
   setActivity(cardId, 'snapshot', 'Taking file snapshot...');
   trackPhase(cardId, 'build', 'start');
 
+  // Ensure folder exists before snapshot or completion file cleanup
+  if (!fs.existsSync(projectPath)) fs.mkdirSync(projectPath, { recursive: true });
+
   const completionFile = path.join(projectPath, '.task-complete');
   try { fs.unlinkSync(completionFile); } catch (_) {}
 
@@ -533,8 +730,6 @@ function executeWork(cardId, projectPath) {
     clearActivity(cardId);
     throw err;
   }
-
-  if (!fs.existsSync(projectPath)) fs.mkdirSync(projectPath, { recursive: true });
 
   setActivity(cardId, 'snapshot', 'Snapshot taken (' + snapInfo.fileCount + ' files)');
 
@@ -689,6 +884,18 @@ function pollForCompletion(cardId, projectPath) {
         return;
       }
 
+      // Rate-limit fast-fail: check log for rate-limit errors after minimum polls
+      if (pollCount >= runtime.rateLimitMinPolls && pollCount % 3 === 0) {
+        const rl = detectRateLimit(log);
+        if (rl.detected) {
+          clearInterval(interval);
+          activePollers.delete(cardId);
+          trackPhase(cardId, 'build', 'end');
+          handleRateLimitDetected(cardId, 'build', log);
+          return;
+        }
+      }
+
       let isIdle = false;
       let idleMinutes = 0;
       try {
@@ -782,7 +989,7 @@ function pollForCompletion(cardId, projectPath) {
         try { processQueue(); } catch (e) { log.error({ err: e.message }, 'processQueue error'); }
       }
     }
-  }, 5000);
+  }, runtime.pollIntervalMs);
 
   activePollers.set(cardId, interval);
 }
@@ -857,7 +1064,7 @@ function selfHeal(sourceCardId, errors, sourceLogFile) {
   buildPids.set(sourceCardId, run.pid);
 
   let pollCount = 0;
-  const maxPoll = 120;
+  const maxPoll = Math.round(runtime.selfHealTimeoutMins * 60000 / runtime.pollIntervalMs);
 
   const fixInterval = setInterval(function() {
     pollCount++;
@@ -895,7 +1102,7 @@ function selfHeal(sourceCardId, errors, sourceLogFile) {
     } catch (err) {
       log.error({ err: err.message }, 'selfHeal poll error');
     }
-  }, 5000);
+  }, runtime.pollIntervalMs);
 
   return { status: 'fixing', attempt: attempts.count };
 }
@@ -1026,24 +1233,9 @@ function preflightChecks() {
   }
 }
 
-function resetStuckCards() {
-  const all = cards.getAll();
-  for (let i = 0; i < all.length; i++) {
-    const c = all[i];
-    if (c.status === 'queued' || c.status === 'building') {
-      cards.setStatus(c.id, 'idle');
-      if (c.column_name === 'working') cards.move(c.id, 'todo');
-      broadcast('card-updated', cards.get(c.id));
-    } else if (c.status === 'reviewing' || c.status === 'fixing') {
-      cards.setStatus(c.id, 'idle');
-      broadcast('card-updated', cards.get(c.id));
-    }
-  }
-}
-
 function init() {
   preflightChecks();
-  resetStuckCards();
+  // Crash recovery (recoverOrphanedCards) runs from server.js after full startup
 
   usageSvc.fetchClaudeUsage(true).then(function(data) {
     if (data) {
@@ -1060,7 +1252,7 @@ function init() {
         usageSvc.checkUsageLimits(getPipelineState());
       }
     });
-  }, usageSvc.USAGE_CACHE_TTL);
+  }, runtime.usageCacheTtlMins * 60 * 1000);
 
   // Initialize auto-discovery for single-project mode
   const autoDiscover = require('./auto-discover');
@@ -1071,6 +1263,62 @@ function init() {
   } else {
     log.info('Mode: GLOBAL — multi-project manual mode');
   }
+}
+
+// --- Crash Recovery ---
+// On server restart, cards may be stuck in transient states (building, reviewing, etc.)
+// because the processes that owned them are gone. Reset them to safe states.
+function recoverOrphanedCards() {
+  const allCards = cards.getAll();
+  let recovered = 0;
+  let hasRateLimited = false;
+
+  for (let i = 0; i < allCards.length; i++) {
+    const c = allCards[i];
+    const st = c.status;
+
+    if (st === 'building') {
+      cards.setStatus(c.id, 'interrupted');
+      cards.move(c.id, 'todo');
+      log.info({ cardId: c.id, title: c.title, from: 'building' }, 'Crash recovery: reset building card to interrupted');
+      recovered++;
+    } else if (st === 'reviewing') {
+      cards.setStatus(c.id, 'idle');
+      cards.move(c.id, 'review');
+      log.info({ cardId: c.id, title: c.title, from: 'reviewing' }, 'Crash recovery: reset reviewing card to idle in review');
+      recovered++;
+    } else if (st === 'fixing') {
+      cards.setStatus(c.id, 'fix-interrupted');
+      cards.move(c.id, 'todo');
+      log.info({ cardId: c.id, title: c.title, from: 'fixing' }, 'Crash recovery: reset fixing card to fix-interrupted');
+      recovered++;
+    } else if (st === 'brainstorming' || st === 'brainstorm-queued') {
+      cards.setStatus(c.id, 'frozen');
+      // stays in brainstorm column — no move needed
+      log.info({ cardId: c.id, title: c.title, from: st }, 'Crash recovery: froze orphaned brainstorm card');
+      recovered++;
+    } else if (st === 'queued') {
+      // Queue is in-memory; queued cards become zombies after crash
+      cards.setStatus(c.id, 'idle');
+      // Keep in current column (todo) — ready for manual re-queue
+      log.info({ cardId: c.id, title: c.title, from: 'queued' }, 'Crash recovery: reset queued card to idle');
+      recovered++;
+    } else if (st === 'rate-limited') {
+      // Rate-limited cards: keep status so recovery poller can re-queue them.
+      // But check if usage has reset — if so, recover immediately.
+      log.info({ cardId: c.id, title: c.title, column: c.column_name }, 'Crash recovery: found rate-limited card — will recover when usage resets');
+      recovered++;
+      hasRateLimited = true;
+    }
+  }
+
+  // If any rate-limited cards found, start the recovery poller
+  if (hasRateLimited) {
+    log.info('Starting recovery poller for rate-limited cards from previous crash');
+    startRecoveryPoller();
+  }
+
+  return recovered;
 }
 
 module.exports = {
@@ -1108,4 +1356,10 @@ module.exports = {
   // State
   getPipelineState: getPipelineState,
   activePollers: activePollers,
+  // Crash recovery
+  recoverOrphanedCards: recoverOrphanedCards,
+  // Rate-limit recovery
+  handleRateLimitDetected: handleRateLimitDetected,
+  startRecoveryPoller: startRecoveryPoller,
+  stopRecoveryPoller: stopRecoveryPoller,
 };

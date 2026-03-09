@@ -5,7 +5,7 @@ const { cards, sessions, config: dbConfig } = require('../db');
 const { broadcast } = require('../lib/broadcast');
 const { log } = require('../lib/logger');
 const { logPath, sendWebhook } = require('../lib/helpers');
-const { runClaudeSilent } = require('./claude-runner');
+const { runClaudeSilent, detectRateLimit } = require('./claude-runner');
 const { getCustomPrompts } = require('./usage');
 const specIntel = require('./spec-intelligence');
 
@@ -59,13 +59,11 @@ function buildBrainstormPrompt(card) {
         parts.push('');
       }
 
-      const allDone = cards.getAll().concat(cards.getArchived());
+      // SQL query — indexed, avoids loading all card data just for titles
+      const completedRows = cards.getCompletedTitles(card.id);
       const completed = [];
-      for (let di = 0; di < allDone.length; di++) {
-        const c = allDone[di];
-        if ((c.column_name === 'done' || c.column_name === 'archive') && c.id !== card.id) {
-          completed.push('- ' + c.title);
-        }
+      for (let di = 0; di < completedRows.length; di++) {
+        completed.push('- ' + completedRows[di].title);
       }
       if (completed.length > 0) {
         parts.push('## Previously Completed Work');
@@ -179,6 +177,7 @@ function processBrainstormQueue() {
 function canBrainstorm(cardId) {
   if (runtime.mode !== 'single-project') return { allowed: true };
 
+  // Single pass over all cards — checks brainstorm conflicts, initiatives, and orphaned children
   const allCards = cards.getAll();
   for (let i = 0; i < allCards.length; i++) {
     const c = allCards[i];
@@ -199,12 +198,9 @@ function canBrainstorm(cardId) {
         };
       }
     }
-  }
 
-  // Check for orphaned in-progress child cards
-  for (let i = 0; i < allCards.length; i++) {
-    const c = allCards[i];
-    if (c.parent_card_id && c.id !== cardId && c.column_name !== 'done' && c.column_name !== 'archive') {
+    // Check for orphaned in-progress child cards
+    if (c.parent_card_id && c.column_name !== 'done' && c.column_name !== 'archive') {
       return {
         allowed: false,
         reason: 'Sub-task "' + c.title + '" is still in progress. Complete all tasks before starting a new brainstorm.',
@@ -260,13 +256,13 @@ function executeBrainstorm(cardId) {
   const workDir = (card.project_path && fs.existsSync(card.project_path)) ? card.project_path : ROOT_DIR;
   const prompt = buildBrainstormPrompt(card);
   const outputFile = path.join(RUNTIME_DIR, '.brainstorm-output-' + cardId);
-  const log = logPath(cardId, 'brainstorm');
+  const bsLogFile = logPath(cardId, 'brainstorm');
 
   try { fs.unlinkSync(outputFile); } catch (_) {}
 
   const header = '[' + new Date().toISOString() + '] Brainstorm started\n'
     + 'Card: ' + card.title + '\nWorkDir: ' + workDir + '\n---\n';
-  fs.writeFileSync(log, header);
+  fs.writeFileSync(bsLogFile, header);
 
   const run = runClaudeSilent({
     id: 'brainstorm-' + cardId,
@@ -274,7 +270,7 @@ function executeBrainstorm(cardId) {
     cwd: workDir,
     prompt: prompt,
     stdoutFile: outputFile,
-    logFile: log,
+    logFile: bsLogFile,
   });
 
   pipeline.trackPid(cardId, run.pid);
@@ -284,7 +280,7 @@ function executeBrainstorm(cardId) {
 
   return new Promise(function(resolve) {
     let attempts = 0;
-    const maxAttempts = 360;
+    const maxAttempts = Math.round(runtime.brainstormTimeoutMins * 60000 / runtime.pollIntervalMs);
     let lastMirroredSize = 0;
 
     const interval = setInterval(function() {
@@ -307,7 +303,7 @@ function executeBrainstorm(cardId) {
               const buf = Buffer.alloc(outStat.size - lastMirroredSize);
               fs.readSync(fd, buf, 0, buf.length, lastMirroredSize);
               fs.closeSync(fd);
-              fs.appendFileSync(log, buf.toString('utf-8'));
+              fs.appendFileSync(bsLogFile, buf.toString('utf-8'));
               lastMirroredSize = outStat.size;
             }
           } catch (_) {}
@@ -325,7 +321,7 @@ function executeBrainstorm(cardId) {
             pipeline.setActivity(cardId, 'spec', 'Spec ready (' + Math.round(content.length / 1024) + ' KB)');
             broadcast('card-updated', cards.get(cardId));
             sendWebhook('brainstorm-complete', { cardId: cardId, title: card.title, specLength: content.length });
-            try { fs.appendFileSync(log, '\n---\n[' + new Date().toISOString() + '] Brainstorm completed (' + content.length + ' chars)\n'); } catch (_) {}
+            try { fs.appendFileSync(bsLogFile, '\n---\n[' + new Date().toISOString() + '] Brainstorm completed (' + content.length + ' chars)\n'); } catch (_) {}
             try { fs.unlinkSync(outputFile); } catch (_) {}
             try { fs.unlinkSync(run.scriptPath); } catch (_) {}
 
@@ -350,19 +346,44 @@ function executeBrainstorm(cardId) {
                 processBrainstormQueue();
               }
             } else {
-              // Global mode: existing behavior — auto-start work
-              try {
-                pipeline.setActivity(cardId, 'queue', 'Spec complete — auto-starting build...');
-                pipeline.enqueue(cardId, 0);
-                broadcast('toast', { message: 'Auto-starting build for: ' + cards.get(cardId).title, type: 'info' });
-              } catch (autoErr) {
-                log.error({ cardId, err: autoErr.message }, 'Auto-start work failed');
-                pipeline.clearActivity(cardId);
+              // Global mode: auto-start work or hold for spec approval
+              if (runtime.specApprovalGate) {
+                // Spec approval gate: hold for human approval before building
+                cards.setStatus(cardId, 'spec-ready');
+                cards.move(cardId, 'brainstorm');
+                pipeline.setActivity(cardId, 'spec', 'Spec ready — awaiting approval');
+                broadcast('card-updated', cards.get(cardId));
+                broadcast('toast', { message: 'Spec ready for approval: ' + cards.get(cardId).title, type: 'info' });
+              } else {
+                // Auto-start work
+                try {
+                  pipeline.setActivity(cardId, 'queue', 'Spec complete — auto-starting build...');
+                  pipeline.enqueue(cardId, 0);
+                  broadcast('toast', { message: 'Auto-starting build for: ' + cards.get(cardId).title, type: 'info' });
+                } catch (autoErr) {
+                  log.error({ cardId, err: autoErr.message }, 'Auto-start work failed');
+                  pipeline.clearActivity(cardId);
+                }
               }
               processBrainstormQueue();
             }
 
             resolve({ success: true });
+          }
+        }
+
+        // Rate-limit fast-fail: check log for rate-limit errors
+        if (attempts >= runtime.rateLimitMinPolls && attempts % 3 === 0) {
+          const rl = detectRateLimit(bsLogFile);
+          if (rl.detected) {
+            clearInterval(interval);
+            activeBrainstorms = Math.max(0, activeBrainstorms - 1);
+            pipeline.trackPhase(cardId, 'brainstorm', 'end');
+            sessions.update(sessionId, 'failed', 'Rate limited');
+            pipeline.handleRateLimitDetected(cardId, 'brainstorm', bsLogFile);
+            try { fs.unlinkSync(outputFile); } catch (_) {}
+            processBrainstormQueue();
+            return resolve({ success: false, reason: 'rate-limited' });
           }
         }
 
@@ -375,12 +396,12 @@ function executeBrainstorm(cardId) {
           cards.setSessionLog(cardId, 'Brainstorm timed out after 30 minutes');
           pipeline.setActivity(cardId, 'spec', 'Timed out after 30 minutes');
           broadcast('card-updated', cards.get(cardId));
-          try { fs.appendFileSync(log, '\n---\n[' + new Date().toISOString() + '] TIMEOUT\n'); } catch (_) {}
+          try { fs.appendFileSync(bsLogFile, '\n---\n[' + new Date().toISOString() + '] TIMEOUT\n'); } catch (_) {}
           processBrainstormQueue();
           resolve({ success: false, reason: 'timeout' });
         }
       } catch (_) {}
-    }, 5000);
+    }, runtime.pollIntervalMs);
   });
 }
 
@@ -396,12 +417,12 @@ function decomposeSpec(parentCardId) {
   if (!projectPath) return Promise.resolve();
 
   const outputFile = path.join(RUNTIME_DIR, '.decompose-output-' + parentCardId);
-  const log = path.join(RUNTIME_DIR, '.decompose-log-' + parentCardId + '.log');
+  const dcLogFile = path.join(RUNTIME_DIR, '.decompose-log-' + parentCardId + '.log');
 
   try { fs.unlinkSync(outputFile); } catch (_) {}
 
   const header = '[' + new Date().toISOString() + '] Decomposing spec for card #' + parentCardId + '\n---\n';
-  fs.writeFileSync(log, header);
+  fs.writeFileSync(dcLogFile, header);
 
   const prompt = [
     'You are a task decomposition agent. Break this specification into concrete, independently buildable implementation tasks.',
@@ -435,12 +456,12 @@ function decomposeSpec(parentCardId) {
     cwd: projectPath,
     prompt: prompt,
     stdoutFile: outputFile,
-    logFile: log,
+    logFile: dcLogFile,
   });
 
   return new Promise(function(resolve) {
     let pollCount = 0;
-    const maxPolls = 180; // 15 min
+    const maxPolls = Math.round(runtime.decomposeTimeoutMins * 60000 / runtime.pollIntervalMs);
 
     const interval = setInterval(function() {
       pollCount++;
@@ -463,6 +484,17 @@ function decomposeSpec(parentCardId) {
             resolve();
           }
         }
+        // Rate-limit fast-fail for decompose
+        if (pollCount >= runtime.rateLimitMinPolls && pollCount % 3 === 0) {
+          const rl = detectRateLimit(dcLogFile);
+          if (rl.detected) {
+            clearInterval(interval);
+            pipeline.handleRateLimitDetected(parentCardId, 'decompose', dcLogFile);
+            try { fs.unlinkSync(outputFile); } catch (_) {}
+            return resolve();
+          }
+        }
+
         if (pollCount >= maxPolls) {
           clearInterval(interval);
           log.error({ parentCardId }, 'Decompose timeout');
@@ -474,7 +506,7 @@ function decomposeSpec(parentCardId) {
       } catch (err) {
         log.error({ err: err.message }, 'Decompose poll error');
       }
-    }, 5000);
+    }, runtime.pollIntervalMs);
   });
 }
 
@@ -503,8 +535,9 @@ function createChildCards(parentCardId, rawOutput, projectPath) {
     cards.setSpec(childCard.id, task.description || task.title);
 
     // Set dependencies — map index-based deps to actual card IDs
-    if (task.depends_on_index !== null && task.depends_on_index !== undefined && childIds[task.depends_on_index]) {
-      cards.setDependsOn(childCard.id, String(childIds[task.depends_on_index]));
+    const depIdx = task.depends_on_index;
+    if (depIdx !== null && depIdx !== undefined && Number.isInteger(depIdx) && depIdx >= 0 && depIdx < childIds.length && childIds[depIdx]) {
+      cards.setDependsOn(childCard.id, String(childIds[depIdx]));
     }
 
     childIds.push(childCard.id);

@@ -59,4 +59,41 @@ function runClaudeSilent(opts) {
   return { pid: pid, scriptPath: scriptPath };
 }
 
-module.exports = { runClaudeSilent: runClaudeSilent };
+// --- Rate-Limit Detection ---
+// Reads the tail of a log file and checks for CLI rate-limit error patterns.
+// Returns { detected: boolean, pattern?: string } to distinguish from normal timeouts.
+const RATE_LIMIT_PATTERNS = [
+  /rate[_\s-]?limit/i,
+  /too many requests/i,
+  /quota[_\s-]?exceeded/i,
+  /usage[_\s-]?limit/i,
+  /overloaded/i,
+  /try again later/i,
+  /max.*usage.*reached/i,
+  /exceeded.*(?:rate|usage|token).*limit/i,
+  /HTTP[\/\s]*429/i,
+  /status[:\s]*429/i,
+  /capacity.*exceeded/i,
+  /request.*throttled/i,
+];
+
+function detectRateLimit(logFile) {
+  try {
+    const stat = fs.statSync(logFile);
+    if (stat.size === 0) return { detected: false };
+    const readSize = Math.min(stat.size, 4000);
+    const fd = fs.openSync(logFile, 'r');
+    const buf = Buffer.alloc(readSize);
+    fs.readSync(fd, buf, 0, readSize, Math.max(0, stat.size - readSize));
+    fs.closeSync(fd);
+    const tail = buf.toString('utf-8');
+    for (let i = 0; i < RATE_LIMIT_PATTERNS.length; i++) {
+      if (RATE_LIMIT_PATTERNS[i].test(tail)) {
+        return { detected: true, pattern: RATE_LIMIT_PATTERNS[i].source };
+      }
+    }
+  } catch (_) {}
+  return { detected: false };
+}
+
+module.exports = { runClaudeSilent: runClaudeSilent, detectRateLimit: detectRateLimit };

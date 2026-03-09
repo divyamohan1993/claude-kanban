@@ -9,10 +9,9 @@ const { sendWebhook, isBlockedWebhookUrl } = require('../lib/helpers');
 // --- Claude Max Usage (real plan limits from API) ---
 
 let _usageCache = { data: null, fetchedAt: 0 };
-const USAGE_CACHE_TTL = 55 * 60 * 1000; // ~1 hour
 
 function fetchClaudeUsage(force) {
-  if (!force && _usageCache.data && (Date.now() - _usageCache.fetchedAt < USAGE_CACHE_TTL)) {
+  if (!force && _usageCache.data && (Date.now() - _usageCache.fetchedAt < runtime.usageCacheTtlMins * 60 * 1000)) {
     return Promise.resolve(_usageCache.data);
   }
 
@@ -144,6 +143,50 @@ function getConfig(pipelineState, opts) {
       creativeConstraintPct: runtime.creativeConstraintPct,
       specFeedbackLoop: runtime.specFeedbackLoop,
       confrontationalPct: runtime.confrontationalPct,
+      specApprovalGate: runtime.specApprovalGate,
+      heartbeatIntervalMs: runtime.heartbeatIntervalMs,
+      rateLimitMinPolls: runtime.rateLimitMinPolls,
+      // Polling & Timeouts
+      pollIntervalMs: runtime.pollIntervalMs,
+      brainstormTimeoutMins: runtime.brainstormTimeoutMins,
+      decomposeTimeoutMins: runtime.decomposeTimeoutMins,
+      selfHealTimeoutMins: runtime.selfHealTimeoutMins,
+      discoveryTimeoutMins: runtime.discoveryTimeoutMins,
+      // Rate Limiting
+      rateLimitGeneralBurst: runtime.rateLimitGeneralBurst,
+      rateLimitGeneralRefill: runtime.rateLimitGeneralRefill,
+      rateLimitAuthBurst: runtime.rateLimitAuthBurst,
+      rateLimitAuthRefill: runtime.rateLimitAuthRefill,
+      sseMaxPerIp: runtime.sseMaxPerIp,
+      sseMaxTotal: runtime.sseMaxTotal,
+      // Sessions
+      sessionMaxAgeMins: runtime.sessionMaxAgeMins,
+      maxSessions: runtime.maxSessions,
+      jwtTtlMins: runtime.jwtTtlMins,
+      // Data Retention
+      logRetentionDays: runtime.logRetentionDays,
+      snapshotArchiveRetentionDays: runtime.snapshotArchiveRetentionDays,
+      maxAuditRows: runtime.maxAuditRows,
+      runtimeStaleHours: runtime.runtimeStaleHours,
+      maxArchived: runtime.maxArchived,
+      // Intelligence
+      autoLabelConfidence: runtime.autoLabelConfidence,
+      labelScoreThreshold: runtime.labelScoreThreshold,
+      maxAutoLabels: runtime.maxAutoLabels,
+      // Card & Snapshot
+      maxTotalCards: runtime.maxTotalCards,
+      snapshotMaxFileSizeMb: runtime.snapshotMaxFileSizeMb,
+      // Server Intervals
+      logScanIntervalSecs: runtime.logScanIntervalSecs,
+      analysisIntervalMins: runtime.analysisIntervalMins,
+      housekeepingIntervalMins: runtime.housekeepingIntervalMins,
+      // Error Handling
+      maxUncaughtBeforeExit: runtime.maxUncaughtBeforeExit,
+      // Usage Recovery
+      usageCacheTtlMins: runtime.usageCacheTtlMins,
+      maxRecoveryWaitHours: runtime.maxRecoveryWaitHours,
+      recoveryFallbackMins: runtime.recoveryFallbackMins,
+      maxRecoveryPollsPerHour: runtime.maxRecoveryPollsPerHour,
     },
     status: pipelineState ? {
       pipelinePaused: pipelineState.paused,
@@ -198,6 +241,50 @@ function setConfig(updates) {
   if (updates.creativeConstraintPct !== undefined) { runtime.creativeConstraintPct = Math.max(0, Math.min(100, Number(updates.creativeConstraintPct))); changed.creativeConstraintPct = runtime.creativeConstraintPct; }
   if (updates.specFeedbackLoop !== undefined) { runtime.specFeedbackLoop = !!updates.specFeedbackLoop; changed.specFeedbackLoop = runtime.specFeedbackLoop; }
   if (updates.confrontationalPct !== undefined) { runtime.confrontationalPct = Math.max(0, Math.min(100, Number(updates.confrontationalPct))); changed.confrontationalPct = runtime.confrontationalPct; }
+  if (updates.specApprovalGate !== undefined) { runtime.specApprovalGate = !!updates.specApprovalGate; changed.specApprovalGate = runtime.specApprovalGate; }
+  if (updates.heartbeatIntervalMs !== undefined) { runtime.heartbeatIntervalMs = Math.max(5000, Number(updates.heartbeatIntervalMs)); changed.heartbeatIntervalMs = runtime.heartbeatIntervalMs; }
+  if (updates.rateLimitMinPolls !== undefined) { runtime.rateLimitMinPolls = Math.max(1, Number(updates.rateLimitMinPolls)); changed.rateLimitMinPolls = runtime.rateLimitMinPolls; }
+  // Polling & Timeouts
+  if (updates.pollIntervalMs !== undefined) { runtime.pollIntervalMs = Math.max(1000, Math.min(30000, Number(updates.pollIntervalMs))); changed.pollIntervalMs = runtime.pollIntervalMs; }
+  if (updates.brainstormTimeoutMins !== undefined) { runtime.brainstormTimeoutMins = Math.max(5, Number(updates.brainstormTimeoutMins)); changed.brainstormTimeoutMins = runtime.brainstormTimeoutMins; }
+  if (updates.decomposeTimeoutMins !== undefined) { runtime.decomposeTimeoutMins = Math.max(5, Number(updates.decomposeTimeoutMins)); changed.decomposeTimeoutMins = runtime.decomposeTimeoutMins; }
+  if (updates.selfHealTimeoutMins !== undefined) { runtime.selfHealTimeoutMins = Math.max(2, Number(updates.selfHealTimeoutMins)); changed.selfHealTimeoutMins = runtime.selfHealTimeoutMins; }
+  if (updates.discoveryTimeoutMins !== undefined) { runtime.discoveryTimeoutMins = Math.max(5, Number(updates.discoveryTimeoutMins)); changed.discoveryTimeoutMins = runtime.discoveryTimeoutMins; }
+  // Rate Limiting
+  if (updates.rateLimitGeneralBurst !== undefined) { runtime.rateLimitGeneralBurst = Math.max(5, Number(updates.rateLimitGeneralBurst)); changed.rateLimitGeneralBurst = runtime.rateLimitGeneralBurst; }
+  if (updates.rateLimitGeneralRefill !== undefined) { runtime.rateLimitGeneralRefill = Math.max(1, Number(updates.rateLimitGeneralRefill)); changed.rateLimitGeneralRefill = runtime.rateLimitGeneralRefill; }
+  if (updates.rateLimitAuthBurst !== undefined) { runtime.rateLimitAuthBurst = Math.max(3, Number(updates.rateLimitAuthBurst)); changed.rateLimitAuthBurst = runtime.rateLimitAuthBurst; }
+  if (updates.rateLimitAuthRefill !== undefined) { runtime.rateLimitAuthRefill = Math.max(1, Number(updates.rateLimitAuthRefill)); changed.rateLimitAuthRefill = runtime.rateLimitAuthRefill; }
+  if (updates.sseMaxPerIp !== undefined) { runtime.sseMaxPerIp = Math.max(1, Number(updates.sseMaxPerIp)); changed.sseMaxPerIp = runtime.sseMaxPerIp; }
+  if (updates.sseMaxTotal !== undefined) { runtime.sseMaxTotal = Math.max(10, Number(updates.sseMaxTotal)); changed.sseMaxTotal = runtime.sseMaxTotal; }
+  // Sessions
+  if (updates.sessionMaxAgeMins !== undefined) { runtime.sessionMaxAgeMins = Math.max(5, Number(updates.sessionMaxAgeMins)); changed.sessionMaxAgeMins = runtime.sessionMaxAgeMins; }
+  if (updates.maxSessions !== undefined) { runtime.maxSessions = Math.max(10, Number(updates.maxSessions)); changed.maxSessions = runtime.maxSessions; }
+  if (updates.jwtTtlMins !== undefined) { runtime.jwtTtlMins = Math.max(5, Number(updates.jwtTtlMins)); changed.jwtTtlMins = runtime.jwtTtlMins; }
+  // Data Retention
+  if (updates.logRetentionDays !== undefined) { runtime.logRetentionDays = Math.max(1, Number(updates.logRetentionDays)); changed.logRetentionDays = runtime.logRetentionDays; }
+  if (updates.snapshotArchiveRetentionDays !== undefined) { runtime.snapshotArchiveRetentionDays = Math.max(1, Number(updates.snapshotArchiveRetentionDays)); changed.snapshotArchiveRetentionDays = runtime.snapshotArchiveRetentionDays; }
+  if (updates.maxAuditRows !== undefined) { runtime.maxAuditRows = Math.max(100, Number(updates.maxAuditRows)); changed.maxAuditRows = runtime.maxAuditRows; }
+  if (updates.runtimeStaleHours !== undefined) { runtime.runtimeStaleHours = Math.max(1, Number(updates.runtimeStaleHours)); changed.runtimeStaleHours = runtime.runtimeStaleHours; }
+  if (updates.maxArchived !== undefined) { runtime.maxArchived = Math.max(10, Number(updates.maxArchived)); changed.maxArchived = runtime.maxArchived; }
+  // Intelligence
+  if (updates.autoLabelConfidence !== undefined) { runtime.autoLabelConfidence = Math.max(1, Math.min(100, Number(updates.autoLabelConfidence))); changed.autoLabelConfidence = runtime.autoLabelConfidence; }
+  if (updates.labelScoreThreshold !== undefined) { runtime.labelScoreThreshold = Math.max(1, Math.min(100, Number(updates.labelScoreThreshold))); changed.labelScoreThreshold = runtime.labelScoreThreshold; }
+  if (updates.maxAutoLabels !== undefined) { runtime.maxAutoLabels = Math.max(1, Math.min(10, Number(updates.maxAutoLabels))); changed.maxAutoLabels = runtime.maxAutoLabels; }
+  // Card & Snapshot
+  if (updates.maxTotalCards !== undefined) { runtime.maxTotalCards = Math.max(10, Number(updates.maxTotalCards)); changed.maxTotalCards = runtime.maxTotalCards; }
+  if (updates.snapshotMaxFileSizeMb !== undefined) { runtime.snapshotMaxFileSizeMb = Math.max(1, Number(updates.snapshotMaxFileSizeMb)); changed.snapshotMaxFileSizeMb = runtime.snapshotMaxFileSizeMb; }
+  // Server Intervals
+  if (updates.logScanIntervalSecs !== undefined) { runtime.logScanIntervalSecs = Math.max(10, Number(updates.logScanIntervalSecs)); changed.logScanIntervalSecs = runtime.logScanIntervalSecs; }
+  if (updates.analysisIntervalMins !== undefined) { runtime.analysisIntervalMins = Math.max(5, Number(updates.analysisIntervalMins)); changed.analysisIntervalMins = runtime.analysisIntervalMins; }
+  if (updates.housekeepingIntervalMins !== undefined) { runtime.housekeepingIntervalMins = Math.max(10, Number(updates.housekeepingIntervalMins)); changed.housekeepingIntervalMins = runtime.housekeepingIntervalMins; }
+  // Error Handling
+  if (updates.maxUncaughtBeforeExit !== undefined) { runtime.maxUncaughtBeforeExit = Math.max(3, Number(updates.maxUncaughtBeforeExit)); changed.maxUncaughtBeforeExit = runtime.maxUncaughtBeforeExit; }
+  // Usage Recovery
+  if (updates.usageCacheTtlMins !== undefined) { runtime.usageCacheTtlMins = Math.max(5, Number(updates.usageCacheTtlMins)); changed.usageCacheTtlMins = runtime.usageCacheTtlMins; }
+  if (updates.maxRecoveryWaitHours !== undefined) { runtime.maxRecoveryWaitHours = Math.max(1, Number(updates.maxRecoveryWaitHours)); changed.maxRecoveryWaitHours = runtime.maxRecoveryWaitHours; }
+  if (updates.recoveryFallbackMins !== undefined) { runtime.recoveryFallbackMins = Math.max(5, Number(updates.recoveryFallbackMins)); changed.recoveryFallbackMins = runtime.recoveryFallbackMins; }
+  if (updates.maxRecoveryPollsPerHour !== undefined) { runtime.maxRecoveryPollsPerHour = Math.max(1, Number(updates.maxRecoveryPollsPerHour)); changed.maxRecoveryPollsPerHour = runtime.maxRecoveryPollsPerHour; }
   broadcast('config-updated', getConfig());
   return changed;
 }
@@ -239,5 +326,4 @@ module.exports = {
   setConfig: setConfig,
   getCustomPrompts: getCustomPrompts,
   setCustomPrompts: setCustomPrompts,
-  USAGE_CACHE_TTL: USAGE_CACHE_TTL,
 };

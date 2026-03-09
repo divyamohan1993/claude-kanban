@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Initial Setup - Claude Kanban</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0a;
+    color: #e5e5e5;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+  }
+  .setup-container {
+    width: 100%;
+    max-width: 560px;
+  }
+  .setup-card {
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-radius: 16px;
+    padding: 2.5rem;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(232,146,90,0.05);
+  }
+  .logo { text-align: center; margin-bottom: 2rem; }
+  .logo .diamond { font-size: 2.5rem; color: #e8925a; text-shadow: 0 0 24px rgba(232,146,90,0.3); }
+  .logo h1 { font-size: 1.4rem; font-weight: 600; margin-top: 0.5rem; letter-spacing: -0.01em; }
+  .logo p { font-size: 0.8rem; color: #666; margin-top: 0.25rem; }
+
+  .step { display: none; }
+  .step.active { display: block; }
+
+  .step-indicator {
+    display: flex; gap: 0.5rem; justify-content: center; margin-bottom: 2rem;
+  }
+  .step-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #333; transition: all 0.3s;
+  }
+  .step-dot.active { background: #e8925a; box-shadow: 0 0 8px rgba(232,146,90,0.4); }
+  .step-dot.done { background: #4a9; }
+
+  h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
+  .step-desc { font-size: 0.8rem; color: #888; margin-bottom: 1.5rem; line-height: 1.5; }
+
+  label { display: block; font-size: 0.8rem; color: #aaa; margin-bottom: 0.3rem; font-weight: 500; }
+  input[type="text"], input[type="password"], input[type="email"], input[type="url"], select {
+    width: 100%; padding: 0.65rem 0.9rem; background: #0d0d0d; border: 1px solid #333;
+    border-radius: 8px; color: #e5e5e5; font-size: 0.9rem; outline: none;
+    transition: border-color 0.2s;
+  }
+  input:focus, select:focus { border-color: #e8925a; }
+  .field { margin-bottom: 0.9rem; }
+  .field-hint { font-size: 0.7rem; color: #555; margin-top: 0.2rem; }
+
+  .btn-row { display: flex; gap: 0.75rem; margin-top: 1.5rem; }
+  button {
+    flex: 1; padding: 0.7rem; border: none; border-radius: 8px; font-size: 0.9rem;
+    font-weight: 600; cursor: pointer; transition: all 0.2s;
+  }
+  .btn-primary { background: #e8925a; color: #000; }
+  .btn-primary:hover { background: #d4783f; }
+  .btn-secondary { background: #222; color: #ccc; border: 1px solid #333; }
+  .btn-secondary:hover { background: #2a2a2a; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .error-msg { color: #e74c3c; font-size: 0.78rem; text-align: center; margin-top: 0.75rem; min-height: 1.2em; }
+  .success-msg { color: #4a9; font-size: 0.78rem; text-align: center; margin-top: 0.75rem; }
+
+  .sso-options { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; }
+  .sso-option {
+    background: #111; border: 2px solid #222; border-radius: 10px; padding: 1rem 1.2rem;
+    cursor: pointer; transition: all 0.2s; position: relative;
+  }
+  .sso-option:hover { border-color: #444; }
+  .sso-option.selected { border-color: #e8925a; background: #1a1510; }
+  .sso-option input[type="radio"] { display: none; }
+  .sso-option-title { font-size: 0.9rem; font-weight: 600; margin-bottom: 0.2rem; }
+  .sso-option-desc { font-size: 0.72rem; color: #777; }
+  .sso-option .check-mark {
+    position: absolute; right: 1rem; top: 50%; transform: translateY(-50%);
+    width: 18px; height: 18px; border-radius: 50%; border: 2px solid #444;
+    display: flex; align-items: center; justify-content: center; font-size: 0.7rem;
+    transition: all 0.2s;
+  }
+  .sso-option.selected .check-mark { border-color: #e8925a; background: #e8925a; color: #000; }
+
+  .sso-fields { display: none; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #222; }
+  .sso-fields.visible { display: block; }
+
+  .warning-box {
+    background: #1a1510; border: 1px solid #e8925a33; border-radius: 8px;
+    padding: 0.9rem 1rem; margin-top: 1rem; font-size: 0.78rem; line-height: 1.5; color: #c89060;
+  }
+  .warning-box strong { color: #e8925a; }
+
+  .lock-notice {
+    background: #150f0f; border: 1px solid #e74c3c33; border-radius: 8px;
+    padding: 0.9rem 1rem; margin-top: 1rem; font-size: 0.78rem; line-height: 1.5; color: #c07070;
+  }
+  .lock-notice strong { color: #e74c3c; }
+  .lock-notice code { color: #c07070; background: #1a1010; padding: 0.1rem 0.3rem; border-radius: 3px; }
+
+  .password-strength {
+    height: 3px; border-radius: 2px; margin-top: 0.3rem;
+    background: #222; overflow: hidden;
+  }
+  .password-strength-bar {
+    height: 100%; width: 0; border-radius: 2px;
+    transition: width 0.3s, background 0.3s;
+  }
+
+  .summary-table { width: 100%; font-size: 0.8rem; margin-top: 1rem; border-collapse: collapse; }
+  .summary-table td { padding: 0.4rem 0; border-bottom: 1px solid #1a1a1a; }
+  .summary-table td:first-child { color: #888; width: 40%; }
+  .summary-table td:last-child { color: #e5e5e5; font-weight: 500; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #333;
+    border-top-color: #e8925a; border-radius: 50%; animation: spin 0.6s linear infinite;
+    vertical-align: middle; margin-right: 0.5rem; }
+</style>
+</head>
+<body>
+<div class="setup-container">
+  <div class="setup-card">
+    <div class="logo">
+      <div class="diamond" aria-hidden="true">&#x25C6;</div>
+      <h1>Claude Kanban</h1>
+      <p>First-Time Setup</p>
+    </div>
+
+    <div class="step-indicator">
+      <div class="step-dot active" id="dot1"></div>
+      <div class="step-dot" id="dot2"></div>
+      <div class="step-dot" id="dot3"></div>
+    </div>
+
+    <!-- Step 1: Super Admin Account -->
+    <div class="step active" id="step1">
+      <h2>Create Super Admin Account</h2>
+      <p class="step-desc">
+        This account has full system control: user management, SSO configuration, and all admin features.
+        Store these credentials securely. Passwords are hashed with Argon2id and encrypted with AES-256-GCM.
+      </p>
+      <div class="field">
+        <label for="sa-username">Username</label>
+        <input type="text" id="sa-username" maxlength="64" required placeholder="superadmin" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="sa-display">Display Name</label>
+        <input type="text" id="sa-display" maxlength="100" placeholder="System Administrator">
+      </div>
+      <div class="field">
+        <label for="sa-email">Email</label>
+        <input type="email" id="sa-email" maxlength="200" placeholder="admin@example.com">
+        <div class="field-hint">Encrypted at rest with AES-256-GCM</div>
+      </div>
+      <div class="field">
+        <label for="sa-password">Password</label>
+        <input type="password" id="sa-password" maxlength="128" required placeholder="Minimum 8 characters">
+        <div class="password-strength"><div class="password-strength-bar" id="pw-bar"></div></div>
+      </div>
+      <div class="field">
+        <label for="sa-confirm">Confirm Password</label>
+        <input type="password" id="sa-confirm" maxlength="128" required placeholder="Re-enter password">
+      </div>
+      <div class="error-msg" id="step1-error"></div>
+      <div class="btn-row">
+        <button type="button" class="btn-primary" id="btn-step1-next">Continue</button>
+      </div>
+    </div>
+
+    <!-- Step 2: SSO Configuration -->
+    <div class="step" id="step2">
+      <h2>Authentication Provider</h2>
+      <p class="step-desc">
+        Choose how users authenticate. You can use the built-in login system or connect an external identity provider.
+      </p>
+
+      <div class="sso-options">
+        <label class="sso-option selected" id="opt-builtin">
+          <input type="radio" name="sso-provider" value="builtin" checked>
+          <div class="sso-option-title">Built-in Authentication</div>
+          <div class="sso-option-desc">Use the built-in login page with locally managed users. No external dependencies.</div>
+          <div class="check-mark">&#x2713;</div>
+        </label>
+        <label class="sso-option" id="opt-oidc">
+          <input type="radio" name="sso-provider" value="oidc">
+          <div class="sso-option-title">OpenID Connect (OIDC)</div>
+          <div class="sso-option-desc">Google, Azure AD, Okta, Auth0, Keycloak, or any OIDC-compliant provider.</div>
+          <div class="check-mark">&#x2713;</div>
+        </label>
+        <label class="sso-option" id="opt-saml">
+          <input type="radio" name="sso-provider" value="saml">
+          <div class="sso-option-title">SAML 2.0</div>
+          <div class="sso-option-desc">Enterprise SSO via ADFS, Okta, OneLogin, or any SAML 2.0 Identity Provider.</div>
+          <div class="check-mark">&#x2713;</div>
+        </label>
+        <label class="sso-option" id="opt-ldap">
+          <input type="radio" name="sso-provider" value="ldap">
+          <div class="sso-option-title">LDAP / Active Directory</div>
+          <div class="sso-option-desc">Authenticate against an LDAP server or Microsoft Active Directory.</div>
+          <div class="check-mark">&#x2713;</div>
+        </label>
+      </div>
+
+      <!-- OIDC Fields -->
+      <div class="sso-fields" id="fields-oidc">
+        <div class="field">
+          <label for="oidc-issuer">Issuer URL</label>
+          <input type="url" id="oidc-issuer" placeholder="https://accounts.google.com">
+        </div>
+        <div class="field">
+          <label for="oidc-client-id">Client ID</label>
+          <input type="text" id="oidc-client-id" placeholder="your-client-id">
+        </div>
+        <div class="field">
+          <label for="oidc-client-secret">Client Secret</label>
+          <input type="password" id="oidc-client-secret" placeholder="your-client-secret">
+          <div class="field-hint">Stored encrypted with AES-256-GCM</div>
+        </div>
+        <div class="field">
+          <label for="oidc-redirect">Redirect URI</label>
+          <input type="url" id="oidc-redirect" placeholder="http://localhost:51777/auth/callback">
+        </div>
+      </div>
+
+      <!-- SAML Fields -->
+      <div class="sso-fields" id="fields-saml">
+        <div class="field">
+          <label for="saml-entry">SSO Entry Point URL</label>
+          <input type="url" id="saml-entry" placeholder="https://idp.example.com/sso/saml">
+        </div>
+        <div class="field">
+          <label for="saml-issuer">Issuer / Entity ID</label>
+          <input type="text" id="saml-issuer" placeholder="https://idp.example.com">
+        </div>
+        <div class="field">
+          <label for="saml-cert">IdP Certificate (PEM)</label>
+          <input type="text" id="saml-cert" placeholder="Paste base64 certificate">
+          <div class="field-hint">Stored encrypted with AES-256-GCM</div>
+        </div>
+      </div>
+
+      <!-- LDAP Fields -->
+      <div class="sso-fields" id="fields-ldap">
+        <div class="field">
+          <label for="ldap-url">LDAP Server URL</label>
+          <input type="url" id="ldap-url" placeholder="ldap://ldap.example.com:389">
+        </div>
+        <div class="field">
+          <label for="ldap-bind-dn">Bind DN</label>
+          <input type="text" id="ldap-bind-dn" placeholder="cn=admin,dc=example,dc=com">
+        </div>
+        <div class="field">
+          <label for="ldap-bind-pw">Bind Password</label>
+          <input type="password" id="ldap-bind-pw" placeholder="bind password">
+          <div class="field-hint">Stored encrypted with AES-256-GCM</div>
+        </div>
+        <div class="field">
+          <label for="ldap-base">Search Base</label>
+          <input type="text" id="ldap-base" placeholder="ou=users,dc=example,dc=com">
+        </div>
+        <div class="field">
+          <label for="ldap-filter">Search Filter</label>
+          <input type="text" id="ldap-filter" placeholder="(uid={{username}})">
+        </div>
+      </div>
+
+      <div class="warning-box" id="builtin-warning">
+        <strong>Note:</strong> The built-in authentication system manages users locally with Argon2id password hashing.
+        Default test accounts (admin/admin, user/user) are included. You can manage all users from the Super Admin panel after setup.
+      </div>
+
+      <div class="error-msg" id="step2-error"></div>
+      <div class="btn-row">
+        <button type="button" class="btn-secondary" id="btn-step2-back">Back</button>
+        <button type="button" class="btn-primary" id="btn-step2-next">Continue</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Review & Confirm -->
+    <div class="step" id="step3">
+      <h2>Review &amp; Complete Setup</h2>
+      <p class="step-desc">
+        Review your configuration before finalizing. This action is permanent.
+      </p>
+
+      <table class="summary-table" id="summary-table">
+        <tr><td>Super Admin</td><td id="sum-username"></td></tr>
+        <tr><td>Display Name</td><td id="sum-display"></td></tr>
+        <tr><td>Email</td><td id="sum-email"></td></tr>
+        <tr><td>Auth Provider</td><td id="sum-provider"></td></tr>
+      </table>
+
+      <div class="lock-notice">
+        <strong>Permanent lock:</strong> Once setup is complete, this configuration page is permanently disabled.
+        To access it again, you must reclone the repository or reinstall the application (this clears the <code>.data/</code> directory).
+        Make sure your super admin credentials are stored safely.
+      </div>
+
+      <div class="error-msg" id="step3-error"></div>
+      <div class="success-msg" id="step3-success"></div>
+      <div class="btn-row">
+        <button type="button" class="btn-secondary" id="btn-step3-back">Back</button>
+        <button type="button" class="btn-primary" id="btn-step3-submit">Complete Setup</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var currentStep = 1;
+  var formData = {};
+
+  var steps = [null, document.getElementById('step1'), document.getElementById('step2'), document.getElementById('step3')];
+  var dots = [null, document.getElementById('dot1'), document.getElementById('dot2'), document.getElementById('dot3')];
+
+  function showStep(n) {
+    for (var i = 1; i <= 3; i++) {
+      steps[i].classList.toggle('active', i === n);
+      dots[i].classList.toggle('active', i === n);
+      dots[i].classList.toggle('done', i < n);
+    }
+    currentStep = n;
+  }
+
+  // Password strength meter
+  var pwInput = document.getElementById('sa-password');
+  var pwBar = document.getElementById('pw-bar');
+  pwInput.addEventListener('input', function() {
+    var pw = pwInput.value;
+    var score = 0;
+    if (pw.length >= 8) score++;
+    if (pw.length >= 12) score++;
+    if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
+    if (/[0-9]/.test(pw)) score++;
+    if (/[^A-Za-z0-9]/.test(pw)) score++;
+    var pct = Math.min(100, score * 20);
+    var color = pct <= 20 ? '#e74c3c' : pct <= 40 ? '#e67e22' : pct <= 60 ? '#f1c40f' : pct <= 80 ? '#2ecc71' : '#27ae60';
+    pwBar.style.width = pct + '%';
+    pwBar.style.background = color;
+  });
+
+  // SSO option selection
+  var ssoOptions = document.querySelectorAll('.sso-option');
+  var ssoFieldSections = {
+    builtin: null,
+    oidc: document.getElementById('fields-oidc'),
+    saml: document.getElementById('fields-saml'),
+    ldap: document.getElementById('fields-ldap'),
+  };
+  var builtinWarning = document.getElementById('builtin-warning');
+
+  for (var oi = 0; oi < ssoOptions.length; oi++) {
+    (function(opt) {
+      opt.addEventListener('click', function() {
+        for (var j = 0; j < ssoOptions.length; j++) ssoOptions[j].classList.remove('selected');
+        opt.classList.add('selected');
+        opt.querySelector('input[type="radio"]').checked = true;
+        var val = opt.querySelector('input[type="radio"]').value;
+        var keys = Object.keys(ssoFieldSections);
+        for (var k = 0; k < keys.length; k++) {
+          if (ssoFieldSections[keys[k]]) {
+            ssoFieldSections[keys[k]].classList.toggle('visible', keys[k] === val);
+          }
+        }
+        builtinWarning.style.display = val === 'builtin' ? 'block' : 'none';
+      });
+    })(ssoOptions[oi]);
+  }
+
+  // Step 1: Validate and collect super admin data
+  document.getElementById('btn-step1-next').addEventListener('click', function() {
+    var username = document.getElementById('sa-username').value.trim();
+    var display = document.getElementById('sa-display').value.trim();
+    var email = document.getElementById('sa-email').value.trim();
+    var password = document.getElementById('sa-password').value;
+    var confirm = document.getElementById('sa-confirm').value;
+    var errEl = document.getElementById('step1-error');
+    errEl.textContent = '';
+
+    if (!username || username.length < 2) { errEl.textContent = 'Username must be at least 2 characters'; return; }
+    if (!/^[a-zA-Z0-9_.-]+$/.test(username)) { errEl.textContent = 'Username: only letters, numbers, underscore, dot, hyphen'; return; }
+    if (!password || password.length < 8) { errEl.textContent = 'Password must be at least 8 characters'; return; }
+    if (password !== confirm) { errEl.textContent = 'Passwords do not match'; return; }
+
+    formData.username = username;
+    formData.displayName = display || username;
+    formData.email = email;
+    formData.password = password;
+    showStep(2);
+  });
+
+  // Step 2: Validate SSO config
+  document.getElementById('btn-step2-back').addEventListener('click', function() { showStep(1); });
+  document.getElementById('btn-step2-next').addEventListener('click', function() {
+    var provider = document.querySelector('input[name="sso-provider"]:checked').value;
+    var errEl = document.getElementById('step2-error');
+    errEl.textContent = '';
+
+    formData.ssoProvider = provider;
+    formData.ssoConfig = { provider: provider };
+
+    if (provider === 'oidc') {
+      var issuer = document.getElementById('oidc-issuer').value.trim();
+      var clientId = document.getElementById('oidc-client-id').value.trim();
+      var clientSecret = document.getElementById('oidc-client-secret').value.trim();
+      if (!issuer || !clientId) { errEl.textContent = 'Issuer URL and Client ID are required for OIDC'; return; }
+      formData.ssoConfig.oidcIssuer = issuer;
+      formData.ssoConfig.oidcClientId = clientId;
+      formData.ssoConfig.oidcClientSecret = clientSecret;
+      formData.ssoConfig.oidcRedirectUri = document.getElementById('oidc-redirect').value.trim();
+    } else if (provider === 'saml') {
+      var entry = document.getElementById('saml-entry').value.trim();
+      if (!entry) { errEl.textContent = 'SSO Entry Point URL is required for SAML'; return; }
+      formData.ssoConfig.samlEntryPoint = entry;
+      formData.ssoConfig.samlIssuer = document.getElementById('saml-issuer').value.trim();
+      formData.ssoConfig.samlCert = document.getElementById('saml-cert').value.trim();
+    } else if (provider === 'ldap') {
+      var ldapUrl = document.getElementById('ldap-url').value.trim();
+      if (!ldapUrl) { errEl.textContent = 'LDAP Server URL is required'; return; }
+      formData.ssoConfig.ldapUrl = ldapUrl;
+      formData.ssoConfig.ldapBindDn = document.getElementById('ldap-bind-dn').value.trim();
+      formData.ssoConfig.ldapBindPassword = document.getElementById('ldap-bind-pw').value.trim();
+      formData.ssoConfig.ldapSearchBase = document.getElementById('ldap-base').value.trim();
+      formData.ssoConfig.ldapSearchFilter = document.getElementById('ldap-filter').value.trim();
+    }
+
+    var providerLabels = { builtin: 'Built-in Authentication', oidc: 'OpenID Connect', saml: 'SAML 2.0', ldap: 'LDAP / Active Directory' };
+    document.getElementById('sum-username').textContent = formData.username;
+    document.getElementById('sum-display').textContent = formData.displayName;
+    document.getElementById('sum-email').textContent = formData.email || '(not set)';
+    document.getElementById('sum-provider').textContent = providerLabels[provider] || provider;
+    showStep(3);
+  });
+
+  // Step 3: Submit
+  document.getElementById('btn-step3-back').addEventListener('click', function() { showStep(2); });
+  document.getElementById('btn-step3-submit').addEventListener('click', function() {
+    var btn = document.getElementById('btn-step3-submit');
+    var errEl = document.getElementById('step3-error');
+    var successEl = document.getElementById('step3-success');
+    errEl.textContent = '';
+    successEl.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Setting up...';
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/auth/setup');
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.onload = function() {
+      btn.disabled = false;
+      btn.textContent = 'Complete Setup';
+      try {
+        var data = JSON.parse(xhr.responseText);
+        if (data.ok) {
+          successEl.textContent = 'Setup complete. Redirecting...';
+          btn.disabled = true;
+          document.getElementById('btn-step3-back').disabled = true;
+          setTimeout(function() { window.location.href = '/auth/login'; }, 1500);
+        } else {
+          errEl.textContent = data.error || 'Setup failed';
+        }
+      } catch (_) { errEl.textContent = 'Unexpected response from server'; }
+    };
+    xhr.onerror = function() {
+      btn.disabled = false;
+      btn.textContent = 'Complete Setup';
+      errEl.textContent = 'Connection failed';
+    };
+    xhr.send(JSON.stringify({
+      username: formData.username,
+      displayName: formData.displayName,
+      email: formData.email,
+      password: formData.password,
+      ssoConfig: formData.ssoConfig,
+    }));
+  });
+})();
+</script>
+</body>
+</html>

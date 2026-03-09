@@ -2,12 +2,25 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { PORT, ADMIN_PORT, ADMIN_PATH, ROOT_DIR, DATA_DIR, LOGS_DIR } = require('./config');
+const { PORT, ADMIN_PORT, ADMIN_PATH, ROOT_DIR, DATA_DIR, LOGS_DIR, runtime } = require('./config');
 const { securityHeaders, requestId, originCheck, errorHandler, requireJsonContentType } = require('./middleware/security');
 const { rateLimiter, sseGuard } = require('./middleware/rate-limit');
 const { log } = require('./lib/logger');
 const sso = require('./sso');
-const { cards, auditLog, config: dbConfig, errors: dbErrors } = require('./db');
+const db = require('./db');
+const { cards, auditLog, config: dbConfig, errors: dbErrors } = db;
+
+// Initialize user store with DB — must happen before any auth middleware fires.
+// Returns a Promise (Argon2 hashing is async). All auth calls await _ready internally,
+// so the server can accept connections immediately; auth simply blocks until init completes.
+// The .catch in user-store.js exits the process if init fails.
+sso.init(db).then(function() {
+  log.info('SSO user store initialized');
+}).catch(function(err) {
+  // user-store.js already calls process.exit(1) on failure,
+  // but log here too in case the exit is delayed
+  log.fatal({ err: err.message }, 'SSO init failed');
+});
 const { broadcast, setEnrichCard } = require('./lib/broadcast');
 const pipeline = require('./services/pipeline');
 const intelligence = require('./services/intelligence');
@@ -17,32 +30,43 @@ setEnrichCard(publicRoutes.enrichCard);
 const adminRoutes = require('./routes/admin');
 
 // =============================================================================
+// Shared middleware stack — applied to both public and admin apps
+// =============================================================================
+function applyCommonMiddleware(target) {
+  target.use(rateLimiter);
+  target.use(securityHeaders);
+  target.use(requestId);
+  target.use(originCheck);
+  target.use(requireJsonContentType);
+  target.use(express.json({ limit: '1mb' }));
+  target.use(sso.routes);
+}
+
+// =============================================================================
 // PUBLIC APP — 0.0.0.0:PORT — board UI + board APIs
 // =============================================================================
 const app = express();
-
-// DDoS mitigation — FIRST, before Express parses anything.
-// Token bucket: 60 req/s burst, 30/s refill per IP.
-// Rejects with pre-built static 429 (~180 bytes). Zero processing on reject.
-app.use(rateLimiter);
+applyCommonMiddleware(app);
 
 // SSE connection limiter — before the SSE route handlers (events + log-stream)
 app.use('/api/events', sseGuard);
 app.use('/api/cards/:id/log-stream', sseGuard);
 
-app.use(securityHeaders);
-app.use(requestId);
-app.use(originCheck);
-app.use(requireJsonContentType);
-app.use(express.json({ limit: '1mb' }));
-
-// SSO routes — /auth/login, /auth/logout, /auth/session (owned by src/sso/)
-app.use(sso.routes);
-
-// Block control-panel on public
+// Block control-panel and user-management on public
 app.use(function(req, res, next) {
   if (req.path === '/control-panel.html') return res.status(404).end();
+  if (req.path === '/user-management.html') return res.status(404).end();
   next();
+});
+
+// First-run setup redirect — all non-auth, non-health routes redirect to /auth/setup
+app.use(function(req, res, next) {
+  if (sso.isSetupComplete()) return next();
+  // Allow setup endpoints, static assets, and health checks through
+  if (req.path.startsWith('/auth/')) return next();
+  if (req.path === '/health' || req.path === '/health/ready') return next();
+  if (req.path.match(/\.(css|js|png|jpg|ico|svg|woff|woff2|ttf)$/)) return next();
+  return res.redirect('/auth/setup');
 });
 
 // Cache busting — serve HTML with server-start timestamp (busts on every deploy/restart)
@@ -118,12 +142,14 @@ app.get('/health/ready', function(req, res) {
   });
 });
 
-// Admin redirect — SSO-protected, requires admin role
+// Admin redirect — SSO-protected, requires admin or superadmin role
 // Path is auto-generated random hex (or pinned via ADMIN_PATH env)
 app.get('/' + ADMIN_PATH, function(req, res) {
   const session = sso.verifySession(req);
   if (!session) return res.redirect('/auth/login?return=/' + ADMIN_PATH);
-  if (session.user.role !== 'admin') return res.status(403).send('Admin access required');
+  if (session.user.role !== 'admin' && session.user.role !== 'superadmin') {
+    return res.status(403).send('Admin access required');
+  }
   const adminPort = dbConfig.get('admin_port');
   if (!adminPort) return res.status(503).send('Admin server not ready');
   res.redirect('http://localhost:' + adminPort + '/');
@@ -139,15 +165,16 @@ app.use(errorHandler);
 // ADMIN APP — 127.0.0.1:ADMIN_PORT — kernel rejects non-loopback TCP
 // =============================================================================
 const adminApp = express();
-adminApp.use(rateLimiter);
-adminApp.use(securityHeaders);
-adminApp.use(requestId);
-adminApp.use(originCheck);
-adminApp.use(requireJsonContentType);
-adminApp.use(express.json({ limit: '1mb' }));
+applyCommonMiddleware(adminApp);
 
-// SSO routes on admin app too
-adminApp.use(sso.routes);
+// User management page — superadmin only
+const userMgmtHtmlPath = path.join(ROOT_DIR, 'src', 'sso', 'views', 'user-management.html');
+adminApp.get('/users', sso.requireSuperAdmin, function(_req, res) {
+  let html = fs.readFileSync(userMgmtHtmlPath, 'utf-8');
+  const nonce = res.locals.cspNonce || '';
+  if (nonce) html = html.replace('<script>', '<script nonce="' + nonce + '">');
+  res.type('html').send(html);
+});
 
 // Admin API routes
 adminApp.use(adminRoutes);
@@ -221,10 +248,8 @@ function escalateToHuman(sourceCardId, errors, file, logFile) {
   const sourceCard = cards.get(sourceCardId);
   const sourceTitle = sourceCard ? sourceCard.title : 'Card #' + sourceCardId;
 
-  const existing = cards.getAll().find(function(c) {
-    return c.title.includes('[Escalation]') && c.description && c.description.includes('card-' + sourceCardId);
-  });
-  if (existing) return;
+  const existing = cards.search('[Escalation] card-' + sourceCardId);
+  if (existing.length > 0) return;
 
   const fixTitle = '[Escalation] Auto-fix failed: ' + sourceTitle;
   const fixDesc = 'Self-healing failed after 2 attempts for card-' + sourceCardId + ' (' + file + '):\n\n'
@@ -234,9 +259,9 @@ function escalateToHuman(sourceCardId, errors, file, logFile) {
     + '\n\nHuman intervention required.';
 
   const result = cards.create(fixTitle, fixDesc, 'brainstorm');
+  cards.setProjectPath(Number(result.lastInsertRowid), ROOT_DIR);
   const fixCard = cards.get(Number(result.lastInsertRowid));
-  cards.setProjectPath(fixCard.id, ROOT_DIR);
-  broadcast('card-created', cards.get(fixCard.id));
+  broadcast('card-created', fixCard);
   broadcast('toast', { message: 'Escalation: Auto-fix failed for ' + sourceTitle, type: 'error' });
   try { fs.appendFileSync(logFile, '\n[SELF-HEAL] Escalated to human — created card #' + fixCard.id + '\n'); } catch (_) {}
 }
@@ -306,25 +331,28 @@ function scanDbErrors() {
 // =============================================================================
 // START BOTH SERVERS
 // =============================================================================
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const publicServer = app.listen(PORT, '0.0.0.0', function() {
   // Store PID in DB instead of file
   dbConfig.set('server_pid', String(process.pid));
   pipeline.init();
+  const orphanCount = pipeline.recoverOrphanedCards();
+  if (orphanCount > 0) {
+    log.info({ recovered: orphanCount }, 'Crash recovery: reset ' + orphanCount + ' orphaned card(s) to safe states');
+  }
   intelligence.init();
   specIntelligence.init();
 
   // Start periodic tasks — scan both log files and DB error table
-  setInterval(scanLogsForErrors, 30000);
-  setInterval(scanDbErrors, 30000);
+  setInterval(scanLogsForErrors, runtime.logScanIntervalSecs * 1000);
+  setInterval(scanDbErrors, runtime.logScanIntervalSecs * 1000);
 
   // Intelligence: periodic pattern analysis every 30 minutes
   setInterval(function() {
     try { intelligence.analyzeAndTune(); } catch (err) {
       log.error({ err: err.message }, 'Intelligence analyzeAndTune failed');
     }
-  }, 30 * 60 * 1000);
+  }, runtime.analysisIntervalMins * 60 * 1000);
 
   // Housekeeping every 1 hour — in single-project mode: pause, wait idle, clean, resume
   setInterval(function() {
@@ -349,17 +377,20 @@ const publicServer = app.listen(PORT, '0.0.0.0', function() {
     } else {
       adminRoutes.runHousekeeping();
     }
-  }, 60 * 60 * 1000);
+  }, runtime.housekeepingIntervalMins * 60 * 1000);
 
   log.info('Claude Kanban Board  http://localhost:' + PORT + '  (public, PID ' + process.pid + ')');
 });
 
 // Request timeouts — kill slowloris attacks.
 // 30s for headers (slowloris), 120s for full request, 120s keep-alive.
-publicServer.headersTimeout = 30000;
-publicServer.requestTimeout = 120000;
-publicServer.keepAliveTimeout = 120000;
-publicServer.maxHeadersCount = 50;
+function hardenServer(server) {
+  server.headersTimeout = 30000;
+  server.requestTimeout = 120000;
+  server.keepAliveTimeout = 120000;
+  server.maxHeadersCount = 50;
+}
+hardenServer(publicServer);
 
 const adminServer = adminApp.listen(ADMIN_PORT, '127.0.0.1', function() {
   // Store all server config in DB — single source of truth
@@ -375,13 +406,9 @@ const adminServer = adminApp.listen(ADMIN_PORT, '127.0.0.1', function() {
     : ['xdg-open', [url]];
   spawn(openCmd[0], openCmd[1], { stdio: 'ignore', windowsHide: true }).unref();
 });
-adminServer.headersTimeout = 30000;
-adminServer.requestTimeout = 120000;
-adminServer.keepAliveTimeout = 120000;
-adminServer.maxHeadersCount = 50;
+hardenServer(adminServer);
 
 // L2 fix: Graceful shutdown — drain connections, close DB, kill builds, clear PID
-const { db } = require('./db');
 function clearPid() { try { dbConfig.set('server_pid', ''); } catch (_) {} }
 
 function gracefulShutdown(signal) {
@@ -390,7 +417,7 @@ function gracefulShutdown(signal) {
   publicServer.close(function() {
     adminServer.close(function() {
       clearPid();
-      try { db.close(); } catch (_) {}
+      try { db.db.close(); } catch (_) {}
       log.info('Shutdown clean exit');
       process.exit(0);
     });
@@ -399,7 +426,7 @@ function gracefulShutdown(signal) {
   setTimeout(function() {
     log.error('Shutdown forced exit after 5s timeout');
     clearPid();
-    try { db.close(); } catch (_) {}
+    try { db.db.close(); } catch (_) {}
     process.exit(1);
   }, 5000);
 }
@@ -407,3 +434,68 @@ function gracefulShutdown(signal) {
 process.on('exit', clearPid);
 process.on('SIGTERM', function() { gracefulShutdown('SIGTERM'); });
 process.on('SIGINT', function() { gracefulShutdown('SIGINT'); });
+
+// =============================================================================
+// CRASH RESILIENCE — prevent cascade failures from killing the orchestrator
+// =============================================================================
+
+// Heartbeat file — written every 30 seconds. External watchdog checks freshness.
+const HEARTBEAT_FILE = path.join(DATA_DIR, '.heartbeat');
+
+setInterval(function() {
+  try {
+    fs.writeFileSync(HEARTBEAT_FILE, JSON.stringify({
+      pid: process.pid,
+      uptime: Math.round(process.uptime()),
+      timestamp: Date.now(),
+      iso: new Date().toISOString(),
+      memory: Math.round(process.memoryUsage().rss / 1048576),
+      pipeline: pipeline.getPipelineState().paused ? 'paused' : 'active',
+    }));
+  } catch (_) {}
+}, runtime.heartbeatIntervalMs || 30000);
+
+// Uncaught exception handler — log and survive instead of crashing.
+// The orchestrator must stay alive so it can resume the pipeline when limits reset.
+let uncaughtCount = 0;
+
+process.on('uncaughtException', function(err) {
+  uncaughtCount++;
+  try {
+    log.fatal({ err: err.message, stack: err.stack, count: uncaughtCount }, 'Uncaught exception — orchestrator survived');
+    broadcast('toast', { message: 'Internal error caught (orchestrator still alive): ' + err.message, type: 'error' });
+  } catch (_) {
+    // If logging itself fails, write to stderr as last resort
+    process.stderr.write('[FATAL] Uncaught: ' + err.message + '\n');
+  }
+
+  if (uncaughtCount >= runtime.maxUncaughtBeforeExit) {
+    try {
+      log.fatal({ count: uncaughtCount }, 'Too many uncaught exceptions — initiating restart');
+      // Write restart marker so watchdog knows this was intentional
+      fs.writeFileSync(path.join(DATA_DIR, '.restart-requested'), JSON.stringify({
+        reason: 'max-uncaught-exceptions',
+        count: uncaughtCount,
+        timestamp: Date.now(),
+      }));
+    } catch (_) {}
+    process.exit(1); // Watchdog will restart
+  }
+});
+
+process.on('unhandledRejection', function(reason) {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  try {
+    log.error({ reason: msg }, 'Unhandled promise rejection — orchestrator survived');
+  } catch (_) {
+    process.stderr.write('[ERROR] Unhandled rejection: ' + msg + '\n');
+  }
+});
+
+// Reset uncaught counter every 5 minutes if we're still alive (transient errors are OK)
+setInterval(function() {
+  if (uncaughtCount > 0) {
+    log.info({ was: uncaughtCount }, 'Resetting uncaught exception counter (server stable)');
+    uncaughtCount = 0;
+  }
+}, 5 * 60 * 1000);

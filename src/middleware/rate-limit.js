@@ -26,14 +26,15 @@ const REJECT_HEADERS = {
 
 const SSE_REJECT_BODY = 'data: {"error":"connection limit reached"}\n\n';
 
-// --- Configuration ---
+// --- Configuration (reads from runtime for live-configurable values) ---
+const { runtime } = require('../config');
 const CONFIG = {
-  // General API: 60 requests per second burst, refill 30/s
-  general: { burst: 60, refillRate: 30 },
-  // Auth endpoints: 5 per second burst, refill 1/s (brute force protection on top of session rate limiting)
-  auth: { burst: 5, refillRate: 1 },
-  // SSE: max connections per IP, max total
-  sse: { maxPerIp: 5, maxTotal: 200 },
+  // General API: burst + refill from runtime
+  get general() { return { burst: runtime.rateLimitGeneralBurst, refillRate: runtime.rateLimitGeneralRefill }; },
+  // Auth endpoints: burst + refill from runtime
+  get auth() { return { burst: runtime.rateLimitAuthBurst, refillRate: runtime.rateLimitAuthRefill }; },
+  // SSE: max connections per IP, max total from runtime
+  get sse() { return { maxPerIp: runtime.sseMaxPerIp, maxTotal: runtime.sseMaxTotal }; },
   // Max tracked IPs before LRU eviction
   maxTrackedIps: 10000,
   // Cleanup interval

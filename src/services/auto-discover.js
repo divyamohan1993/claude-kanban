@@ -183,7 +183,7 @@ function runDiscovery() {
 
   // Poll for discovery output
   let pollCount = 0;
-  const maxPolls = 360; // 30 minutes
+  const maxPolls = Math.round(runtime.discoveryTimeoutMins * 60000 / runtime.pollIntervalMs);
 
   const interval = setInterval(function() {
     pollCount++;
@@ -217,7 +217,7 @@ function runDiscovery() {
     } catch (err) {
       log.error({ err: err.message }, 'Auto-discover poll error');
     }
-  }, 5000);
+  }, runtime.pollIntervalMs);
 }
 
 function captureOriginalIdea(projectPath) {

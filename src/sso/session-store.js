@@ -9,11 +9,9 @@
 //   - 24-hour expiry
 
 const crypto = require('crypto');
+const { runtime } = require('../config');
 
 const COOKIE_NAME = 'sid';
-const MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const MAX_AGE_S = Math.floor(MAX_AGE_MS / 1000);
-const MAX_SESSIONS = 10000;
 
 const store = new Map();
 const loginAttempts = new Map();
@@ -29,7 +27,7 @@ function fingerprint(req) {
 }
 
 function create(user, req) {
-  if (store.size >= MAX_SESSIONS) {
+  if (store.size >= runtime.maxSessions) {
     let oldest = null, oldestId = null;
     store.forEach(function(s, id) {
       if (!oldest || s.createdAt < oldest) { oldest = s.createdAt; oldestId = id; }
@@ -51,7 +49,7 @@ function get(id, req) {
   if (!id) return null;
   const s = store.get(id);
   if (!s) return null;
-  if (Date.now() - s.createdAt > MAX_AGE_MS) { store.delete(id); return null; }
+  if (Date.now() - s.createdAt > runtime.sessionMaxAgeMins * 60 * 1000) { store.delete(id); return null; }
   if (req && s.fingerprint && s.fingerprint !== fingerprint(req)) { store.delete(id); return null; }
   s.lastAccess = Date.now();
   return s;
@@ -75,7 +73,7 @@ function parseId(cookieHeader) {
 
 function setCookie(res, sessionId) {
   const secure = (process.env.SECURE_COOKIES === 'true' || process.env.NODE_ENV === 'production') ? '; Secure' : '';
-  res.setHeader('Set-Cookie', COOKIE_NAME + '=' + sessionId + '; HttpOnly; SameSite=Strict; Path=/; Max-Age=' + MAX_AGE_S + secure);
+  res.setHeader('Set-Cookie', COOKIE_NAME + '=' + sessionId + '; HttpOnly; SameSite=Strict; Path=/; Max-Age=' + Math.floor(runtime.sessionMaxAgeMins * 60) + secure);
 }
 
 function clearCookie(res) {
@@ -119,7 +117,7 @@ function recordSuccessfulLogin(ip, req) {
 // Cleanup every hour
 setInterval(function() {
   const now = Date.now();
-  store.forEach(function(s, id) { if (now - s.createdAt > MAX_AGE_MS) store.delete(id); });
+  store.forEach(function(s, id) { if (now - s.createdAt > runtime.sessionMaxAgeMins * 60 * 1000) store.delete(id); });
   loginAttempts.forEach(function(r, key) {
     if (!r.permanentLock && r.lastAttempt && now - r.lastAttempt > 7200000) loginAttempts.delete(key);
   });

@@ -10,12 +10,15 @@
   <link rel="stylesheet" href="style.css?t=__BUST__">
 </head>
 <body>
-  <header>
+  <!-- Skip to main content — WCAG 2.4.1 -->
+  <a href="#board" class="skip-link">Skip to board</a>
+
+  <header role="banner">
     <div class="header-left">
       <div class="logo-mark" aria-hidden="true">&#9670;</div>
       <div>
         <h1>Claude Kanban</h1>
-        <span class="subtitle">Autonomous AI Orchestrator &middot; by Claude &times; Divya Mohan</span>
+        <span class="subtitle">Autonomous AI Orchestrator; by Claude and Divya Mohan</span>
       </div>
     </div>
     <div class="header-search" style="display:none">
@@ -40,13 +43,14 @@
   </header>
 
   <!-- Idea Modal — natural language input for ideas and feedback -->
-  <div class="modal-overlay" id="idea-modal" role="dialog" aria-labelledby="idea-modal-title">
+  <div class="modal-overlay" id="idea-modal" role="dialog" aria-modal="true" aria-labelledby="idea-modal-title">
     <div class="modal" style="max-width:560px">
       <div class="modal-header">
         <h2 id="idea-modal-title">New Idea</h2>
         <button class="modal-close" id="idea-close" aria-label="Close">&times;</button>
       </div>
       <p class="idea-hint" id="idea-hint">Describe what you want to build. A new project folder will be created automatically.</p>
+      <div id="idea-templates"></div>
       <div class="idea-bar-inner">
         <div class="idea-target-tag" id="idea-target-tag" style="display:none">
           <span id="idea-target-name"></span>
@@ -75,10 +79,10 @@
   <!-- Search Results Dropdown -->
   <div class="search-results" id="search-results" role="listbox" aria-label="Search results"></div>
 
-  <main class="board" id="board"></main>
+  <main class="board" id="board" role="main" aria-label="Kanban board"></main>
 
   <!-- Add/Edit Modal -->
-  <div class="modal-overlay" id="card-modal" role="dialog" aria-labelledby="modal-title">
+  <div class="modal-overlay" id="card-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal">
       <div class="modal-header">
         <h2 id="modal-title">New Card</h2>
@@ -101,7 +105,7 @@
   </div>
 
   <!-- Detail Modal -->
-  <div class="modal-overlay" id="detail-modal" role="dialog" aria-labelledby="detail-title">
+  <div class="modal-overlay" id="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title">
     <div class="modal modal-wide">
       <div class="modal-header">
         <h2 id="detail-title">Card Details</h2>
@@ -112,7 +116,7 @@
   </div>
 
   <!-- Folder Picker Modal -->
-  <div class="modal-overlay" id="folder-modal" role="dialog" aria-labelledby="folder-modal-title">
+  <div class="modal-overlay" id="folder-modal" role="dialog" aria-modal="true" aria-labelledby="folder-modal-title">
     <div class="modal modal-wide">
       <div class="modal-header">
         <h2 id="folder-modal-title">Select Project Folder</h2>
@@ -125,7 +129,7 @@
   </div>
 
   <!-- Archive Modal -->
-  <div class="modal-overlay" id="archive-modal" role="dialog" aria-label="Archived cards">
+  <div class="modal-overlay" id="archive-modal" role="dialog" aria-modal="true" aria-label="Archived cards">
     <div class="modal modal-wide">
       <div class="modal-header">
         <h2>Archived Cards</h2>
@@ -136,7 +140,7 @@
   </div>
 
   <!-- Metrics Modal -->
-  <div class="modal-overlay" id="metrics-modal" role="dialog" aria-label="Metrics dashboard">
+  <div class="modal-overlay" id="metrics-modal" role="dialog" aria-modal="true" aria-label="Metrics dashboard">
     <div class="modal modal-wide">
       <div class="modal-header">
         <h2>Metrics Dashboard</h2>
@@ -147,7 +151,7 @@
   </div>
 
   <!-- Import Modal -->
-  <div class="modal-overlay" id="import-modal" role="dialog" aria-label="Bulk import">
+  <div class="modal-overlay" id="import-modal" role="dialog" aria-modal="true" aria-label="Bulk import">
     <div class="modal modal-wide">
       <div class="modal-header">
         <h2>Bulk Import Cards</h2>
@@ -158,6 +162,19 @@
       <div class="modal-actions" style="margin-top:12px;">
         <button class="btn btn-ghost" id="import-cancel">Cancel</button>
         <button class="btn btn-primary" id="import-submit">Import</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Command Palette -->
+  <div class="cmd-overlay" id="cmd-palette" role="dialog" aria-modal="true" aria-label="Command palette">
+    <div class="cmd-modal">
+      <input type="text" id="cmd-input" placeholder="Type a command or search..." aria-label="Command search" autocomplete="off">
+      <div class="cmd-results" id="cmd-results" role="listbox"></div>
+      <div class="cmd-footer">
+        <span><kbd>&#x2191;&#x2193;</kbd> navigate</span>
+        <span><kbd>Enter</kbd> select</span>
+        <span><kbd>Esc</kbd> close</span>
       </div>
     </div>
   </div>

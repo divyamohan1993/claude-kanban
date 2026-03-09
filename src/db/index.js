@@ -109,6 +109,17 @@ try { runSQL('ALTER TABLE cards ADD COLUMN deleted_at TEXT DEFAULT NULL'); } cat
 try { runSQL('ALTER TABLE cards ADD COLUMN parent_card_id INTEGER DEFAULT NULL'); } catch (_) {}
 try { runSQL('ALTER TABLE cards ADD COLUMN spec_score INTEGER DEFAULT 0'); } catch (_) {}
 
+// Performance indexes — O(1) lookups on most-filtered columns
+runSQL([
+  "CREATE INDEX IF NOT EXISTS idx_cards_column ON cards(column_name, deleted_at);",
+  "CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status);",
+  "CREATE INDEX IF NOT EXISTS idx_cards_project ON cards(project_path);",
+  "CREATE INDEX IF NOT EXISTS idx_cards_parent ON cards(parent_card_id);",
+  "CREATE INDEX IF NOT EXISTS idx_cards_updated ON cards(updated_at);",
+  "CREATE INDEX IF NOT EXISTS idx_sessions_card ON sessions(card_id);",
+  "CREATE INDEX IF NOT EXISTS idx_usage_started ON claude_usage(started_at);",
+].join('\n'));
+
 // Config key-value store — server config persisted in DB
 runSQL([
   "CREATE TABLE IF NOT EXISTS config (",
@@ -165,6 +176,26 @@ runSQL([
   ");",
 ].join('\n'));
 
+// Users — DB-backed identity store (replaces hardcoded array)
+runSQL([
+  "CREATE TABLE IF NOT EXISTS users (",
+  "  id TEXT PRIMARY KEY,",
+  "  username TEXT NOT NULL UNIQUE,",
+  "  password_hash TEXT NOT NULL,",
+  "  role TEXT NOT NULL DEFAULT 'user',",
+  "  display_name TEXT DEFAULT '',",
+  "  email_encrypted TEXT DEFAULT '',",
+  "  groups TEXT DEFAULT '[]',",
+  "  enabled INTEGER NOT NULL DEFAULT 1,",
+  "  created_by TEXT DEFAULT 'system',",
+  "  last_login TEXT,",
+  "  created_at TEXT DEFAULT (datetime('now')),",
+  "  updated_at TEXT DEFAULT (datetime('now'))",
+  ");",
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username);",
+  "CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);",
+].join('\n'));
+
 // Audit log — immutable, append-only compliance trail
 runSQL([
   "CREATE TABLE IF NOT EXISTS audit_log (",
@@ -215,8 +246,19 @@ const stmts = {
   auditByResource: db.prepare('SELECT * FROM audit_log WHERE resource_type = ? AND resource_id = ? ORDER BY timestamp DESC'),
   auditRecent: db.prepare('SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ?'),
   auditAll: db.prepare('SELECT * FROM audit_log ORDER BY timestamp DESC'),
+  // COUNT queries — O(1) via index, replaces getAll().length full scans
+  countAll: db.prepare("SELECT COUNT(*) as cnt FROM cards WHERE column_name != 'archive' AND deleted_at IS NULL"),
+  countTotal: db.prepare("SELECT COUNT(*) as cnt FROM cards WHERE deleted_at IS NULL"),
+  countByColumn: db.prepare("SELECT COUNT(*) as cnt FROM cards WHERE column_name = ? AND deleted_at IS NULL"),
+  countByStatus: db.prepare("SELECT COUNT(*) as cnt FROM cards WHERE status = ? AND deleted_at IS NULL"),
+  auditCount: db.prepare("SELECT COUNT(*) as cnt FROM audit_log"),
   setSpecScore: db.prepare("UPDATE cards SET spec_score = ?, updated_at = datetime('now') WHERE id = ?"),
   setParentCardId: db.prepare("UPDATE cards SET parent_card_id = ?, updated_at = datetime('now') WHERE id = ?"),
+  // Aggregation queries — avoid full table scans in services
+  projectTrustStats: db.prepare("SELECT COUNT(*) as completed, COALESCE(AVG(CASE WHEN review_score > 0 THEN CAST(review_score AS REAL) ELSE NULL END), 0) as avg_score FROM cards WHERE project_path = ? AND column_name IN ('done', 'archive') AND deleted_at IS NULL"),
+  completedTitles: db.prepare("SELECT title FROM cards WHERE column_name IN ('done', 'archive') AND deleted_at IS NULL AND id != ?"),
+  reviewScores: db.prepare("SELECT review_score FROM cards WHERE review_score > 0 AND deleted_at IS NULL"),
+  getByColumn: db.prepare("SELECT * FROM cards WHERE column_name = ? AND deleted_at IS NULL ORDER BY updated_at DESC"),
   getByParent: db.prepare("SELECT * FROM cards WHERE parent_card_id = ? AND deleted_at IS NULL ORDER BY created_at ASC"),
   countByParentAndColumn: db.prepare("SELECT COUNT(*) as cnt FROM cards WHERE parent_card_id = ? AND column_name != 'done' AND column_name != 'archive' AND deleted_at IS NULL"),
   getActiveInitiative: db.prepare("SELECT * FROM cards WHERE parent_card_id IS NULL AND column_name NOT IN ('done', 'archive') AND deleted_at IS NULL AND spec IS NOT NULL AND spec != '' ORDER BY created_at ASC LIMIT 1"),
@@ -246,6 +288,18 @@ const stmts = {
   checkpointGet: db.prepare("SELECT * FROM checkpoints WHERE id = ?"),
   checkpointDelete: db.prepare("DELETE FROM checkpoints WHERE id = ?"),
   checkpointPrune: db.prepare("DELETE FROM checkpoints WHERE created_at < datetime('now', '-7 days')"),
+  // Users
+  userInsert: db.prepare("INSERT INTO users (id, username, password_hash, role, display_name, email_encrypted, groups, enabled, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+  userGetById: db.prepare("SELECT * FROM users WHERE id = ?"),
+  userGetByUsername: db.prepare("SELECT * FROM users WHERE username = ?"),
+  userGetAll: db.prepare("SELECT * FROM users ORDER BY created_at ASC"),
+  userGetEnabled: db.prepare("SELECT * FROM users WHERE enabled = 1 ORDER BY created_at ASC"),
+  userUpdate: db.prepare("UPDATE users SET display_name = ?, email_encrypted = ?, role = ?, groups = ?, enabled = ?, updated_at = datetime('now') WHERE id = ?"),
+  userUpdatePassword: db.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?"),
+  userSetLastLogin: db.prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?"),
+  userDelete: db.prepare("DELETE FROM users WHERE id = ?"),
+  userCountByRole: db.prepare("SELECT COUNT(*) as cnt FROM users WHERE role = ?"),
+  userCount: db.prepare("SELECT COUNT(*) as cnt FROM users"),
 };
 
 // --- Rolling Backup System ---
@@ -413,6 +467,14 @@ module.exports = {
     getByParent: function(parentId) { return stmts.getByParent.all(parentId); },
     countIncompleteChildren: function(parentId) { return stmts.countByParentAndColumn.get(parentId).cnt; },
     getActiveInitiative: function() { return stmts.getActiveInitiative.get(); },
+    countAll: function() { return stmts.countAll.get().cnt; },
+    countTotal: function() { return stmts.countTotal.get().cnt; },
+    countByColumn: function(col) { return stmts.countByColumn.get(col).cnt; },
+    countByStatus: function(status) { return stmts.countByStatus.get(status).cnt; },
+    getProjectTrustStats: function(projectPath) { return stmts.projectTrustStats.get(projectPath); },
+    getCompletedTitles: function(excludeId) { return stmts.completedTitles.all(excludeId); },
+    getReviewScores: function() { return stmts.reviewScores.all(); },
+    getByColumn: function(col) { return stmts.getByColumn.all(col); },
     search: function(query) { const q = '%' + query + '%'; return stmts.search.all(q, q, q); },
     delete: function(id) {
       const card = stmts.get.get(id);
@@ -463,6 +525,7 @@ module.exports = {
     byResource: function(type, id) { return stmts.auditByResource.all(type, id); },
     recent: function(limit) { return stmts.auditRecent.all(limit || 100); },
     all: function() { return stmts.auditAll.all(); },
+    count: function() { return stmts.auditCount.get().cnt; },
   },
   backups: {
     list: listBackups,
@@ -513,5 +576,22 @@ module.exports = {
     recent: function(limit) { return stmts.errorRecent.all(limit || 50); },
     count: function() { return stmts.errorCount.get().cnt; },
     prune: function(days) { stmts.errorPrune.run('-' + (days || 30) + ' days'); },
+  },
+  users: {
+    insert: function(id, username, passwordHash, role, displayName, emailEncrypted, groups, enabled, createdBy) {
+      stmts.userInsert.run(id, username, passwordHash, role, displayName || '', emailEncrypted || '', groups || '[]', enabled ? 1 : 0, createdBy || 'system');
+    },
+    getById: function(id) { return stmts.userGetById.get(id); },
+    getByUsername: function(username) { return stmts.userGetByUsername.get(username); },
+    getAll: function() { return stmts.userGetAll.all(); },
+    getEnabled: function() { return stmts.userGetEnabled.all(); },
+    update: function(id, displayName, emailEncrypted, role, groups, enabled) {
+      stmts.userUpdate.run(displayName || '', emailEncrypted || '', role, groups || '[]', enabled ? 1 : 0, id);
+    },
+    updatePassword: function(id, passwordHash) { stmts.userUpdatePassword.run(passwordHash, id); },
+    setLastLogin: function(id) { stmts.userSetLastLogin.run(id); },
+    remove: function(id) { stmts.userDelete.run(id); },
+    countByRole: function(role) { return stmts.userCountByRole.get(role).cnt; },
+    count: function() { return stmts.userCount.get().cnt; },
   },
 };

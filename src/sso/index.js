@@ -3,17 +3,22 @@
 // =============================================================================
 //
 // This module is the SOLE identity authority. It owns:
+//   - First-run setup wizard (GET/POST /auth/setup)
 //   - Login page UI (GET /auth/login)
 //   - Authentication endpoint (POST /auth/login)
 //   - Logout endpoint (POST /auth/logout)
 //   - Session check (GET /auth/session)
+//   - User management API (GET/POST/PUT/DELETE /api/users)
+//   - SSO config API (GET /api/sso-config)
 //   - JWT token issuance (OIDC-standard claims: sub, name, role, email, groups)
 //   - JWT cryptographic verification (HS256)
 //   - User store + credential validation
 //
-// The consuming application mounts this module's routes and uses exported
-// middleware. It NEVER handles login UI, credentials, or tokens directly.
-// The server receives only verified identity claims via req.user.
+// Role hierarchy:
+//   superadmin > admin > user
+//   - superadmin: user management, SSO config, control panel, all features
+//   - admin: control panel, pipeline management (no user management)
+//   - user: board access only (future: layered permissions)
 //
 // To replace with real OIDC/SAML:
 //   1. Delete this folder (src/sso/)
@@ -22,20 +27,22 @@
 //      - optionalAuth(req, res, next): sets req.user if valid, never rejects
 //      - requireAuth(req, res, next): rejects 401 if not authenticated
 //      - requireAdmin(req, res, next): rejects 403 if not admin
+//      - requireSuperAdmin(req, res, next): rejects 403 if not superadmin
 //      - verifySession(req): returns { user } or null
+//      - init(db): initializes the user store
 //   3. Mount routes, use middleware — zero changes to kanban code.
 // =============================================================================
 
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
+const { runtime } = require('../config');
 const users = require('./users');
+const userStore = require('./user-store');
 const jwt = require('./jwt');
 const sessionStore = require('./session-store');
 
 const router = express.Router();
-
-// Token lifetime — matches session TTL (24 hours)
-const TOKEN_TTL_SEC = 24 * 60 * 60;
 
 // =============================================================================
 // INTERNAL: Verify session + JWT token, return validated claims or null.
@@ -62,22 +69,75 @@ function resolveIdentity(req) {
 // ROUTES — SSO owns all /auth/* endpoints
 // =============================================================================
 
-// --- Login page (served by SSO, not by the application) ---
-// Validate return URL — must be a relative path (starts with / but not //).
-// Prevents open redirect to external sites via //evil.com or javascript: URIs.
+// --- Safe return URL validation ---
 function safeReturnUrl(raw) {
   if (!raw || typeof raw !== 'string') return '/';
-  // Must start with / and not be protocol-relative (//) or contain dangerous schemes
   if (raw[0] !== '/' || raw[1] === '/' || raw[1] === '\\') return '/';
   return raw;
 }
 
+// --- First-Run Setup Page ---
+// Only available when setup is not complete. Permanently locked after first setup.
+router.get('/auth/setup', function(req, res) {
+  if (userStore.isSetupComplete()) {
+    return res.redirect('/');
+  }
+  let html = fs.readFileSync(path.join(__dirname, 'views', 'setup.html'), 'utf-8');
+  const nonce = res.locals.cspNonce || '';
+  if (nonce) html = html.replace('<script>', '<script nonce="' + nonce + '">');
+  res.type('html').send(html);
+});
+
+// --- First-Run Setup Submit ---
+router.post('/auth/setup', async function(req, res) {
+  if (userStore.isSetupComplete()) {
+    return res.status(403).json({ ok: false, error: 'Setup already complete. Reclone or reinstall to access setup again.' });
+  }
+
+  const body = req.body || {};
+  const username = String(body.username || '').trim();
+  const password = String(body.password || '');
+  const displayName = String(body.displayName || '').trim();
+  const email = String(body.email || '').trim();
+  const ssoConfig = body.ssoConfig || { provider: 'builtin' };
+
+  // Validation
+  if (!username || username.length < 2) {
+    return res.status(400).json({ ok: false, error: 'Username must be at least 2 characters' });
+  }
+  if (!/^[a-zA-Z0-9_.-]+$/.test(username)) {
+    return res.status(400).json({ ok: false, error: 'Username: only letters, numbers, underscore, dot, hyphen' });
+  }
+  if (!password || password.length < 8) {
+    return res.status(400).json({ ok: false, error: 'Password must be at least 8 characters' });
+  }
+
+  // Create the super admin account
+  const result = await userStore.createUser(
+    username, password, 'superadmin', displayName || username, email,
+    ['superadministrators', 'administrators', 'users'], 'setup-wizard'
+  );
+
+  if (result.error) {
+    return res.status(400).json({ ok: false, error: result.error });
+  }
+
+  // Complete setup with SSO configuration
+  userStore.completeSetup(ssoConfig);
+
+  const { log } = require('../lib/logger');
+  log.info({ username, provider: ssoConfig.provider }, 'First-run setup completed');
+
+  res.json({ ok: true });
+});
+
+// --- Login page (served by SSO, not by the application) ---
 router.get('/auth/login', function(req, res) {
   const claims = resolveIdentity(req);
   if (claims) {
     return res.redirect(safeReturnUrl(req.query.return));
   }
-  let html = require('fs').readFileSync(path.join(__dirname, 'views', 'login.html'), 'utf-8');
+  let html = fs.readFileSync(path.join(__dirname, 'views', 'login.html'), 'utf-8');
   const nonce = res.locals.cspNonce || '';
   if (nonce) html = html.replace('<script>', '<script nonce="' + nonce + '">');
   res.type('html').send(html);
@@ -116,7 +176,7 @@ router.post('/auth/login', async function(req, res) {
       role: userInfo.role,
       groups: userInfo.groups,
       aud: 'claude-kanban',
-    }, TOKEN_TTL_SEC);
+    }, runtime.jwtTtlMins * 60);
 
     // Session stores the JWT — server middleware will verify it cryptographically
     const sid = sessionStore.create({ token: token }, req);
@@ -137,13 +197,17 @@ router.get('/auth/session', function(req, res) {
   const claims = resolveIdentity(req);
   if (claims) {
     const payload = { authenticated: true, user: { name: claims.name, role: claims.role } };
-    // Admin-only: include admin panel path (read from DB config)
-    if (claims.role === 'admin') {
+    // Admin or superadmin: include admin panel path
+    if (claims.role === 'admin' || claims.role === 'superadmin') {
       try {
         const dbConfig = require('../db').config;
         const ap = dbConfig.get('admin_path');
         if (ap) payload.adminPath = '/' + ap;
       } catch (_) {}
+    }
+    // Superadmin: include user management flag
+    if (claims.role === 'superadmin') {
+      payload.userManagement = true;
     }
     return res.json(payload);
   }
@@ -159,18 +223,84 @@ router.post('/auth/logout', function(req, res) {
 });
 
 // =============================================================================
+// USER MANAGEMENT API — superadmin only
+// =============================================================================
+
+// List all users
+router.get('/api/users', function(req, res) {
+  const claims = resolveIdentity(req);
+  if (!claims) return res.status(401).json({ error: 'Authentication required' });
+  if (claims.role !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required' });
+
+  res.json({ users: userStore.listUsers() });
+});
+
+// Create user
+router.post('/api/users', async function(req, res) {
+  const claims = resolveIdentity(req);
+  if (!claims) return res.status(401).json({ error: 'Authentication required' });
+  if (claims.role !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required' });
+
+  const body = req.body || {};
+  const result = await userStore.createUser(
+    String(body.username || '').trim(),
+    String(body.password || ''),
+    String(body.role || 'user'),
+    String(body.displayName || '').trim(),
+    String(body.email || '').trim(),
+    body.groups || null,
+    claims.sub
+  );
+
+  if (result.error) return res.status(400).json(result);
+  res.json(result);
+});
+
+// Update user
+router.put('/api/users/:id', async function(req, res) {
+  const claims = resolveIdentity(req);
+  if (!claims) return res.status(401).json({ error: 'Authentication required' });
+  if (claims.role !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required' });
+
+  const result = await userStore.updateUser(req.params.id, req.body || {}, claims.role);
+  if (result.error) return res.status(400).json(result);
+  res.json(result);
+});
+
+// Delete user
+router.delete('/api/users/:id', function(req, res) {
+  const claims = resolveIdentity(req);
+  if (!claims) return res.status(401).json({ error: 'Authentication required' });
+  if (claims.role !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required' });
+
+  const result = userStore.deleteUser(req.params.id);
+  if (result.error) return res.status(400).json(result);
+  res.json(result);
+});
+
+// Get SSO configuration (redacted secrets)
+router.get('/api/sso-config', function(req, res) {
+  const claims = resolveIdentity(req);
+  if (!claims) return res.status(401).json({ error: 'Authentication required' });
+  if (claims.role !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required' });
+
+  res.json(userStore.getSsoConfig());
+});
+
+// =============================================================================
 // MIDDLEWARE — exported for the consuming application
 // =============================================================================
 // Every middleware resolves identity via JWT verification.
 // The server never sees raw credentials — only cryptographically verified claims.
 
+function buildUserObj(claims) {
+  return { id: claims.sub, name: claims.name, role: claims.role, email: claims.email, groups: claims.groups };
+}
+
 // Sets req.user if JWT-verified session exists, never rejects.
-// Used for read endpoints — server decides what data to include based on role.
 function optionalAuth(req, _res, next) {
   const claims = resolveIdentity(req);
-  if (claims) {
-    req.user = { id: claims.sub, name: claims.name, role: claims.role, email: claims.email, groups: claims.groups };
-  }
+  if (claims) req.user = buildUserObj(claims);
   next();
 }
 
@@ -180,20 +310,33 @@ function requireAuth(req, res, next) {
   if (!claims) {
     return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
   }
-  req.user = { id: claims.sub, name: claims.name, role: claims.role, email: claims.email, groups: claims.groups };
+  req.user = buildUserObj(claims);
   next();
 }
 
-// Rejects with 403 if not admin (after JWT verification)
+// Rejects with 403 if not admin or superadmin (after JWT verification)
 function requireAdmin(req, res, next) {
   const claims = resolveIdentity(req);
   if (!claims) {
     return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
   }
-  if (claims.role !== 'admin') {
+  if (claims.role !== 'admin' && claims.role !== 'superadmin') {
     return res.status(403).json({ error: 'Admin access required', code: 'FORBIDDEN' });
   }
-  req.user = { id: claims.sub, name: claims.name, role: claims.role, email: claims.email, groups: claims.groups };
+  req.user = buildUserObj(claims);
+  next();
+}
+
+// Rejects with 403 if not superadmin (after JWT verification)
+function requireSuperAdmin(req, res, next) {
+  const claims = resolveIdentity(req);
+  if (!claims) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
+  if (claims.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Super Admin access required', code: 'FORBIDDEN' });
+  }
+  req.user = buildUserObj(claims);
   next();
 }
 
@@ -201,7 +344,12 @@ function requireAdmin(req, res, next) {
 function verifySession(req) {
   const claims = resolveIdentity(req);
   if (!claims) return null;
-  return { user: { id: claims.sub, name: claims.name, role: claims.role, email: claims.email, groups: claims.groups } };
+  return { user: buildUserObj(claims) };
+}
+
+// Initialize user store with DB reference
+function init(db) {
+  return userStore.init(db);
 }
 
 module.exports = {
@@ -209,5 +357,8 @@ module.exports = {
   optionalAuth: optionalAuth,
   requireAuth: requireAuth,
   requireAdmin: requireAdmin,
+  requireSuperAdmin: requireSuperAdmin,
   verifySession: verifySession,
+  init: init,
+  isSetupComplete: function() { return userStore.isSetupComplete(); },
 };

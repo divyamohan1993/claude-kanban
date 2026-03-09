@@ -194,6 +194,10 @@ function getDiff(cardId) {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
   const projectPath = manifest.projectPath;
 
+  // Validate manifest path to prevent path traversal via tampered snapshot
+  const pathErr = validateProjectPath(projectPath);
+  if (pathErr) return { error: 'Invalid project path in snapshot: ' + pathErr };
+
   if (!fs.existsSync(projectPath)) return { error: 'Project directory not found' };
 
   const originalFiles = new Set(manifest.files);
@@ -219,12 +223,12 @@ function getDiff(cardId) {
     }
   }
 
+  // Single pass: classify original files as removed or modified/unchanged
   for (const f of originalFiles) {
-    if (!currentFiles.has(f)) diff.removed.push(f);
-  }
-
-  for (const f of originalFiles) {
-    if (!currentFiles.has(f)) continue;
+    if (!currentFiles.has(f)) {
+      diff.removed.push(f);
+      continue;
+    }
     const origPath = path.join(snapDir, 'files', f);
     const currPath = path.join(projectPath, f);
     try {

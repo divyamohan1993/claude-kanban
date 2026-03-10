@@ -402,9 +402,12 @@ server {
         proxy_pass http://127.0.0.1:$APP_PORT/health;
     }
 
-    # --- / → reserved for deployed apps ---
-    # Default: show a landing page or redirect to /dashboard
-    location = / {
+    # --- / → demo project static files (falls back to /dashboard) ---
+    location / {
+        root /home/$APP_USER/demo-project/;
+        try_files \$uri \$uri/ @dashboard;
+    }
+    location @dashboard {
         return 302 /dashboard/;
     }
 

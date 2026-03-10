@@ -28,13 +28,14 @@ New engineers are overwhelmed. Everyone says "learn AI" but nobody says what spe
 - Works on slow connections and old devices
 - All content baked into HTML at generation time; JS enhances but is not required
 - Seed data on day one so it is useful immediately
+- Linkback to the product page /product/ for users to explore how this automated platform is being generated.
 
 ## Deploy
 
-- Output all built files into a `dist/` directory in the project root
-- Nginx is already configured to serve `dist/` as the website root at `/`
-- Just create the files in `dist/` and they are live immediately
-- The `dist/` directory must contain at minimum an `index.html`
+- Output all built files into the project root directly
+- Nginx is already configured to serve project root as the website root at `/`
+- Just create the files in project root and they are live immediately
+- The directory must contain at minimum an `index.html` and all the other files should link to this `index.html` as the main entry point.
 
 ## Non-Goals
 

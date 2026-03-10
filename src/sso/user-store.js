@@ -143,31 +143,24 @@ function init(db) {
 }
 
 async function seedDefaults() {
-  const adminPw = process.env.ADMIN_PASSWORD || 'admin';
-  const userPw = process.env.USER_PASSWORD || 'user';
-
-  const adminHash = await argon2.hash(adminPw, ARGON2_OPTS);
-  const userHash = await argon2.hash(userPw, ARGON2_OPTS);
+  // Demo accounts always use well-known passwords (admin/admin, user/user).
+  // They are read-only: the demoGuard middleware blocks all state-changing requests.
+  const adminHash = await argon2.hash('admin', ARGON2_OPTS);
+  const userHash = await argon2.hash('user', ARGON2_OPTS);
 
   dbUsers.insert(
     'default-admin-001', 'admin', adminHash, 'admin',
-    'Admin', encrypt('admin@localhost'),
+    'Demo Admin', encrypt('admin@localhost'),
     JSON.stringify(['administrators', 'users']), true, 'system'
   );
 
   dbUsers.insert(
     'default-user-001', 'user', userHash, 'user',
-    'User', encrypt('user@localhost'),
+    'Demo User', encrypt('user@localhost'),
     JSON.stringify(['users']), true, 'system'
   );
 
-  if (!process.env.ADMIN_PASSWORD || !process.env.USER_PASSWORD) {
-    const msg = '[SECURITY] Default credentials seeded. Set ADMIN_PASSWORD and USER_PASSWORD in .env for production.';
-    log.warn(msg);
-    process.stderr.write('\x1b[31m\x1b[1m' + msg + '\x1b[0m\n');
-  }
-
-  log.info('Seeded default users: admin, user');
+  log.info('Seeded demo users: admin/admin (read-only), user/user (read-only)');
 }
 
 // =============================================================================

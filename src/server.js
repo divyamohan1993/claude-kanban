@@ -269,6 +269,8 @@ adminApp.get('/users', sso.requireSuperAdmin, function(_req, res) {
   let html = fs.readFileSync(userMgmtHtmlPath, 'utf-8');
   const nonce = res.locals.cspNonce || '';
   if (nonce) html = html.replace('<script>', '<script nonce="' + nonce + '">');
+  const bpScript = '<script nonce="' + nonce + '">window.__BASE_PATH__=' + JSON.stringify(SETTINGS_BASE_PATH || '') + ';window.__BOARD_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
+  html = html.replace('</head>', bpScript + '</head>');
   res.type('html').send(html);
 });
 

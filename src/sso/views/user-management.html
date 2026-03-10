@@ -136,7 +136,7 @@
       <span id="sso-provider-label">Built-in Auth</span>
     </span>
     <button class="btn-primary btn-sm" id="btn-add-user">+ New User</button>
-    <a href="/" class="back-link">&#x2190; Control Panel</a>
+    <a href="#" class="back-link" id="back-link">&#x2190; Control Panel</a>
   </div>
 </div>
 
@@ -250,6 +250,9 @@
 
 <script>
 (function() {
+  var BP = window.__BASE_PATH__ || '';
+  var BOARD_BP = window.__BOARD_PATH__ || '';
+  document.getElementById('back-link').href = BP + '/';
   var usersTable = document.getElementById('users-table');
   var emptyState = document.getElementById('empty-state');
   var userModal = document.getElementById('user-modal');
@@ -266,7 +269,7 @@
 
   function api(method, url, body, cb) {
     var xhr = new XMLHttpRequest();
-    xhr.open(method, url);
+    xhr.open(method, BP + url);
     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
     if (body) xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.onload = function() {

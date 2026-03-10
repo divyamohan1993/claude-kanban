@@ -578,9 +578,10 @@ function checkSession() {
 }
 
 function showDemoBanner() {
-  var banner = el('div', { style: 'background:#2a1a00;color:#e8925a;text-align:center;padding:8px 12px;font-size:0.82rem;border-bottom:1px solid #e8925a33;position:fixed;top:0;left:0;right:0;z-index:9999;' }, 'Demo mode (read-only). Changes are disabled for demo accounts.');
-  document.body.insertBefore(banner, document.body.firstChild);
-  document.body.style.paddingTop = '36px';
+  var banner = el('div', { style: 'background:#2a1a00;color:#e8925a;text-align:center;padding:8px 12px;font-size:0.82rem;border-bottom:1px solid #e8925a33;' }, 'Demo mode (read-only). Changes are disabled for demo accounts.');
+  var layout = document.querySelector('.layout');
+  if (layout) { layout.parentNode.insertBefore(banner, layout); layout.style.height = 'calc(100vh - 36px)'; }
+  else document.body.insertBefore(banner, document.body.firstChild);
 }
 
 function showAccessDenied() {

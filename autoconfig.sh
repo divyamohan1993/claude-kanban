@@ -457,37 +457,12 @@ else
   warn "Health check failed after 20s — check: journalctl -u $APP_NAME -n 50"
 fi
 
-# --- Claude CLI authentication ---
-# Check if already authenticated
+# --- Claude CLI authentication check ---
 CLAUDE_AUTHED=false
 if command -v claude >/dev/null 2>&1; then
   if sudo -u "$APP_USER" test -f "/home/$APP_USER/.claude/.credentials.json" 2>/dev/null; then
     info "Claude CLI already authenticated"
     CLAUDE_AUTHED=true
-  else
-    echo "" | tee -a "$LOG_FILE"
-    echo "========================================" | tee -a "$LOG_FILE"
-    echo "  Claude Code Authentication Required" | tee -a "$LOG_FILE"
-    echo "========================================" | tee -a "$LOG_FILE"
-    echo "" | tee -a "$LOG_FILE"
-    echo "  The orchestrator needs Claude Code CLI authenticated" | tee -a "$LOG_FILE"
-    echo "  to build, review, and brainstorm code." | tee -a "$LOG_FILE"
-    echo "" | tee -a "$LOG_FILE"
-    echo "  This will open a device code flow:" | tee -a "$LOG_FILE"
-    echo "  1. A URL + code will appear below" | tee -a "$LOG_FILE"
-    echo "  2. Open the URL in your browser" | tee -a "$LOG_FILE"
-    echo "  3. Enter the code to authorize" | tee -a "$LOG_FILE"
-    echo "" | tee -a "$LOG_FILE"
-
-    read -p "  Authenticate now? [Y/n] " AUTH_ANSWER
-    AUTH_ANSWER="${AUTH_ANSWER:-Y}"
-    if [[ "$AUTH_ANSWER" =~ ^[Yy] ]]; then
-      step "Starting Claude authentication..."
-      # Run as the app user so credentials land in the right home dir
-      sudo -u "$APP_USER" claude auth login && CLAUDE_AUTHED=true || warn "Authentication failed or cancelled"
-    else
-      warn "Skipped. Authenticate later: sudo -u $APP_USER claude auth login"
-    fi
   fi
 fi
 
@@ -511,13 +486,23 @@ echo "  Updates:   systemctl status $APP_NAME-update.timer" | tee -a "$LOG_FILE"
 echo "  Config:    $APP_DIR/.env" | tee -a "$LOG_FILE"
 echo "  Data:      $APP_DIR/.data/" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
-if [ "$CLAUDE_AUTHED" = true ]; then
-echo "  Claude:    Authenticated (ready to build)" | tee -a "$LOG_FILE"
-else
-echo "  Claude:    NOT authenticated — run: sudo -u $APP_USER claude auth login" | tee -a "$LOG_FILE"
-fi
 echo "" | tee -a "$LOG_FILE"
 echo "  Cloudflare DNS (no origin rules needed):" | tee -a "$LOG_FILE"
 echo "    A  <subdomain>  →  <this-vm-ip>  (proxy enabled)" | tee -a "$LOG_FILE"
 echo "    Everything runs on port 80 — standard HTTP." | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
+if [ "$CLAUDE_AUTHED" = true ]; then
+echo "  Claude CLI: Authenticated (ready to build)" | tee -a "$LOG_FILE"
+else
+echo "  ────────────────────────────────────────" | tee -a "$LOG_FILE"
+echo "  NEXT STEP: Authenticate Claude Code CLI" | tee -a "$LOG_FILE"
+echo "  ────────────────────────────────────────" | tee -a "$LOG_FILE"
+echo "  The orchestrator needs Claude authenticated to" | tee -a "$LOG_FILE"
+echo "  build, review, and brainstorm code. Run:" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
+echo "    sudo -u $APP_USER claude auth login" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
+echo "  A URL + device code will appear. Open the URL" | tee -a "$LOG_FILE"
+echo "  in your browser and enter the code to authorize." | tee -a "$LOG_FILE"
+fi
 echo "" | tee -a "$LOG_FILE"

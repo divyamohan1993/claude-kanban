@@ -8,6 +8,7 @@ var COLUMNS = [
 
 var BP = window.__BASE_PATH__ || ''; // base path prefix (e.g. '/dashboard' when behind Nginx)
 var userRole = 'public'; // 'public' | 'user' | 'admin'
+var isDemo = false; // true when logged in with default demo credentials
 var adminPath = '/admin'; // configurable via ADMIN_PATH env, returned in session for admins
 var state = { cards: [] };
 var dragCardId = null;
@@ -117,9 +118,11 @@ async function checkSession() {
     var data = await res.json();
     if (data.authenticated) {
       userRole = data.user.role || 'user';
+      isDemo = !!data.user.isDemo;
       if (data.adminPath) adminPath = data.adminPath;
     } else {
       userRole = 'public';
+      isDemo = false;
     }
   } catch (_) {
     userRole = 'public';
@@ -150,6 +153,15 @@ function applyRoleUI() {
   if (addBtn) addBtn.style.display = isPublic ? 'none' : '';
   if (signInBtn) signInBtn.style.display = isPublic ? '' : 'none';
   if (signOutBtn) signOutBtn.style.display = isPublic ? 'none' : '';
+
+  // Demo banner
+  var existing = document.getElementById('demo-banner');
+  if (existing) existing.remove();
+  if (isDemo) {
+    var banner = el('div', { id: 'demo-banner', style: 'background:#2a1a00;color:#e8925a;text-align:center;padding:6px 12px;font-size:0.8rem;border-bottom:1px solid #e8925a33;' }, 'Demo mode (read-only). Actions are disabled for demo accounts.');
+    var header = document.querySelector('header');
+    if (header) header.parentNode.insertBefore(banner, header.nextSibling);
+  }
 }
 
 // Sign In button redirects to SSO login page

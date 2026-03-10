@@ -563,6 +563,7 @@ function checkSession() {
   return fetch(CBP + '/auth/session').then(function(r) { return r.json(); }).then(function(d) {
     if (d.authenticated && (d.user.role === 'admin' || d.user.role === 'superadmin')) {
       document.getElementById('pin-overlay').classList.add('hidden');
+      if (d.user.isDemo) showDemoBanner();
       initApp();
     } else if (d.authenticated) {
       showAccessDenied();
@@ -572,6 +573,12 @@ function checkSession() {
   }).catch(function() {
     window.location.href = AUTH_BP + '/auth/login?return=' + encodeURIComponent(location.pathname);
   });
+}
+
+function showDemoBanner() {
+  var banner = el('div', { style: 'background:#2a1a00;color:#e8925a;text-align:center;padding:8px 12px;font-size:0.82rem;border-bottom:1px solid #e8925a33;position:fixed;top:0;left:0;right:0;z-index:9999;' }, 'Demo mode (read-only). Changes are disabled for demo accounts.');
+  document.body.insertBefore(banner, document.body.firstChild);
+  document.body.style.paddingTop = '36px';
 }
 
 function showAccessDenied() {
@@ -587,7 +594,7 @@ function api(method, url, body) {
   if (body) opts.body = JSON.stringify(body);
   return fetch(CBP + url, opts).then(function(r) {
     if (r.status === 401) { window.location.href = AUTH_BP + '/auth/login?return=' + encodeURIComponent(location.pathname); throw new Error('Auth'); }
-    if (r.status === 403) { toast('Admin access required', 'error'); throw new Error('Forbidden'); }
+    if (r.status === 403) { return r.json().catch(function() { return {}; }).then(function(d) { toast(d.error || 'Admin access required', 'error'); throw new Error(d.error || 'Forbidden'); }); }
     return r.json();
   });
 }

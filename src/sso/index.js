@@ -331,6 +331,7 @@ router.post('/auth/login', async function(req, res) {
     if (oldSid) sessionStore.destroy(oldSid);
 
     // Issue JWT with OIDC-standard claims
+    const isDemo = userInfo.sub.startsWith('default-');
     const token = jwt.sign({
       sub: userInfo.sub,
       name: userInfo.name,
@@ -338,6 +339,7 @@ router.post('/auth/login', async function(req, res) {
       role: userInfo.role,
       groups: userInfo.groups,
       aud: 'claude-kanban',
+      demo: isDemo,
     }, runtime.jwtTtlMins * 60);
 
     // Session stores the JWT — server middleware will verify it cryptographically
@@ -345,7 +347,7 @@ router.post('/auth/login', async function(req, res) {
     sessionStore.setCookie(res, sid);
 
     // Return only the public identity — no token exposed to frontend
-    return res.json({ ok: true, user: { name: userInfo.name, role: userInfo.role } });
+    return res.json({ ok: true, user: { name: userInfo.name, role: userInfo.role, isDemo: isDemo } });
   }
 
   // Failed attempt
@@ -358,7 +360,7 @@ router.post('/auth/login', async function(req, res) {
 router.get('/auth/session', function(req, res) {
   const claims = resolveIdentity(req);
   if (claims) {
-    const payload = { authenticated: true, user: { name: claims.name, role: claims.role } };
+    const payload = { authenticated: true, user: { name: claims.name, role: claims.role, isDemo: !!claims.demo } };
     // Admin or superadmin: include admin panel path
     if (claims.role === 'admin' || claims.role === 'superadmin') {
       try {
@@ -502,6 +504,19 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
+// Blocks state-changing requests from demo users (default-seeded admin/user)
+function demoGuard(req, res, next) {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  const claims = resolveIdentity(req);
+  if (claims && claims.demo) {
+    return res.status(403).json({
+      error: 'Demo users cannot make changes. Create your own account to manage the board.',
+      code: 'DEMO_READONLY',
+    });
+  }
+  next();
+}
+
 // Verify session from request (programmatic use by consuming application)
 function verifySession(req) {
   const claims = resolveIdentity(req);
@@ -520,6 +535,7 @@ module.exports = {
   requireAuth: requireAuth,
   requireAdmin: requireAdmin,
   requireSuperAdmin: requireSuperAdmin,
+  demoGuard: demoGuard,
   verifySession: verifySession,
   init: init,
   isSetupComplete: function() { return userStore.isSetupComplete(); },

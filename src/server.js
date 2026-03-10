@@ -247,6 +247,9 @@ app.get('/' + ADMIN_PATH, rateLimiter, function(req, res) {
   res.redirect('http://localhost:' + adminPort + '/');
 });
 
+// Demo user guard — blocks writes from default-seeded demo accounts
+app.use('/api', sso.demoGuard);
+
 // Public API routes
 app.use(publicRoutes);
 
@@ -268,6 +271,9 @@ adminApp.get('/users', sso.requireSuperAdmin, function(_req, res) {
   if (nonce) html = html.replace('<script>', '<script nonce="' + nonce + '">');
   res.type('html').send(html);
 });
+
+// Demo user guard — blocks writes from default-seeded demo accounts
+adminApp.use('/api', sso.demoGuard);
 
 // Admin API routes
 adminApp.use(adminRoutes);

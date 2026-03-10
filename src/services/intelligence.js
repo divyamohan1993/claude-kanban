@@ -377,6 +377,27 @@ function init() {
   log.info({ patterns: learnings.getAll().length }, 'Intelligence service initialized');
 }
 
+// --- Human Rejection Learning ---
+
+function learnFromRejection(cardTitle, reason) {
+  if (!reason || reason.length < 3) return;
+  // Store the rejection with card context as key, reason as value
+  // High confidence (80) because human feedback is direct signal
+  learnings.upsert('human-rejection', cardTitle.slice(0, 200), reason.slice(0, 2000), 80);
+  // Also extract keywords for cross-card pattern matching
+  learnFromFeedback(reason);
+}
+
+function getRejectionHistory(limit) {
+  const rows = learnings.getByCategory('human-rejection');
+  const result = [];
+  const max = Math.min(rows.length, limit || 20);
+  for (let i = 0; i < max; i++) {
+    result.push({ card: rows[i].pattern_key, reason: rows[i].pattern_value, times: rows[i].occurrences });
+  }
+  return result;
+}
+
 module.exports = {
   init: init,
   // Label intelligence
@@ -388,6 +409,9 @@ module.exports = {
   learnFromError: learnFromError,
   findRemedy: findRemedy,
   learnFromFeedback: learnFromFeedback,
+  // Human rejection learning
+  learnFromRejection: learnFromRejection,
+  getRejectionHistory: getRejectionHistory,
   // Analysis
   analyzeAndTune: analyzeAndTune,
   getInsights: getInsights,

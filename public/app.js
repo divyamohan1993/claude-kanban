@@ -803,9 +803,16 @@ async function doApprove(id) {
 }
 
 async function doReject(id) {
-  if (!confirm('Reject and ROLLBACK all file changes?')) return;
-  var result = await api('/cards/' + id + '/reject', { method: 'POST' });
-  toast(result.rollback && result.rollback.success ? 'Rejected! Files rolled back.' : 'Rejected.', 'info');
+  var reason = prompt('Why are you rejecting? (helps the AI learn your preferences)\n\nLeave blank to skip, or type your reason:');
+  if (reason === null) return; // user clicked Cancel
+  try {
+    var result = await api('/cards/' + id + '/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: reason || '' }),
+    });
+    toast(result.rollback && result.rollback.success ? 'Rejected! Files rolled back.' : 'Rejected.', 'info');
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function doRevert(id) {

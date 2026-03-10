@@ -128,6 +128,7 @@ function computeActions(card) {
         actions.push('preview');
         actions.push('diff');
         actions.push('revert');
+        actions.push('reject'); // rollback files + move back to todo
       }
       actions.push('archive');
       break;
@@ -706,6 +707,8 @@ router.post('/api/cards/:id/brainstorm', requireAuth, function(req, res) {
   const id = Number(req.params.id);
   const card = cards.get(id);
   if (!card) return res.status(404).json({ error: 'Card not found' });
+  // Clear human-rejected flag on manual re-brainstorm
+  cards.setApprovedBy(id, null);
   // Server decides if project path is needed — frontend never checks
   if (!card.project_path) {
     return res.status(400).json({
@@ -727,6 +730,8 @@ router.post('/api/cards/:id/brainstorm', requireAuth, function(req, res) {
 
 router.post('/api/cards/:id/start-work', requireAuth, function(req, res) {
   try {
+    // Clear human-rejected flag so autonomous pipeline can process if needed
+    cards.setApprovedBy(Number(req.params.id), null);
     res.json(pipeline.startWork(Number(req.params.id)));
   } catch (err) {
     res.status(400).json({ error: err.message, code: 'START_WORK_FAILED' });
@@ -797,11 +802,18 @@ router.post('/api/cards/:id/approve', requireAuth, function(req, res) {
 router.post('/api/cards/:id/reject', requireAuth, function(req, res) {
   const id = Number(req.params.id);
   const card = cards.get(id);
+  const reason = req.body && req.body.reason ? String(req.body.reason).slice(0, 2000) : '';
   const result = snapshot.rollback(id);
   cards.move(id, 'todo');
   cards.setStatus(id, 'idle');
-  cards.setSessionLog(id, 'REJECTED - Files rolled back. ' + (result.success ? (result.wasNew ? 'New project folder removed.' : 'All files restored to pre-work state.') : result.reason));
-  auditLog('reject', 'card', id, req.user.id, card ? card.column_name : '', 'todo', card ? card.title : '');
+  // Mark as human-rejected so autonomous pipeline won't auto-re-queue
+  cards.setApprovedBy(id, 'human-rejected');
+  const logMsg = 'REJECTED' + (reason ? ' — ' + reason : '') + '. Files rolled back. '
+    + (result.success ? (result.wasNew ? 'New project folder removed.' : 'All files restored to pre-work state.') : result.reason);
+  cards.setSessionLog(id, logMsg);
+  auditLog('reject', 'card', id, req.user.id, card ? card.column_name : '', 'todo', (card ? card.title : '') + (reason ? ' | Reason: ' + reason : ''));
+  // Learn from rejection so future brainstorms avoid repeating mistakes
+  if (reason && card) intelligence.learnFromRejection(card.title, reason);
   pipeline.releaseProjectLock(id);
   const cascaded = pipeline.cascadeRevert(id);
   const enriched = enrichCard(cards.get(id));
@@ -907,6 +919,8 @@ router.post('/api/cards/:id/retry', requireAuth, function(req, res) {
   if (req.body.feedback.length > 10000) return res.status(400).json({ error: 'Feedback too long (max 10K chars)' });
   // Intelligence: learn from feedback themes
   intelligence.learnFromFeedback(req.body.feedback);
+  // Clear human-rejected flag on manual retry
+  cards.setApprovedBy(Number(req.params.id), null);
   try {
     res.json(pipeline.retryWithFeedback(Number(req.params.id), req.body.feedback));
   } catch (err) {

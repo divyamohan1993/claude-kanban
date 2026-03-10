@@ -164,14 +164,34 @@ function autoReview(cardId) {
             // Single-project mode: check if all siblings done → complete parent initiative
             checkParentInitiativeComplete(cardId);
           } else if (needsHuman) {
-            // Dangerous ops — human approval required
             pipeline.deleteReviewFixCount(cardId);
-            pipeline.setActivity(cardId, 'review', 'Score ' + score + '/10 — flagged for human approval (destructive ops)');
-            cards.setStatus(cardId, 'idle');
-            broadcast('card-updated', cards.get(cardId));
-            broadcast('toast', { message: 'AI Review: Flagged for human approval — destructive operations detected.', type: 'error' });
-            sendWebhook('review-needs-human', { cardId: cardId, title: card.title, score: score, reason: 'destructive_ops' });
-            pipeline.releaseProjectLock(cardId);
+            // Autonomous single-project mode: auto-approve with warning (no human is coming)
+            if (runtime.mode === 'single-project' && runtime.autoPromoteBrainstorm) {
+              log.warn({ cardId, score }, 'Autonomous mode: auto-approving despite destructive ops flag');
+              pipeline.setActivity(cardId, 'approve', 'Score ' + score + '/10 — auto-approved (autonomous, destructive ops noted)');
+              cards.setStatus(cardId, 'complete');
+              cards.setApprovedBy(cardId, 'ai-autonomous');
+              cards.move(cardId, 'done');
+              try { require('./intelligence').learnFromBuild(cardId); } catch (_) {}
+              // Keep snapshot for human revert — don't clear
+              broadcast('card-updated', cards.get(cardId));
+              broadcast('toast', { message: 'Auto-approved (autonomous): destructive ops noted — score ' + score + '/10', type: 'warning' });
+              sendWebhook('auto-approved-autonomous', { cardId: cardId, title: card.title, score: score, reason: 'destructive_ops_bypassed' });
+              git.autoChangelog(cardId);
+              git.autoCommit(cardId);
+              pipeline.setActivity(cardId, 'done', 'Complete — score ' + score + '/10 (autonomous)');
+              pipeline.releaseProjectLock(cardId);
+              pipeline.checkUnblock();
+              checkParentInitiativeComplete(cardId);
+            } else {
+              // Manual mode: human approval required
+              pipeline.setActivity(cardId, 'review', 'Score ' + score + '/10 — flagged for human approval (destructive ops)');
+              cards.setStatus(cardId, 'idle');
+              broadcast('card-updated', cards.get(cardId));
+              broadcast('toast', { message: 'AI Review: Flagged for human approval — destructive operations detected.', type: 'error' });
+              sendWebhook('review-needs-human', { cardId: cardId, title: card.title, score: score, reason: 'destructive_ops' });
+              pipeline.releaseProjectLock(cardId);
+            }
           } else if (fixCount < runtime.maxReviewFixAttempts) {
             // Score < 8 — auto-fix and re-review
             pipeline.setReviewFixCount(cardId, fixCount + 1);
@@ -182,23 +202,69 @@ function autoReview(cardId) {
             broadcast('toast', { message: 'AI Review: ' + score + '/10 — Auto-fixing (attempt ' + (fixCount + 1) + '/' + runtime.maxReviewFixAttempts + ')...', type: 'info' });
             autoFixFindings(cardId, data.findings || []);
           } else {
-            // Max fix attempts exhausted — human review
+            // Max fix attempts exhausted
             pipeline.deleteReviewFixCount(cardId);
-            // Spec intelligence: score spec effectiveness (exhausted all fix attempts)
             try { require('./spec-intelligence').computeSpecEffectiveness(cardId, score, fixCount, false); } catch (_) {}
-            pipeline.setActivity(cardId, 'review', 'Score ' + score + '/10 — ' + runtime.maxReviewFixAttempts + ' fix attempts exhausted, needs human review');
-            cards.setStatus(cardId, 'idle');
-            broadcast('card-updated', cards.get(cardId));
-            broadcast('toast', { message: 'AI Review: ' + score + '/10 — ' + runtime.maxReviewFixAttempts + ' fix attempts exhausted. Human review needed.', type: 'error' });
-            sendWebhook('review-needs-human', { cardId: cardId, title: card.title, score: score, criticals: criticals, reason: 'max_attempts' });
-            pipeline.releaseProjectLock(cardId);
+            if (runtime.mode === 'single-project' && runtime.autoPromoteBrainstorm) {
+              // Autonomous: accept as-is so pipeline keeps moving
+              log.warn({ cardId, score, fixCount }, 'Autonomous mode: accepting card after max fix attempts');
+              pipeline.setActivity(cardId, 'approve', 'Score ' + score + '/10 — accepted after ' + runtime.maxReviewFixAttempts + ' fix attempts (autonomous)');
+              cards.setStatus(cardId, 'complete');
+              cards.setApprovedBy(cardId, 'ai-autonomous');
+              cards.move(cardId, 'done');
+              try { require('./intelligence').learnFromBuild(cardId); } catch (_) {}
+              // Keep snapshot for human revert — don't clear
+              broadcast('card-updated', cards.get(cardId));
+              broadcast('toast', { message: 'Auto-accepted (autonomous): ' + score + '/10 — best effort after max fix attempts', type: 'warning' });
+              sendWebhook('auto-accepted-autonomous', { cardId: cardId, title: card.title, score: score, reason: 'max_fix_attempts' });
+              git.autoChangelog(cardId);
+              git.autoCommit(cardId);
+              pipeline.setActivity(cardId, 'done', 'Complete — score ' + score + '/10 (autonomous, best effort)');
+              pipeline.releaseProjectLock(cardId);
+              pipeline.checkUnblock();
+              checkParentInitiativeComplete(cardId);
+            } else {
+              // Manual: human review needed
+              pipeline.setActivity(cardId, 'review', 'Score ' + score + '/10 — ' + runtime.maxReviewFixAttempts + ' fix attempts exhausted, needs human review');
+              cards.setStatus(cardId, 'idle');
+              broadcast('card-updated', cards.get(cardId));
+              broadcast('toast', { message: 'AI Review: ' + score + '/10 — ' + runtime.maxReviewFixAttempts + ' fix attempts exhausted. Human review needed.', type: 'error' });
+              sendWebhook('review-needs-human', { cardId: cardId, title: card.title, score: score, criticals: criticals, reason: 'max_attempts' });
+              pipeline.releaseProjectLock(cardId);
+            }
           }
         } catch (parseErr) {
           log.error({ cardId, err: parseErr.message }, 'Review parse error');
-          cards.setStatus(cardId, 'idle');
-          broadcast('card-updated', cards.get(cardId));
           try { fs.appendFileSync(reviewLog, '\n[REVIEW] Failed to parse review JSON: ' + parseErr.message + '\n'); } catch (_) {}
-          pipeline.releaseProjectLock(cardId);
+          if (runtime.mode === 'single-project' && runtime.autoPromoteBrainstorm) {
+            // Autonomous: retry review once (bad JSON is recoverable)
+            const parseRetries = pipeline.getReviewFixCount(cardId);
+            if (parseRetries < 1) {
+              pipeline.setReviewFixCount(cardId, parseRetries + 1);
+              log.info({ cardId }, 'Autonomous mode: retrying review after parse error');
+              pipeline.setActivity(cardId, 'review', 'Review output invalid — retrying...');
+              autoReview(cardId);
+            } else {
+              // Second parse failure: accept as-is
+              pipeline.deleteReviewFixCount(cardId);
+              log.warn({ cardId }, 'Autonomous mode: accepting card after repeated review parse failures');
+              cards.setStatus(cardId, 'complete');
+              cards.setApprovedBy(cardId, 'ai-autonomous');
+              cards.move(cardId, 'done');
+              // Keep snapshot for human revert — don't clear
+              broadcast('card-updated', cards.get(cardId));
+              git.autoChangelog(cardId);
+              git.autoCommit(cardId);
+              pipeline.setActivity(cardId, 'done', 'Complete — review parse failed, accepted (autonomous)');
+              pipeline.releaseProjectLock(cardId);
+              pipeline.checkUnblock();
+              checkParentInitiativeComplete(cardId);
+            }
+          } else {
+            cards.setStatus(cardId, 'idle');
+            broadcast('card-updated', cards.get(cardId));
+            pipeline.releaseProjectLock(cardId);
+          }
         }
 
         try { fs.unlinkSync(reviewFile); } catch (_) {}
@@ -218,11 +284,37 @@ function autoReview(cardId) {
       if (pollCount >= maxPoll) {
         clearInterval(reviewInterval);
         pipeline.trackPhase(cardId, 'review', 'end');
-        cards.setStatus(cardId, 'idle');
-        broadcast('card-updated', cards.get(cardId));
         try { fs.appendFileSync(reviewLog, '\n[REVIEW] Timed out after 15 minutes\n'); } catch (_) {}
-        broadcast('toast', { message: 'AI Review timed out for: ' + card.title, type: 'error' });
-        pipeline.releaseProjectLock(cardId);
+        if (runtime.mode === 'single-project' && runtime.autoPromoteBrainstorm) {
+          // Autonomous: retry review once, then accept as-is
+          const timeoutRetries = pipeline.getReviewFixCount(cardId);
+          if (timeoutRetries < 1) {
+            pipeline.setReviewFixCount(cardId, timeoutRetries + 1);
+            log.info({ cardId }, 'Autonomous mode: retrying review after timeout');
+            pipeline.setActivity(cardId, 'review', 'Review timed out — retrying...');
+            autoReview(cardId);
+          } else {
+            pipeline.deleteReviewFixCount(cardId);
+            log.warn({ cardId }, 'Autonomous mode: accepting card after repeated review timeouts');
+            cards.setStatus(cardId, 'complete');
+            cards.setApprovedBy(cardId, 'ai-autonomous');
+            cards.move(cardId, 'done');
+            snapshot.clear(cardId);
+            broadcast('card-updated', cards.get(cardId));
+            broadcast('toast', { message: 'Review timed out twice — auto-accepted (autonomous)', type: 'warning' });
+            git.autoChangelog(cardId);
+            git.autoCommit(cardId);
+            pipeline.setActivity(cardId, 'done', 'Complete — review timed out, accepted (autonomous)');
+            pipeline.releaseProjectLock(cardId);
+            pipeline.checkUnblock();
+            checkParentInitiativeComplete(cardId);
+          }
+        } else {
+          cards.setStatus(cardId, 'idle');
+          broadcast('card-updated', cards.get(cardId));
+          broadcast('toast', { message: 'AI Review timed out for: ' + card.title, type: 'error' });
+          pipeline.releaseProjectLock(cardId);
+        }
       }
     } catch (err) {
       log.error({ cardId, err: err.message }, 'autoReview poll error');

@@ -472,6 +472,12 @@ function checkUnblock() {
       broadcast('card-updated', cards.get(c.id));
       broadcast('toast', { message: 'Unblocked: ' + c.title, type: 'success' });
       unblocked.push(c.id);
+
+      // Autonomous: auto-enqueue unblocked cards so pipeline keeps moving
+      // Skip cards explicitly rejected by a human
+      if (runtime.mode === 'single-project' && runtime.autoPromoteBrainstorm && c.spec && c.approved_by !== 'human-rejected') {
+        try { enqueue(c.id, 0); } catch (_) {}
+      }
     }
   }
 
@@ -917,12 +923,39 @@ function pollForCompletion(cardId, projectPath) {
         trackPhase(cardId, 'build', 'end');
         const pid = buildPids.get(cardId);
         if (pid) { killProcess(pid); buildPids.delete(cardId); }
-        cards.setStatus(cardId, 'interrupted');
-        broadcast('card-updated', cards.get(cardId));
-        setActivity(cardId, 'build', 'TIMEOUT — ' + reason);
         try { fs.appendFileSync(buildLog, '\n---\n[' + new Date().toISOString() + '] TIMEOUT — ' + reason + '\n'); } catch (_) {}
-        broadcast('toast', { message: 'Build timed out (' + reason + '): ' + card.title, type: 'error' });
         sendWebhook('build-timeout', { cardId: cardId, title: card.title, reason: reason });
+
+        if (runtime.mode === 'single-project' && runtime.autoPromoteBrainstorm) {
+          // Autonomous: retry once, then rollback and skip so pipeline continues
+          const buildRetryKey = 'build-timeout-' + cardId;
+          const retries = reviewFixCount.get(buildRetryKey) || 0;
+          if (retries < 1) {
+            reviewFixCount.set(buildRetryKey, retries + 1);
+            log.info({ cardId, reason }, 'Autonomous: retrying build after timeout');
+            cards.setStatus(cardId, 'idle');
+            cards.move(cardId, 'todo');
+            setActivity(cardId, 'queue', 'Build timed out — retrying...');
+            broadcast('card-updated', cards.get(cardId));
+            try { enqueue(cardId, 0); } catch (_) {}
+          } else {
+            reviewFixCount.delete(buildRetryKey);
+            log.warn({ cardId, reason }, 'Autonomous: skipping card after repeated build timeouts');
+            snapshot.rollback(cardId);
+            cards.setStatus(cardId, 'complete');
+            cards.setApprovedBy(cardId, 'ai-autonomous');
+            cards.move(cardId, 'done');
+            cards.setSessionLog(cardId, 'Build timed out twice — skipped. Reason: ' + reason);
+            setActivity(cardId, 'done', 'Skipped — build timed out twice');
+            broadcast('card-updated', cards.get(cardId));
+            try { require('./review').checkParentInitiativeComplete(cardId); } catch (_) {}
+          }
+        } else {
+          cards.setStatus(cardId, 'interrupted');
+          broadcast('card-updated', cards.get(cardId));
+          setActivity(cardId, 'build', 'TIMEOUT — ' + reason);
+          broadcast('toast', { message: 'Build timed out (' + reason + '): ' + card.title, type: 'error' });
+        }
         needsQueueProcess = true;
         return;
       }
@@ -948,16 +981,20 @@ function pollForCompletion(cardId, projectPath) {
             }
             if (taskData.destructive_flags && taskData.destructive_flags.length > 0) {
               for (let df = 0; df < taskData.destructive_flags.length; df++) {
-                autoDiscover.addPendingAction('destructive-op', taskData.destructive_flags[df], true);
+                autoDiscover.addPendingAction('destructive-op', taskData.destructive_flags[df], !runtime.autoPromoteBrainstorm);
               }
-              // Destructive flags freeze the card in review for human approval
-              cards.setStatus(cardId, 'idle');
-              cards.move(cardId, 'review');
-              setActivity(cardId, 'review', 'FLAGGED: Destructive operations detected — needs human approval');
-              broadcast('card-updated', cards.get(cardId));
-              broadcast('toast', { message: 'Destructive ops flagged — human review required: ' + card.title, type: 'error' });
-              // Don't auto-review, wait for human
-              return;
+              if (!runtime.autoPromoteBrainstorm) {
+                // Manual mode: freeze for human approval
+                cards.setStatus(cardId, 'idle');
+                cards.move(cardId, 'review');
+                setActivity(cardId, 'review', 'FLAGGED: Destructive operations detected — needs human approval');
+                broadcast('card-updated', cards.get(cardId));
+                broadcast('toast', { message: 'Destructive ops flagged — human review required: ' + card.title, type: 'error' });
+                return;
+              }
+              // Autonomous: log warning, proceed to review (reviewer will also see the flags)
+              log.warn({ cardId, flags: taskData.destructive_flags }, 'Autonomous: proceeding past destructive flags');
+              broadcast('toast', { message: 'Destructive ops noted (autonomous) — proceeding to review: ' + card.title, type: 'warning' });
             }
           } catch (_) {}
         }
@@ -1318,6 +1355,34 @@ function recoverOrphanedCards() {
   if (hasRateLimited) {
     log.info('Starting recovery poller for rate-limited cards from previous crash');
     startRecoveryPoller();
+  }
+
+  // Autonomous mode: re-enqueue recovered cards so pipeline resumes automatically
+  if (recovered > 0 && runtime.mode === 'single-project' && runtime.autoPromoteBrainstorm) {
+    setTimeout(function() {
+      const toRequeue = cards.getAll();
+      for (let ri = 0; ri < toRequeue.length; ri++) {
+        const rc = toRequeue[ri];
+        // Re-enqueue interrupted/idle cards in todo that have specs
+        // Skip cards explicitly rejected by a human — they need manual retry
+        if (rc.column_name === 'todo' && rc.spec && (rc.status === 'interrupted' || rc.status === 'idle' || rc.status === 'fix-interrupted') && rc.approved_by !== 'human-rejected') {
+          cards.setStatus(rc.id, 'idle');
+          try { enqueue(rc.id, 0); } catch (_) {}
+          log.info({ cardId: rc.id, title: rc.title }, 'Autonomous crash recovery: re-enqueued');
+        }
+        // Re-trigger review for idle cards stuck in review column
+        if (rc.column_name === 'review' && rc.status === 'idle') {
+          try { require('./review').autoReview(rc.id); } catch (_) {}
+          log.info({ cardId: rc.id, title: rc.title }, 'Autonomous crash recovery: re-reviewing');
+        }
+        // Re-brainstorm frozen cards
+        if (rc.status === 'frozen' && rc.column_name === 'brainstorm') {
+          cards.setStatus(rc.id, 'idle');
+          try { require('./brainstorm').brainstorm(rc.id); } catch (_) {}
+          log.info({ cardId: rc.id, title: rc.title }, 'Autonomous crash recovery: re-brainstorming');
+        }
+      }
+    }, 5000); // Delay to let server fully initialize
   }
 
   return recovered;

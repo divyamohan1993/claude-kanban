@@ -6,6 +6,7 @@ const { broadcast } = require('../lib/broadcast');
 const { log } = require('../lib/logger');
 const { sendWebhook } = require('../lib/helpers');
 const { runClaudeSilent } = require('./claude-runner');
+const intelligence = require('./intelligence');
 
 // --- Strategic Discovery Lenses ---
 // Rotates through 10 strategic domains to ensure product coverage grows evenly.
@@ -290,6 +291,17 @@ function buildDiscoveryPrompt(projectPath) {
     parts.push('## Already Completed (' + completedWork.length + ' items)');
     parts.push('Do NOT suggest anything that duplicates, undoes, or conflicts with this work:');
     parts.push(completedWork.join('\n'));
+    parts.push('');
+  }
+
+  // Human rejection history — avoid suggesting what was already rejected
+  const rejections = intelligence.getRejectionHistory(10);
+  if (rejections.length > 0) {
+    parts.push('## Human Rejection History');
+    parts.push('The project owner has rejected these. Do NOT suggest similar directions:');
+    for (let rj = 0; rj < rejections.length; rj++) {
+      parts.push('- "' + rejections[rj].card + '"' + (rejections[rj].times > 1 ? ' (' + rejections[rj].times + 'x)' : '') + ': ' + rejections[rj].reason);
+    }
     parts.push('');
   }
 

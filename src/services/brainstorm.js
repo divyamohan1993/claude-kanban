@@ -8,6 +8,7 @@ const { logPath, sendWebhook } = require('../lib/helpers');
 const { runClaudeSilent, detectRateLimit } = require('./claude-runner');
 const { getCustomPrompts } = require('./usage');
 const specIntel = require('./spec-intelligence');
+const intelligence = require('./intelligence');
 
 // --- Brainstorm Queue (concurrency control) ---
 let brainstormQueue = [];    // [{cardId, enqueuedAt}]
@@ -83,6 +84,18 @@ function buildBrainstormPrompt(card) {
     const historical = specIntel.gatherHistoricalContext(card);
     if (historical) parts.push(historical);
 
+    // --- Human Rejection History: what the human disliked ---
+    const rejections = intelligence.getRejectionHistory(10);
+    if (rejections.length > 0) {
+      parts.push('## Human Rejection History');
+      parts.push('The project owner has previously rejected these outputs. Learn from their preferences:');
+      for (let ri = 0; ri < rejections.length; ri++) {
+        parts.push('- "' + rejections[ri].card + '" rejected' + (rejections[ri].times > 1 ? ' (' + rejections[ri].times + 'x)' : '') + ': ' + rejections[ri].reason);
+      }
+      parts.push('Avoid repeating these patterns. Adapt to the human\'s standards and taste.');
+      parts.push('');
+    }
+
     parts.push('## Requested Changes');
     parts.push(card.title);
     if (card.description) parts.push(card.description);
@@ -110,6 +123,18 @@ function buildBrainstormPrompt(card) {
     // --- Historical Review Injection for new projects ---
     const historicalNew = specIntel.gatherHistoricalContext(card);
     if (historicalNew) parts.push(historicalNew);
+
+    // --- Human Rejection History for new projects ---
+    const rejectionsNew = intelligence.getRejectionHistory(10);
+    if (rejectionsNew.length > 0) {
+      parts.push('## Human Rejection History');
+      parts.push('The project owner has previously rejected these outputs. Learn from their preferences:');
+      for (let rj = 0; rj < rejectionsNew.length; rj++) {
+        parts.push('- "' + rejectionsNew[rj].card + '" rejected' + (rejectionsNew[rj].times > 1 ? ' (' + rejectionsNew[rj].times + 'x)' : '') + ': ' + rejectionsNew[rj].reason);
+      }
+      parts.push('Avoid repeating these patterns. Adapt to the human\'s standards and taste.');
+      parts.push('');
+    }
   }
 
   // --- Domain Coverage: steers spec toward neglected product areas ---

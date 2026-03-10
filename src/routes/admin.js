@@ -562,4 +562,185 @@ router.post('/api/housekeeping/run', requireAdmin, function(_req, res) {
 // Export runHousekeeping for periodic use by server.js
 router.runHousekeeping = runHousekeeping;
 
+// ── Auto-Update ──────────────────────────────────────────────────────
+var { config: dbConfig } = require('../db');
+var execFile = require('child_process').execFile;
+
+function gitExec(args) {
+  return new Promise(function(resolve, reject) {
+    execFile('git', args, { cwd: ROOT_DIR, timeout: 30000 }, function(err, stdout, stderr) {
+      if (err) reject(new Error(stderr || err.message));
+      else resolve(stdout.trim());
+    });
+  });
+}
+
+var _updateState = {
+  checking: false,
+  applying: false,
+  lastCheck: null,
+  lastResult: null, // { available, localRev, remoteRev, commitsBehind, summary }
+};
+
+// Persisted config
+function getAutoUpdateConfig() {
+  var enabled = dbConfig.get('auto_update_enabled');
+  var interval = dbConfig.get('auto_update_interval_mins');
+  return {
+    enabled: enabled === 'true',
+    intervalMins: interval ? Number(interval) : 60,
+    lastCheck: _updateState.lastCheck,
+    lastResult: _updateState.lastResult,
+    checking: _updateState.checking,
+    applying: _updateState.applying,
+  };
+}
+
+function checkForUpdates() {
+  if (_updateState.checking) return Promise.resolve(_updateState.lastResult);
+  _updateState.checking = true;
+
+  return gitExec(['fetch', 'origin', 'main', '--quiet']).then(function() {
+    return Promise.all([
+      gitExec(['rev-parse', 'HEAD']),
+      gitExec(['rev-parse', 'origin/main']),
+    ]);
+  }).then(function(revs) {
+    var localRev = revs[0];
+    var remoteRev = revs[1];
+    var available = localRev !== remoteRev;
+
+    var result = { available: available, localRev: localRev.slice(0, 8), remoteRev: remoteRev.slice(0, 8), commitsBehind: 0, summary: '' };
+
+    if (!available) {
+      _updateState.lastCheck = new Date().toISOString();
+      _updateState.lastResult = result;
+      _updateState.checking = false;
+      return result;
+    }
+
+    // Get commit count and summary
+    return gitExec(['rev-list', '--count', 'HEAD..origin/main']).then(function(count) {
+      result.commitsBehind = Number(count) || 0;
+      return gitExec(['log', '--oneline', 'HEAD..origin/main', '--max-count=5']);
+    }).then(function(logOutput) {
+      result.summary = logOutput;
+      _updateState.lastCheck = new Date().toISOString();
+      _updateState.lastResult = result;
+      _updateState.checking = false;
+      return result;
+    });
+  }).catch(function(err) {
+    _updateState.checking = false;
+    log.error({ err: err.message }, 'Update check failed');
+    throw err;
+  });
+}
+
+function applyUpdate() {
+  if (_updateState.applying) return Promise.reject(new Error('Update already in progress'));
+  if (IS_WIN) return applyUpdateWindows();
+  return applyUpdateLinux();
+}
+
+function applyUpdateLinux() {
+  _updateState.applying = true;
+  var updateScript = path.join(ROOT_DIR, 'update.sh');
+
+  // If update.sh exists (deployed via autoconfig), use it
+  if (fs.existsSync(updateScript)) {
+    return new Promise(function(resolve, reject) {
+      var child = require('child_process').spawn('bash', [updateScript], {
+        cwd: ROOT_DIR, detached: true, stdio: 'ignore',
+      });
+      child.unref();
+      auditLog('auto-update', 'system', null, 'system', '', '', 'update.sh triggered');
+      broadcast('toast', { message: 'Update started via update.sh. Server will restart.', type: 'info' });
+      resolve({ started: true, method: 'update.sh', note: 'Server will restart automatically.' });
+    });
+  }
+
+  // Fallback: simple git pull + restart
+  return gitExec(['pull', '--ff-only', 'origin', 'main']).then(function(pullOutput) {
+    auditLog('auto-update', 'system', null, 'system', '', pullOutput, 'git pull applied');
+    broadcast('toast', { message: 'Update pulled. Restarting server...', type: 'info' });
+
+    // Install deps then restart
+    return new Promise(function(resolve) {
+      execFile('pnpm', ['install', '--frozen-lockfile'], { cwd: ROOT_DIR, timeout: 120000 }, function() {
+        resolve({ started: true, method: 'git-pull', output: pullOutput, note: 'Server restarting...' });
+        setTimeout(function() { process.kill(process.pid, 'SIGTERM'); }, 1000);
+      });
+    });
+  }).catch(function(err) {
+    _updateState.applying = false;
+    throw err;
+  });
+}
+
+function applyUpdateWindows() {
+  _updateState.applying = true;
+
+  return gitExec(['pull', '--ff-only', 'origin', 'main']).then(function(pullOutput) {
+    auditLog('auto-update', 'system', null, 'system', '', pullOutput, 'git pull applied (Windows)');
+    broadcast('toast', { message: 'Update pulled. Restarting server...', type: 'info' });
+
+    return new Promise(function(resolve) {
+      execFile('pnpm', ['install'], { cwd: ROOT_DIR, timeout: 120000, shell: true }, function() {
+        resolve({ started: true, method: 'git-pull', output: pullOutput, note: 'Server restarting...' });
+        setTimeout(function() { process.kill(process.pid, 'SIGTERM'); }, 1000);
+      });
+    });
+  }).catch(function(err) {
+    _updateState.applying = false;
+    throw err;
+  });
+}
+
+// --- Auto-Update API ---
+
+router.get('/api/auto-update', requireAdmin, function(_req, res) {
+  res.json(getAutoUpdateConfig());
+});
+
+router.put('/api/auto-update', requireAdmin, function(req, res) {
+  var changed = {};
+  if (req.body.enabled !== undefined) {
+    dbConfig.set('auto_update_enabled', String(!!req.body.enabled));
+    changed.enabled = !!req.body.enabled;
+  }
+  if (req.body.intervalMins !== undefined) {
+    var mins = Math.max(15, Math.min(1440, Number(req.body.intervalMins)));
+    dbConfig.set('auto_update_interval_mins', String(mins));
+    changed.intervalMins = mins;
+  }
+  auditLog('auto-update-config', 'config', null, req.user.id, '', JSON.stringify(changed), 'auto-update settings changed');
+  broadcast('toast', { message: 'Auto-update config saved', type: 'success' });
+  res.json({ changed: changed, config: getAutoUpdateConfig() });
+});
+
+router.post('/api/auto-update/check', requireAdmin, function(_req, res) {
+  checkForUpdates().then(function(result) {
+    res.json(result);
+  }).catch(function(err) {
+    res.status(500).json({ error: 'Check failed: ' + err.message });
+  });
+});
+
+router.post('/api/auto-update/apply', requireAdmin, function(req, res) {
+  if (!req.body || req.body.confirm !== true) {
+    return res.status(400).json({ error: 'Update requires { "confirm": true }' });
+  }
+  applyUpdate().then(function(result) {
+    res.json(result);
+  }).catch(function(err) {
+    res.status(500).json({ error: 'Update failed: ' + err.message });
+  });
+});
+
+// Export for server.js periodic timer
+router.checkForUpdates = checkForUpdates;
+router.applyUpdate = applyUpdate;
+router.getAutoUpdateConfig = getAutoUpdateConfig;
+
 module.exports = router;

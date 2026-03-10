@@ -480,6 +480,38 @@ const publicServer = app.listen(PORT, '0.0.0.0', function() {
     }
   }, runtime.housekeepingIntervalMins * 60 * 1000);
 
+  // --- Auto-Update periodic check ---
+  var _autoUpdateTimer = null;
+  function startAutoUpdateTimer() {
+    if (_autoUpdateTimer) clearInterval(_autoUpdateTimer);
+    var cfg = adminRoutes.getAutoUpdateConfig();
+    if (!cfg.enabled) return;
+    var intervalMs = (cfg.intervalMins || 60) * 60 * 1000;
+    _autoUpdateTimer = setInterval(function() {
+      var curCfg = adminRoutes.getAutoUpdateConfig();
+      if (!curCfg.enabled) { clearInterval(_autoUpdateTimer); _autoUpdateTimer = null; return; }
+      log.info('Auto-update: periodic check');
+      adminRoutes.checkForUpdates().then(function(result) {
+        if (result && result.available) {
+          log.info({ commits: result.commitsBehind, remote: result.remoteRev }, 'Auto-update: update available, applying');
+          adminRoutes.applyUpdate().catch(function(err) {
+            log.error({ err: err.message }, 'Auto-update: apply failed');
+          });
+        }
+      }).catch(function(err) {
+        log.error({ err: err.message }, 'Auto-update: check failed');
+      });
+    }, intervalMs);
+    log.info({ intervalMins: cfg.intervalMins }, 'Auto-update timer started');
+  }
+  startAutoUpdateTimer();
+  // Re-check timer config every 5 min (in case toggle changed)
+  setInterval(function() {
+    var cfg = adminRoutes.getAutoUpdateConfig();
+    if (cfg.enabled && !_autoUpdateTimer) startAutoUpdateTimer();
+    else if (!cfg.enabled && _autoUpdateTimer) { clearInterval(_autoUpdateTimer); _autoUpdateTimer = null; }
+  }, 5 * 60 * 1000);
+
   log.info('Claude Kanban Board  http://localhost:' + PORT + '  (public, PID ' + process.pid + ')');
 });
 

@@ -134,7 +134,7 @@ async function checkSession() {
 // Role-based UI — server decides actions, frontend decides chrome visibility
 function applyRoleUI() {
   var isPublic = (userRole === 'public');
-  var isAdmin = (userRole === 'admin');
+  var isAdmin = (userRole === 'admin' || userRole === 'superadmin');
 
   var searchEl = document.querySelector('.header-search');
   var statsEl = document.getElementById('header-stats');

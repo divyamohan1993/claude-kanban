@@ -1665,6 +1665,14 @@ function renderSystem(d) {
   body.appendChild(hkCard);
   api('GET', '/api/housekeeping').then(function(hk) { renderHousekeeping(hk, document.getElementById('hk-stats')); });
 
+  // Auto-Update card
+  var updateCard = el('div', 'card');
+  updateCard.appendChild(el('div', 'card-head', [el('div', { class: 'card-dot', style: 'background:var(--primary)' }), el('div', 'card-title', 'Software Updates')]));
+  var updateBody = el('div', { class: 'card-body', id: 'update-content' });
+  updateCard.appendChild(updateBody);
+  body.appendChild(updateCard);
+  api('GET', '/api/auto-update').then(function(cfg) { renderAutoUpdate(cfg, document.getElementById('update-content')); });
+
   // Danger zone
   var dangerCard = el('div', 'card', [
     el('div', { class: 'card-head', style: 'border-bottom-color:var(--error)' }, [
@@ -1716,6 +1724,104 @@ function renderHousekeeping(hk, container) {
     } }, 'Run Cleanup Now'),
     el('span', 'cfg-help', 'Auto-runs every 30min. Prunes logs >7d, scripts >24h, archives >14d, audit >10K rows.'),
   ]));
+}
+
+function renderAutoUpdate(cfg, container) {
+  if (!container) return;
+  clear(container);
+
+  // Toggle row
+  var toggleRow = el('div', { style: 'display:flex;align-items:center;gap:12px;margin-bottom:16px' });
+  var toggleLabel = el('label', { style: 'display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.9rem' });
+  var toggleCb = el('input', { type: 'checkbox', style: 'width:18px;height:18px;cursor:pointer' });
+  toggleCb.checked = !!cfg.enabled;
+  toggleCb.addEventListener('change', function() {
+    api('PUT', '/api/auto-update', { enabled: toggleCb.checked }).then(function(r) {
+      renderAutoUpdate(r.config, container);
+    });
+  });
+  toggleLabel.appendChild(toggleCb);
+  toggleLabel.appendChild(document.createTextNode('Enable automatic updates'));
+  toggleRow.appendChild(toggleLabel);
+
+  if (cfg.enabled) {
+    var intervalSel = el('select', { style: 'padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:0.85rem' });
+    [15, 30, 60, 120, 360, 720, 1440].forEach(function(m) {
+      var label = m < 60 ? m + 'min' : (m / 60) + 'hr';
+      var opt = el('option', { value: String(m) }, label);
+      if (m === (cfg.intervalMins || 60)) opt.selected = true;
+      intervalSel.appendChild(opt);
+    });
+    intervalSel.addEventListener('change', function() {
+      api('PUT', '/api/auto-update', { intervalMins: Number(intervalSel.value) }).then(function(r) {
+        toast('Interval set to ' + r.changed.intervalMins + ' min', 'success');
+      });
+    });
+    toggleRow.appendChild(el('span', { style: 'font-size:0.85rem;color:var(--text-secondary)' }, 'every'));
+    toggleRow.appendChild(intervalSel);
+  }
+  container.appendChild(toggleRow);
+
+  if (cfg.enabled) {
+    container.appendChild(el('p', { style: 'font-size:0.82rem;color:var(--text-secondary);margin:0 0 12px' }, 'When enabled, the server fetches updates from the git remote and automatically applies them (drain pipeline, pull, install, restart, rollback on failure).'));
+  }
+
+  // Status section
+  var statusGrid = el('div', 'info-grid');
+  var lastCheckStr = cfg.lastCheck ? new Date(cfg.lastCheck).toLocaleString() : 'Never';
+  statusGrid.appendChild(el('div', 'info-row', [el('span', 'info-key', 'Last checked'), el('span', 'info-val', lastCheckStr)]));
+
+  if (cfg.lastResult) {
+    var r = cfg.lastResult;
+    var statusText = r.available
+      ? r.commitsBehind + ' commit' + (r.commitsBehind !== 1 ? 's' : '') + ' behind (' + r.localRev + ' \u2192 ' + r.remoteRev + ')'
+      : 'Up to date (' + r.localRev + ')';
+    var statusColor = r.available ? 'color:var(--warning-text)' : 'color:var(--success)';
+    statusGrid.appendChild(el('div', 'info-row', [el('span', 'info-key', 'Status'), el('span', { class: 'info-val', style: statusColor }, statusText)]));
+
+    if (r.available && r.summary) {
+      var summaryPre = el('pre', { style: 'font-size:0.8rem;color:var(--text-secondary);margin:8px 0 0;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;overflow-x:auto;white-space:pre-wrap;line-height:1.6' }, r.summary);
+      statusGrid.appendChild(summaryPre);
+    }
+  }
+  container.appendChild(statusGrid);
+
+  // Action buttons
+  var actions = el('div', { style: 'display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap' });
+
+  var checkBtn = el('button', { class: 'btn', onclick: function() {
+    checkBtn.disabled = true;
+    checkBtn.textContent = 'Checking...';
+    api('POST', '/api/auto-update/check').then(function(result) {
+      api('GET', '/api/auto-update').then(function(cfg2) { renderAutoUpdate(cfg2, container); });
+      if (result.available) toast(result.commitsBehind + ' update(s) available', 'info');
+      else toast('Already up to date', 'success');
+    }).catch(function() {
+      checkBtn.disabled = false;
+      checkBtn.textContent = 'Check Now';
+    });
+  } }, 'Check Now');
+  if (cfg.checking) { checkBtn.disabled = true; checkBtn.textContent = 'Checking...'; }
+  actions.appendChild(checkBtn);
+
+  if (cfg.lastResult && cfg.lastResult.available) {
+    var applyBtn = el('button', { class: 'btn btn-primary', onclick: function() {
+      if (!confirm('Apply update now?\n\nThis will pull the latest code, install dependencies, and restart the server.\nActive builds will be drained first (on Linux with update.sh).')) return;
+      applyBtn.disabled = true;
+      applyBtn.textContent = 'Applying...';
+      api('POST', '/api/auto-update/apply', { confirm: true }).then(function(result) {
+        toast('Update started: ' + (result.note || 'Server restarting'), 'success');
+      }).catch(function(err) {
+        applyBtn.disabled = false;
+        applyBtn.textContent = 'Apply Update';
+        toast('Update failed: ' + (err.message || 'Unknown error'), 'error');
+      });
+    } }, 'Apply Update');
+    if (cfg.applying) { applyBtn.disabled = true; applyBtn.textContent = 'Applying...'; }
+    actions.appendChild(applyBtn);
+  }
+
+  container.appendChild(actions);
 }
 
 // ── Factory Reset Overlay ──

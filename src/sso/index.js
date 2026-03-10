@@ -129,7 +129,7 @@ router.post('/auth/setup', async function(req, res) {
   var effectivePath = null;
   if (kanbanMode === 'single-project') {
     const singlePath = String(body.singleProjectPath || '').trim();
-    effectivePath = singlePath || pathDir.resolve(ROOT_DIR, '..');
+    effectivePath = singlePath || pathDir.join(require('os').homedir(), 'demo-project');
     try {
       pathFs.mkdirSync(effectivePath, { recursive: true });
       const probe = pathDir.join(effectivePath, '.write-probe-' + Date.now());

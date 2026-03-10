@@ -144,6 +144,7 @@ User=$APP_USER
 Group=$APP_USER
 WorkingDirectory=$APP_DIR
 EnvironmentFile=$APP_DIR/.env
+ExecStartPre=+/bin/bash -c 'mkdir -p $APP_DIR/.data && chown $APP_USER:$APP_USER $APP_DIR/.data'
 ExecStart=$(command -v node) src/server.js
 Restart=on-failure
 RestartSec=5

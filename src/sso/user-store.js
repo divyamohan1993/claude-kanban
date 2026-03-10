@@ -115,11 +115,8 @@ function init(db) {
   _ready = (async function() {
     DUMMY_HASH = await argon2.hash('dummy-timing-safe-rejection', ARGON2_OPTS);
 
-    // Seed default users if DB is empty
-    const count = dbUsers.count();
-    if (count === 0) {
-      await seedDefaults();
-    }
+    // Always ensure demo users exist (they are read-only via demoGuard)
+    await ensureDemoUsers();
 
     // Consistency check: if setup_complete=true but no superadmin exists,
     // reset the flag so the setup wizard can run again
@@ -142,25 +139,29 @@ function init(db) {
   return _ready;
 }
 
-async function seedDefaults() {
+async function ensureDemoUsers() {
   // Demo accounts always use well-known passwords (admin/admin, user/user).
   // They are read-only: the demoGuard middleware blocks all state-changing requests.
-  const adminHash = await argon2.hash('admin', ARGON2_OPTS);
-  const userHash = await argon2.hash('user', ARGON2_OPTS);
-
-  dbUsers.insert(
-    'default-admin-001', 'admin', adminHash, 'admin',
-    'Demo Admin', encrypt('admin@localhost'),
-    JSON.stringify(['administrators', 'users']), true, 'system'
-  );
-
-  dbUsers.insert(
-    'default-user-001', 'user', userHash, 'user',
-    'Demo User', encrypt('user@localhost'),
-    JSON.stringify(['users']), true, 'system'
-  );
-
-  log.info('Seeded demo users: admin/admin (read-only), user/user (read-only)');
+  var seeded = 0;
+  if (!dbUsers.getById('default-admin-001')) {
+    const adminHash = await argon2.hash('admin', ARGON2_OPTS);
+    dbUsers.insert(
+      'default-admin-001', 'admin', adminHash, 'admin',
+      'Demo Admin', encrypt('admin@localhost'),
+      JSON.stringify(['administrators', 'users']), true, 'system'
+    );
+    seeded++;
+  }
+  if (!dbUsers.getById('default-user-001')) {
+    const userHash = await argon2.hash('user', ARGON2_OPTS);
+    dbUsers.insert(
+      'default-user-001', 'user', userHash, 'user',
+      'Demo User', encrypt('user@localhost'),
+      JSON.stringify(['users']), true, 'system'
+    );
+    seeded++;
+  }
+  if (seeded) log.info({ count: seeded }, 'Seeded demo users: admin/admin, user/user (read-only)');
 }
 
 // =============================================================================

@@ -977,6 +977,117 @@ body.dark .modal-overlay { background: rgba(0, 0, 0, 0.6); }
 }
 
 /* ----------------------------------------------------------------
+   Onboarding
+   ---------------------------------------------------------------- */
+.onboarding-step { text-align: center; }
+.onboarding-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  line-height: 1;
+  opacity: 0.9;
+}
+.onboarding-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.onboarding-desc {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.onboarding-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.onboarding-flow-step {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: var(--primary-soft);
+  color: var(--primary-text);
+  white-space: nowrap;
+}
+.onboarding-flow-arrow {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.onboarding-dots {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+.onboarding-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.onboarding-dot.active {
+  background: var(--primary);
+  box-shadow: 0 0 6px var(--primary-soft);
+}
+.onboarding-dot.done {
+  background: var(--success);
+}
+.onboarding-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 4px;
+}
+.onboarding-shortcuts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  text-align: left;
+  margin-bottom: 16px;
+}
+.onboarding-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+}
+.onboarding-shortcut kbd {
+  display: inline-block;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-family: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-weight: 600;
+  min-width: 24px;
+  text-align: center;
+}
+@media (max-width: 480px) {
+  .onboarding-shortcuts { grid-template-columns: 1fr; }
+  .onboarding-flow { gap: 4px; }
+  .onboarding-flow-step { font-size: 11px; padding: 4px 7px; }
+}
+
+/* ----------------------------------------------------------------
    Forms
    ---------------------------------------------------------------- */
 label {

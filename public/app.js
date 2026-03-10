@@ -2005,6 +2005,9 @@ async function init() {
     if (hint) hint.style.opacity = '0';
     setTimeout(function() { if (hint) hint.style.display = 'none'; }, 500);
   }, 10000);
+
+  // Show onboarding for first-time visitors (after board renders)
+  setTimeout(showOnboarding, 600);
 }
 
 // --- Command Palette ---
@@ -2165,5 +2168,107 @@ if (cmdPalette) {
     observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
   });
 })();
+
+// --- Onboarding ---
+function showOnboarding() {
+  if (localStorage.getItem('claude-kanban-onboarded')) return;
+
+  var step = 0;
+  var steps = [
+    {
+      icon: '\u25C6',
+      iconColor: 'var(--primary)',
+      title: 'Welcome to Claude Kanban',
+      desc: 'An autonomous AI build pipeline. Drop an idea, walk away, come back to committed code. Claude handles brainstorming, coding, reviewing, and shipping.',
+    },
+    {
+      icon: '\u2192',
+      iconColor: 'var(--primary)',
+      title: 'How Ideas Become Code',
+      desc: 'Every idea flows through an automated pipeline. Claude brainstorms a spec, builds the code, reviews quality, auto-fixes issues, and marks it done.',
+      flow: true,
+    },
+    {
+      icon: '\u2328',
+      iconColor: 'var(--primary)',
+      title: 'Get Started',
+      desc: 'Press N or click "+ New Idea" to submit your first idea. Sign in to unlock all features.',
+      shortcuts: true,
+    },
+  ];
+
+  var overlay = el('div', { class: 'modal-overlay active', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'onboarding-title' });
+  var modal = el('div', { class: 'modal', style: 'width:480px;max-width:92vw' });
+  var content = el('div', { class: 'onboarding-step' });
+  var dotsRow = el('div', { class: 'onboarding-dots' });
+  var actionsRow = el('div', { class: 'onboarding-actions' });
+
+  modal.appendChild(dotsRow);
+  modal.appendChild(content);
+  modal.appendChild(actionsRow);
+  overlay.appendChild(modal);
+
+  function renderStep() {
+    var s = steps[step];
+    // Dots
+    while (dotsRow.firstChild) dotsRow.removeChild(dotsRow.firstChild);
+    for (var i = 0; i < steps.length; i++) {
+      var dot = el('div', { class: 'onboarding-dot' + (i === step ? ' active' : i < step ? ' done' : '') });
+      dotsRow.appendChild(dot);
+    }
+    // Content
+    while (content.firstChild) content.removeChild(content.firstChild);
+    content.appendChild(el('div', { class: 'onboarding-icon', style: 'color:' + s.iconColor }, s.icon));
+    content.appendChild(el('div', { class: 'onboarding-title', id: 'onboarding-title' }, s.title));
+    content.appendChild(el('div', { class: 'onboarding-desc' }, s.desc));
+
+    if (s.flow) {
+      var flowRow = el('div', { class: 'onboarding-flow' });
+      var flowSteps = ['Brainstorm', 'To Do', 'Working', 'Review', 'Done'];
+      var colors = ['var(--brainstorm)', 'var(--todo)', 'var(--working)', 'var(--review)', 'var(--done)'];
+      for (var fi = 0; fi < flowSteps.length; fi++) {
+        if (fi > 0) flowRow.appendChild(el('span', { class: 'onboarding-flow-arrow' }, '\u2192'));
+        flowRow.appendChild(el('span', { class: 'onboarding-flow-step', style: 'border-left:3px solid ' + colors[fi] }, flowSteps[fi]));
+      }
+      content.appendChild(flowRow);
+    }
+
+    if (s.shortcuts) {
+      var grid = el('div', { class: 'onboarding-shortcuts' });
+      var sc = [
+        ['N', 'New idea'], ['?', 'Shortcuts'], ['D', 'Dark mode'], ['K', 'Command palette'],
+        ['/', 'Search'], ['A', 'Archive'], ['M', 'Metrics'], ['Esc', 'Close modal'],
+      ];
+      for (var si = 0; si < sc.length; si++) {
+        grid.appendChild(el('div', { class: 'onboarding-shortcut' }, [el('kbd', {}, sc[si][0]), document.createTextNode(sc[si][1])]));
+      }
+      content.appendChild(grid);
+    }
+
+    // Actions
+    while (actionsRow.firstChild) actionsRow.removeChild(actionsRow.firstChild);
+    if (step > 0) {
+      actionsRow.appendChild(btn('Back', 'btn-ghost', function() { step--; renderStep(); }));
+    } else {
+      actionsRow.appendChild(btn('Skip', 'btn-ghost', dismiss));
+    }
+    if (step < steps.length - 1) {
+      actionsRow.appendChild(btn('Next', 'btn-primary', function() { step++; renderStep(); }));
+    } else {
+      actionsRow.appendChild(btn('Get Started', 'btn-primary', dismiss));
+    }
+  }
+
+  function dismiss() {
+    localStorage.setItem('claude-kanban-onboarded', '1');
+    overlay.classList.remove('active');
+    setTimeout(function() { overlay.remove(); }, 200);
+  }
+
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) dismiss(); });
+
+  document.body.appendChild(overlay);
+  renderStep();
+}
 
 checkSession();

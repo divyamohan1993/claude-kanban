@@ -136,15 +136,47 @@
     </div>
 
     <div class="step-indicator">
-      <div class="step-dot active" id="dot1"></div>
+      <div class="step-dot active" id="dot0"></div>
+      <div class="step-dot" id="dot1"></div>
       <div class="step-dot" id="dot2"></div>
       <div class="step-dot" id="dot3"></div>
       <div class="step-dot" id="dot4"></div>
       <div class="step-dot" id="dot5"></div>
     </div>
 
+    <!-- Step 0: Welcome -->
+    <div class="step active" id="step0">
+      <div style="text-align:center;margin-bottom:1.5rem">
+        <div style="font-size:3rem;color:#e8925a;text-shadow:0 0 24px rgba(232,146,90,0.2);margin-bottom:0.75rem">&#x25C6;</div>
+        <h2 style="font-size:1.3rem;margin-bottom:0.5rem">Welcome to Claude Kanban</h2>
+        <p class="step-desc" style="margin-bottom:0">An autonomous AI build pipeline that turns ideas into committed code.</p>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:0.65rem;margin-bottom:1.25rem">
+        <div style="display:flex;align-items:flex-start;gap:0.75rem;padding:0.7rem 0.9rem;background:#111;border:1px solid #222;border-radius:8px">
+          <span style="font-size:1.1rem;line-height:1;margin-top:1px">&#x1F464;</span>
+          <div><div style="font-size:0.85rem;font-weight:600;color:#e5e5e5">Create Super Admin</div><div style="font-size:0.72rem;color:#777;margin-top:2px">Your master account with full system control</div></div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:0.75rem;padding:0.7rem 0.9rem;background:#111;border:1px solid #222;border-radius:8px">
+          <span style="font-size:1.1rem;line-height:1;margin-top:1px">&#x1F511;</span>
+          <div><div style="font-size:0.85rem;font-weight:600;color:#e5e5e5">Configure Authentication</div><div style="font-size:0.72rem;color:#777;margin-top:2px">Built-in, OIDC, SAML 2.0, or LDAP</div></div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:0.75rem;padding:0.7rem 0.9rem;background:#111;border:1px solid #222;border-radius:8px">
+          <span style="font-size:1.1rem;line-height:1;margin-top:1px">&#x2699;</span>
+          <div><div style="font-size:0.85rem;font-weight:600;color:#e5e5e5">Choose Operating Mode</div><div style="font-size:0.72rem;color:#777;margin-top:2px">Single-project autonomous or multi-project global</div></div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:0.75rem;padding:0.7rem 0.9rem;background:#111;border:1px solid #222;border-radius:8px">
+          <span style="font-size:1.1rem;line-height:1;margin-top:1px">&#x1F916;</span>
+          <div><div style="font-size:0.85rem;font-weight:600;color:#e5e5e5">Connect Claude CLI</div><div style="font-size:0.72rem;color:#777;margin-top:2px">Authenticate Claude Code for autonomous builds</div></div>
+        </div>
+      </div>
+      <p style="font-size:0.72rem;color:#555;text-align:center;line-height:1.5">This wizard takes about 2 minutes. All secrets are encrypted with AES-256-GCM.</p>
+      <div class="btn-row">
+        <button type="button" class="btn-primary" id="btn-step0-next">Let's Begin</button>
+      </div>
+    </div>
+
     <!-- Step 1: Super Admin Account -->
-    <div class="step active" id="step1">
+    <div class="step" id="step1">
       <h2>Create Super Admin Account</h2>
       <p class="step-desc">
         This account has full system control: user management, SSO configuration, and all admin features.
@@ -432,14 +464,14 @@
 
 <script>
 (function() {
-  var currentStep = 1;
+  var currentStep = 0;
   var formData = {};
 
-  var steps = [null, document.getElementById('step1'), document.getElementById('step2'), document.getElementById('step3'), document.getElementById('step4'), document.getElementById('step5')];
-  var dots = [null, document.getElementById('dot1'), document.getElementById('dot2'), document.getElementById('dot3'), document.getElementById('dot4'), document.getElementById('dot5')];
+  var steps = [document.getElementById('step0'), document.getElementById('step1'), document.getElementById('step2'), document.getElementById('step3'), document.getElementById('step4'), document.getElementById('step5')];
+  var dots = [document.getElementById('dot0'), document.getElementById('dot1'), document.getElementById('dot2'), document.getElementById('dot3'), document.getElementById('dot4'), document.getElementById('dot5')];
 
   function showStep(n) {
-    for (var i = 1; i <= 5; i++) {
+    for (var i = 0; i <= 5; i++) {
       steps[i].classList.toggle('active', i === n);
       dots[i].classList.toggle('active', i === n);
       dots[i].classList.toggle('done', i < n);
@@ -447,6 +479,9 @@
     currentStep = n;
     if (n === 5) initClaudeAuth();
   }
+
+  // Step 0: Welcome -> Step 1
+  document.getElementById('btn-step0-next').addEventListener('click', function() { showStep(1); });
 
   // Password strength meter
   var pwInput = document.getElementById('sa-password');

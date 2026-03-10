@@ -1953,6 +1953,95 @@ function initApp() {
 
   // Periodic refresh
   setInterval(function() { loadPipeline(); loadOverview(); }, 30000);
+
+  // Show onboarding for first-time admin visitors
+  setTimeout(showCPOnboarding, 500);
+}
+
+// ══════════════════════════════════════════════
+// ONBOARDING
+// ══════════════════════════════════════════════
+function showCPOnboarding() {
+  if (localStorage.getItem('claude-kanban-onboarded-cp')) return;
+
+  var step = 0;
+  var steps = [
+    {
+      icon: '\u2699',
+      title: 'Welcome to the Control Panel',
+      desc: 'This is your command center for managing the autonomous build pipeline. Monitor builds, tune configuration, manage users, and control every aspect of Claude Kanban.',
+    },
+    {
+      icon: '\u25B6',
+      title: 'Pipeline & Monitoring',
+      desc: 'The Overview page shows active builds, queue status, and real-time usage. Pause or resume the pipeline, kill stuck builds, and track Claude session consumption.',
+      sections: [['Overview', 'Active builds, queue, usage'], ['Pipeline', 'Control build flow'], ['Audit', 'Full activity history']],
+    },
+    {
+      icon: '\u270E',
+      title: 'Configuration & Prompts',
+      desc: 'Fine-tune build behavior, set usage limits, customize AI prompts for brainstorming, building, and reviewing. Changes take effect immediately.',
+      sections: [['Config', 'Runtime settings, limits'], ['Prompts', 'Custom AI instructions'], ['System', 'Updates, housekeeping']],
+    },
+  ];
+
+  // Build modal
+  var overlay = el('div', { class: 'pin-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'cp-onboard-title',
+    style: 'display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5)' });
+  var modal = el('div', { style: 'background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:28px;width:460px;max-width:92vw;box-shadow:0 8px 32px rgba(0,0,0,0.3);animation:fadeIn 0.2s ease' });
+  var dotsRow = el('div', { style: 'display:flex;gap:6px;justify-content:center;margin-bottom:20px' });
+  var content = el('div', { style: 'text-align:center' });
+  var actions = el('div', { style: 'display:flex;gap:8px;justify-content:center;margin-top:4px' });
+
+  modal.appendChild(dotsRow);
+  modal.appendChild(content);
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+
+  function renderStep() {
+    var s = steps[step];
+    clear(dotsRow); clear(content); clear(actions);
+
+    for (var i = 0; i < steps.length; i++) {
+      var dotStyle = 'width:8px;height:8px;border-radius:50%;transition:all 0.2s;';
+      if (i === step) dotStyle += 'background:var(--accent);box-shadow:0 0 6px var(--accent)';
+      else if (i < step) dotStyle += 'background:var(--success,#4a9)';
+      else dotStyle += 'background:var(--border)';
+      dotsRow.appendChild(el('div', { style: dotStyle }));
+    }
+
+    content.appendChild(el('div', { style: 'font-size:48px;margin-bottom:14px;line-height:1;opacity:0.9' }, s.icon));
+    content.appendChild(el('div', { id: 'cp-onboard-title', style: 'font-size:18px;font-weight:700;margin-bottom:8px;color:var(--text)' }, s.title));
+    content.appendChild(el('div', { style: 'font-size:14px;line-height:1.65;color:var(--text-dim);margin-bottom:16px;max-width:380px;margin-left:auto;margin-right:auto' }, s.desc));
+
+    if (s.sections) {
+      var grid = el('div', { style: 'display:grid;gap:8px;text-align:left;margin-bottom:12px' });
+      for (var si = 0; si < s.sections.length; si++) {
+        var row = el('div', { style: 'display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;background:var(--hover-bg);font-size:13px' });
+        row.appendChild(el('span', { style: 'font-weight:600;color:var(--text);min-width:70px' }, s.sections[si][0]));
+        row.appendChild(el('span', { style: 'color:var(--text-dim)' }, s.sections[si][1]));
+        grid.appendChild(row);
+      }
+      content.appendChild(grid);
+    }
+
+    if (step > 0) actions.appendChild(el('button', { class: 'btn', onclick: function() { step--; renderStep(); } }, 'Back'));
+    else actions.appendChild(el('button', { class: 'btn', onclick: dismiss }, 'Skip'));
+
+    if (step < steps.length - 1) actions.appendChild(el('button', { class: 'btn btn-accent', onclick: function() { step++; renderStep(); } }, 'Next'));
+    else actions.appendChild(el('button', { class: 'btn btn-accent', onclick: dismiss }, 'Got It'));
+  }
+
+  function dismiss() {
+    localStorage.setItem('claude-kanban-onboarded-cp', '1');
+    overlay.style.opacity = '0';
+    overlay.style.transition = 'opacity 0.2s';
+    setTimeout(function() { overlay.remove(); }, 200);
+  }
+
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) dismiss(); });
+  document.body.appendChild(overlay);
+  renderStep();
 }
 
 checkSession();

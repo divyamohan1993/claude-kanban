@@ -1061,33 +1061,41 @@ router.post('/api/ideas', requireAuth, function(req, res) {
     projectPath = path.resolve(projectPath);
   }
   if (!projectPath) {
-    // Create new project folder — never reuse existing
-    const slug = title.toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .substring(0, 50) || 'new-project';
-    let folderName = slug;
-    let counter = 1;
-    // Validate slug contains only safe characters (a-z, 0-9, hyphens)
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(folderName)) {
-      cards.delete(cardId);
-      return res.status(400).json({ error: 'Generated project name contains invalid characters' });
+    // Single-project mode: always use the locked folder
+    const { getEffectiveProjectPath } = require('../config');
+    const singlePath = getEffectiveProjectPath();
+    if (runtime.mode === 'single-project' && singlePath) {
+      projectPath = singlePath;
+      fs.mkdirSync(projectPath, { recursive: true });
+    } else {
+      // Create new project folder — never reuse existing
+      const slug = title.toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+        .substring(0, 50) || 'new-project';
+      let folderName = slug;
+      let counter = 1;
+      // Validate slug contains only safe characters (a-z, 0-9, hyphens)
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(folderName)) {
+        cards.delete(cardId);
+        return res.status(400).json({ error: 'Generated project name contains invalid characters' });
+      }
+      while (fs.existsSync(path.join(PROJECTS_ROOT, folderName))) {
+        folderName = slug + '-' + counter;
+        counter++;
+      }
+      projectPath = path.join(PROJECTS_ROOT, folderName);
+      // Validate generated path is safely under PROJECTS_ROOT
+      const resolvedProject = path.resolve(projectPath);
+      const resolvedRoot = path.resolve(PROJECTS_ROOT);
+      if (!resolvedProject.startsWith(resolvedRoot + path.sep)) {
+        cards.delete(cardId);
+        return res.status(400).json({ error: 'Generated project path is not under allowed root' });
+      }
+      fs.mkdirSync(resolvedProject, { recursive: true });
     }
-    while (fs.existsSync(path.join(PROJECTS_ROOT, folderName))) {
-      folderName = slug + '-' + counter;
-      counter++;
-    }
-    projectPath = path.join(PROJECTS_ROOT, folderName);
-    // Validate generated path is safely under PROJECTS_ROOT
-    const resolvedProject = path.resolve(projectPath);
-    const resolvedRoot = path.resolve(PROJECTS_ROOT);
-    if (!resolvedProject.startsWith(resolvedRoot + path.sep)) {
-      cards.delete(cardId);
-      return res.status(400).json({ error: 'Generated project path is not under allowed root' });
-    }
-    fs.mkdirSync(resolvedProject, { recursive: true });
   }
   cards.setProjectPath(cardId, projectPath);
 

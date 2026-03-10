@@ -191,9 +191,16 @@
   <!-- Toast container -->
   <div id="toasts" aria-live="polite"></div>
 
-  <!-- Keyboard shortcut hint -->
-  <div class="kbd-hint" id="kbd-hint">
-    Press <kbd>?</kbd> for shortcuts
+  <!-- Persistent keyboard shortcuts bar -->
+  <div class="shortcuts-bar" id="shortcuts-bar" role="toolbar" aria-label="Keyboard shortcuts">
+    <div class="shortcuts-bar-items">
+      <span class="shortcuts-bar-item"><kbd>N</kbd> New Idea</span>
+      <span class="shortcuts-bar-item"><kbd>K</kbd> Commands</span>
+      <span class="shortcuts-bar-item"><kbd>/</kbd> Search</span>
+      <span class="shortcuts-bar-item"><kbd>D</kbd> Dark Mode</span>
+      <span class="shortcuts-bar-item shortcuts-bar-more"><kbd>?</kbd> All Shortcuts</span>
+    </div>
+    <button class="shortcuts-bar-close" id="shortcuts-bar-close" aria-label="Dismiss shortcuts bar" title="Dismiss">&times;</button>
   </div>
 
   <script src="app.js?t=__BUST__"></script>

@@ -496,5 +496,15 @@
       if (hash > 0 && hash < total) go(hash);
     })();
   </script>
+<!-- Discovery banner -->
+<div id="discover-bar" style="position:fixed;bottom:0;left:0;right:0;z-index:999;background:#1a1a1d;border-top:1px solid #333;padding:10px 20px;display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;font-size:13px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;transition:transform .25s;box-shadow:0 -2px 8px rgba(0,0,0,.3)">
+  <span style="color:#aaa">Explore:</span>
+  <a href="/" style="color:#e8925a;text-decoration:none;font-weight:600">Live Dashboard</a>
+  <a href="/product/" style="color:#ccc;text-decoration:none">Product</a>
+  <a href="/product/features/" style="color:#ccc;text-decoration:none">Features</a>
+  <a href="/product/trust/" style="color:#ccc;text-decoration:none">Trust Report</a>
+  <button onclick="this.parentNode.style.transform='translateY(100%)';localStorage.setItem('ck-discover-dismissed','1')" style="background:none;border:none;color:#666;font-size:18px;cursor:pointer;padding:0 4px;margin-left:8px" aria-label="Dismiss">&times;</button>
+</div>
+<script>if(localStorage.getItem('ck-discover-dismissed'))document.getElementById('discover-bar').style.transform='translateY(100%)';</script>
 </body>
 </html>

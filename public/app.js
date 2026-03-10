@@ -1659,6 +1659,9 @@ document.addEventListener('keydown', function(e) {
   } else if (e.key === '?') {
     e.preventDefault();
     showShortcuts();
+    // Re-show the shortcuts bar if it was dismissed
+    var sbar = document.getElementById('shortcuts-bar');
+    if (sbar) { sbar.classList.remove('hidden'); localStorage.removeItem('claude-kanban-shortcuts-dismissed'); }
   }
 });
 
@@ -1999,12 +2002,20 @@ async function init() {
   }
   setTimeout(function() { localStorage.setItem('claude-kanban-last-visit', String(Date.now())); }, 5000);
 
-  // Dismiss kbd hint after 10s
-  setTimeout(function() {
-    var hint = document.getElementById('kbd-hint');
-    if (hint) hint.style.opacity = '0';
-    setTimeout(function() { if (hint) hint.style.display = 'none'; }, 500);
-  }, 10000);
+  // Shortcuts bar — persistent, dismiss remembers, ? brings it back
+  (function() {
+    var bar = document.getElementById('shortcuts-bar');
+    var closeBtn = document.getElementById('shortcuts-bar-close');
+    if (!bar) return;
+    if (localStorage.getItem('claude-kanban-shortcuts-dismissed')) bar.classList.add('hidden');
+    if (closeBtn) closeBtn.addEventListener('click', function() {
+      bar.classList.add('hidden');
+      localStorage.setItem('claude-kanban-shortcuts-dismissed', '1');
+    });
+    // "? All Shortcuts" item opens the full shortcuts overlay
+    var moreItem = bar.querySelector('.shortcuts-bar-more');
+    if (moreItem) moreItem.addEventListener('click', function() { showShortcuts(); });
+  })();
 
   // Show onboarding for first-time visitors (after board renders)
   setTimeout(showOnboarding, 600);
@@ -2175,30 +2186,13 @@ function showOnboarding() {
 
   var step = 0;
   var steps = [
-    {
-      icon: '\u25C6',
-      iconColor: 'var(--primary)',
-      title: 'Welcome to Claude Kanban',
-      desc: 'An autonomous AI build pipeline. Drop an idea, walk away, come back to committed code. Claude handles brainstorming, coding, reviewing, and shipping.',
-    },
-    {
-      icon: '\u2192',
-      iconColor: 'var(--primary)',
-      title: 'How Ideas Become Code',
-      desc: 'Every idea flows through an automated pipeline. Claude brainstorms a spec, builds the code, reviews quality, auto-fixes issues, and marks it done.',
-      flow: true,
-    },
-    {
-      icon: '\u2328',
-      iconColor: 'var(--primary)',
-      title: 'Get Started',
-      desc: 'Press N or click "+ New Idea" to submit your first idea. Sign in to unlock all features.',
-      shortcuts: true,
-    },
+    { id: 'welcome' },
+    { id: 'try' },
+    { id: 'learn' },
   ];
 
   var overlay = el('div', { class: 'modal-overlay active', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'onboarding-title' });
-  var modal = el('div', { class: 'modal', style: 'width:480px;max-width:92vw' });
+  var modal = el('div', { class: 'modal', style: 'width:460px;max-width:92vw' });
   var content = el('div', { class: 'onboarding-step' });
   var dotsRow = el('div', { class: 'onboarding-dots' });
   var actionsRow = el('div', { class: 'onboarding-actions' });
@@ -2209,20 +2203,19 @@ function showOnboarding() {
   overlay.appendChild(modal);
 
   function renderStep() {
-    var s = steps[step];
     // Dots
     while (dotsRow.firstChild) dotsRow.removeChild(dotsRow.firstChild);
     for (var i = 0; i < steps.length; i++) {
-      var dot = el('div', { class: 'onboarding-dot' + (i === step ? ' active' : i < step ? ' done' : '') });
-      dotsRow.appendChild(dot);
+      dotsRow.appendChild(el('div', { class: 'onboarding-dot' + (i === step ? ' active' : i < step ? ' done' : '') }));
     }
-    // Content
     while (content.firstChild) content.removeChild(content.firstChild);
-    content.appendChild(el('div', { class: 'onboarding-icon', style: 'color:' + s.iconColor }, s.icon));
-    content.appendChild(el('div', { class: 'onboarding-title', id: 'onboarding-title' }, s.title));
-    content.appendChild(el('div', { class: 'onboarding-desc' }, s.desc));
+    while (actionsRow.firstChild) actionsRow.removeChild(actionsRow.firstChild);
 
-    if (s.flow) {
+    if (step === 0) {
+      // Welcome — what they're looking at
+      content.appendChild(el('div', { class: 'onboarding-icon', style: 'color:var(--primary)' }, '\u25C6'));
+      content.appendChild(el('div', { class: 'onboarding-title', id: 'onboarding-title' }, 'This is a live AI build pipeline'));
+      content.appendChild(el('div', { class: 'onboarding-desc' }, 'You are looking at a real Kanban board where ideas autonomously become code. Claude brainstorms, builds, reviews, and ships — zero human intervention.'));
       var flowRow = el('div', { class: 'onboarding-flow' });
       var flowSteps = ['Brainstorm', 'To Do', 'Working', 'Review', 'Done'];
       var colors = ['var(--brainstorm)', 'var(--todo)', 'var(--working)', 'var(--review)', 'var(--done)'];
@@ -2231,31 +2224,51 @@ function showOnboarding() {
         flowRow.appendChild(el('span', { class: 'onboarding-flow-step', style: 'border-left:3px solid ' + colors[fi] }, flowSteps[fi]));
       }
       content.appendChild(flowRow);
-    }
-
-    if (s.shortcuts) {
-      var grid = el('div', { class: 'onboarding-shortcuts' });
-      var sc = [
-        ['N', 'New idea'], ['?', 'Shortcuts'], ['D', 'Dark mode'], ['K', 'Command palette'],
-        ['/', 'Search'], ['A', 'Archive'], ['M', 'Metrics'], ['Esc', 'Close modal'],
-      ];
-      for (var si = 0; si < sc.length; si++) {
-        grid.appendChild(el('div', { class: 'onboarding-shortcut' }, [el('kbd', {}, sc[si][0]), document.createTextNode(sc[si][1])]));
-      }
-      content.appendChild(grid);
-    }
-
-    // Actions
-    while (actionsRow.firstChild) actionsRow.removeChild(actionsRow.firstChild);
-    if (step > 0) {
-      actionsRow.appendChild(btn('Back', 'btn-ghost', function() { step--; renderStep(); }));
-    } else {
       actionsRow.appendChild(btn('Skip', 'btn-ghost', dismiss));
-    }
-    if (step < steps.length - 1) {
       actionsRow.appendChild(btn('Next', 'btn-primary', function() { step++; renderStep(); }));
-    } else {
-      actionsRow.appendChild(btn('Get Started', 'btn-primary', dismiss));
+
+    } else if (step === 1) {
+      // Try it — demo sign in
+      content.appendChild(el('div', { class: 'onboarding-icon', style: 'color:var(--primary)' }, '\u2192'));
+      content.appendChild(el('div', { class: 'onboarding-title', id: 'onboarding-title' }, 'Try it yourself'));
+      content.appendChild(el('div', { class: 'onboarding-desc' }, 'Sign in with the free demo account to explore the full board. Click cards to see build logs, specs, and review scores.'));
+      // Demo credentials box
+      var demoBox = el('div', { style: 'background:var(--primary-soft);border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin-bottom:16px;text-align:left' });
+      demoBox.appendChild(el('div', { style: 'font-size:12px;font-weight:600;color:var(--primary-text);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px' }, 'Demo Credentials'));
+      var credsGrid = el('div', { style: 'display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px' });
+      credsGrid.appendChild(el('span', { style: 'color:var(--text-tertiary)' }, 'Username'));
+      credsGrid.appendChild(el('span', { style: 'font-weight:600;color:var(--text);font-family:monospace' }, 'user'));
+      credsGrid.appendChild(el('span', { style: 'color:var(--text-tertiary)' }, 'Password'));
+      credsGrid.appendChild(el('span', { style: 'font-weight:600;color:var(--text);font-family:monospace' }, 'user'));
+      demoBox.appendChild(credsGrid);
+      content.appendChild(demoBox);
+      content.appendChild(el('div', { style: 'font-size:12px;color:var(--text-tertiary);margin-bottom:4px' }, 'Demo mode is read-only. No changes are saved.'));
+      actionsRow.appendChild(btn('Back', 'btn-ghost', function() { step--; renderStep(); }));
+      actionsRow.appendChild(btn('Next', 'btn-primary', function() { step++; renderStep(); }));
+
+    } else if (step === 2) {
+      // Learn more — product + features links
+      content.appendChild(el('div', { class: 'onboarding-icon', style: 'color:var(--primary)' }, '\u2139'));
+      content.appendChild(el('div', { class: 'onboarding-title', id: 'onboarding-title' }, 'Want to know more?'));
+      content.appendChild(el('div', { class: 'onboarding-desc', style: 'margin-bottom:12px' }, 'Check out the product page for the full story, or dive into features for technical details.'));
+      var linkGrid = el('div', { style: 'display:flex;flex-direction:column;gap:8px;margin-bottom:16px' });
+      var productLink = el('a', { href: '/product/', style: 'display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--bg);border:1px solid var(--border);border-radius:8px;text-decoration:none;color:var(--text);transition:border-color 0.15s', target: '_blank' });
+      productLink.appendChild(el('span', { style: 'font-size:20px' }, '\u25C6'));
+      var prodText = el('div');
+      prodText.appendChild(el('div', { style: 'font-size:14px;font-weight:600' }, 'Product Overview'));
+      prodText.appendChild(el('div', { style: 'font-size:12px;color:var(--text-tertiary)' }, 'What Claude Kanban is and why it exists'));
+      productLink.appendChild(prodText);
+      linkGrid.appendChild(productLink);
+      var featLink = el('a', { href: '/product/features/', style: 'display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--bg);border:1px solid var(--border);border-radius:8px;text-decoration:none;color:var(--text);transition:border-color 0.15s', target: '_blank' });
+      featLink.appendChild(el('span', { style: 'font-size:20px' }, '\u2699'));
+      var featText = el('div');
+      featText.appendChild(el('div', { style: 'font-size:14px;font-weight:600' }, 'Features & Architecture'));
+      featText.appendChild(el('div', { style: 'font-size:12px;color:var(--text-tertiary)' }, 'Pipeline stages, self-healing, security, and more'));
+      featLink.appendChild(featText);
+      linkGrid.appendChild(featLink);
+      content.appendChild(linkGrid);
+      actionsRow.appendChild(btn('Back', 'btn-ghost', function() { step--; renderStep(); }));
+      actionsRow.appendChild(btn('Explore the Board', 'btn-primary', dismiss));
     }
   }
 

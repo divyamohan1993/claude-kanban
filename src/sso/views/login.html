@@ -82,7 +82,7 @@
     <button type="submit" id="submitBtn">Sign In</button>
     <div class="error" id="errorMsg" role="alert" aria-live="polite"></div>
   </form>
-  <div class="hint">The board is publicly viewable. Sign in to manage.<br>Demo: <code>admin / admin</code> or <code>user / user</code> (read-only)</div>
+  <div class="hint" id="loginHint"></div>
 </div>
 <script>
 (function() {
@@ -128,6 +128,23 @@
     };
     xhr.send(JSON.stringify({ username: username, password: password }));
   });
+  var hint = document.getElementById('loginHint');
+  if (window.__DEMO_MODE__) {
+    hint.appendChild(document.createTextNode('The board is publicly viewable. Sign in to manage.'));
+    hint.appendChild(document.createElement('br'));
+    var demoLine = document.createTextNode('Demo: ');
+    hint.appendChild(demoLine);
+    var c1 = document.createElement('code');
+    c1.textContent = 'admin / admin';
+    hint.appendChild(c1);
+    hint.appendChild(document.createTextNode(' or '));
+    var c2 = document.createElement('code');
+    c2.textContent = 'user / user';
+    hint.appendChild(c2);
+    hint.appendChild(document.createTextNode(' (read-only)'));
+  } else {
+    hint.textContent = 'The board is publicly viewable. Sign in to manage cards.';
+  }
 })();
 </script>
 </body>

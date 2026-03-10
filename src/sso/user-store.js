@@ -115,8 +115,14 @@ function init(db) {
   _ready = (async function() {
     DUMMY_HASH = await argon2.hash('dummy-timing-safe-rejection', ARGON2_OPTS);
 
-    // Always ensure demo users exist (they are read-only via demoGuard)
-    await ensureDemoUsers();
+    // Only seed demo users when demo mode is active
+    const { runtime } = require('../config');
+    if (runtime.demoMode) {
+      await ensureDemoUsers();
+    } else {
+      // Disable demo accounts if demo mode is off
+      disableDemoUsers();
+    }
 
     // Consistency check: if setup_complete=true but no superadmin exists,
     // reset the flag so the setup wizard can run again
@@ -162,6 +168,19 @@ async function ensureDemoUsers() {
     seeded++;
   }
   if (seeded) log.info({ count: seeded }, 'Seeded demo users: admin/admin, user/user (read-only)');
+}
+
+function disableDemoUsers() {
+  var disabled = 0;
+  var demoIds = ['default-admin-001', 'default-user-001'];
+  for (var i = 0; i < demoIds.length; i++) {
+    var u = dbUsers.getById(demoIds[i]);
+    if (u && u.enabled) {
+      dbUsers.update(u.id, u.display_name, u.email_encrypted, u.role, u.groups, false);
+      disabled++;
+    }
+  }
+  if (disabled) log.info({ count: disabled }, 'Disabled demo users (demo mode is off)');
 }
 
 // =============================================================================

@@ -20,6 +20,18 @@ var _configReady = broker.init().then(function() {
     log.info({ keys: broker.keyCount() }, 'Secret vault connected');
   }
 
+  // Load config from DB BEFORE SSO init — demo mode flag determines which users get seeded
+  const { config: dbConfig } = require('./db');
+  const savedDemoMode = dbConfig.get('demo_mode');
+  if (savedDemoMode !== null && savedDemoMode !== undefined) {
+    runtime.demoMode = savedDemoMode === 'true';
+    const savedMinDelay = dbConfig.get('demo_delay_min_mins');
+    if (savedMinDelay) runtime.demoDelayMinMins = Number(savedMinDelay);
+    const savedMaxDelay = dbConfig.get('demo_delay_max_mins');
+    if (savedMaxDelay) runtime.demoDelayMaxMins = Number(savedMaxDelay);
+    log.info({ demoMode: runtime.demoMode, minMins: runtime.demoDelayMinMins, maxMins: runtime.demoDelayMaxMins }, 'Loaded demo mode config from DB');
+  }
+
   // Initialize user store with DB — must happen after broker.
   // Returns a Promise (Argon2 hashing is async). All auth calls await _ready internally,
   // so the server can accept connections immediately; auth simply blocks until init completes.
@@ -46,16 +58,6 @@ var _configReady = broker.init().then(function() {
     log.info({ mode: savedMode }, 'Loaded mode config from DB');
   }
 
-  // Load demo mode config from DB (persists across restarts, overrides .env defaults)
-  const savedDemoMode = dbConfig.get('demo_mode');
-  if (savedDemoMode !== null && savedDemoMode !== undefined) {
-    runtime.demoMode = savedDemoMode === 'true';
-    const savedMinDelay = dbConfig.get('demo_delay_min_mins');
-    if (savedMinDelay) runtime.demoDelayMinMins = Number(savedMinDelay);
-    const savedMaxDelay = dbConfig.get('demo_delay_max_mins');
-    if (savedMaxDelay) runtime.demoDelayMaxMins = Number(savedMaxDelay);
-    log.info({ demoMode: runtime.demoMode, minMins: runtime.demoDelayMinMins, maxMins: runtime.demoDelayMaxMins }, 'Loaded demo mode config from DB');
-  }
 }).catch(function(err) {
   log.fatal({ err: err.message }, 'Startup failed (broker or SSO)');
   process.exit(1);

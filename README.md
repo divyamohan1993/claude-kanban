@@ -225,7 +225,7 @@ pnpm test:reliability  # single suite
 |-|----------|---------------|
 | ◇ | [Architecture](docs/architecture.md) | Two-server design, service layer, database schema |
 | ◇ | [Pipeline](docs/pipeline.md) | Build-review-ship cycle, auto-fix loop, self-healing |
-| ◇ | [API Reference](docs/api.md) | 91 endpoints with request/response examples |
+| ◇ | [API Reference](docs/api.md) | 100 endpoints with request/response examples |
 | ◇ | [Configuration](docs/configuration.md) | 70+ environment variables, custom prompts |
 | ◇ | [Deployment](docs/deployment.md) | Local, Docker, K8s, GCP autoconfig |
 | ◇ | [Security Audit](docs/security-audit.md) | Three audits, 35 findings + 72 CodeQL alerts fixed |

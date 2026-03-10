@@ -75,6 +75,10 @@ All endpoints return JSON. Write endpoints require authentication. Read endpoint
 | `POST` | `/api/ideas` | Generate improvement ideas from project analysis |
 | `GET` | `/api/config` | Read runtime config (public view) |
 | `GET` | `/api/mode` | Auto-discover mode state |
+| `GET` | `/api/templates` | Card creation templates |
+| `GET` | `/api/trends` | Build trend analytics |
+| `GET` | `/api/spec-intelligence` | Spec quality insights and patterns |
+| `POST` | `/api/cards/:id/approve-spec` | Approve a spec (when spec approval gate is enabled) |
 
 ### Pipeline Control
 
@@ -164,6 +168,15 @@ All admin endpoints require the `admin` role.
 | `GET` | `/api/intelligence` | Learned patterns snapshot |
 | `POST` | `/api/intelligence/analyze` | Force analysis cycle |
 | `DELETE` | `/api/intelligence/learnings/:id` | Delete a learned pattern |
+
+### Auto-Update
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/api/auto-update` | Current auto-update config and status |
+| `PUT` | `/api/auto-update` | Toggle auto-update, set interval |
+| `POST` | `/api/auto-update/check` | Check for available updates |
+| `POST` | `/api/auto-update/apply` | Apply pending update (pull, install, restart) |
 
 ### Control
 

@@ -93,7 +93,6 @@ Copy `.env.example` to `.env` before first start. All settings have sensible def
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BACKUP_RETENTION_DAYS` | `7` | How long daily backups are kept. |
 | `LOG_RETENTION_DAYS` | `7` | How long per-card logs are kept. |
 | `SNAPSHOT_ARCHIVE_RETENTION_DAYS` | `14` | How long archived snapshots are kept. |
 | `MAX_AUDIT_ROWS` | `10000` | Max rows in audit_log before pruning. |

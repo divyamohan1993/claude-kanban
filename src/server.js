@@ -178,6 +178,25 @@ app.get('/health/ready', rateLimiter, function(req, res) {
     checks.errors = { unresolved: 0 };
   }
 
+  // Claude CLI — is it installed and authenticated?
+  try {
+    const { execFileSync } = require('child_process');
+    execFileSync('claude', ['--version'], { timeout: 5000, stdio: 'pipe' });
+    checks.claudeCli = 'installed';
+    // Check if credentials file exists
+    const os = require('os');
+    const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
+    if (fs.existsSync(credPath)) {
+      checks.claudeCli = 'authenticated';
+    } else {
+      checks.claudeCli = 'installed but NOT authenticated — run: claude auth login';
+      healthy = false;
+    }
+  } catch (_) {
+    checks.claudeCli = 'NOT installed — the orchestrator cannot build';
+    healthy = false;
+  }
+
   const status = healthy ? 200 : 503;
   res.status(status).json({
     status: healthy ? 'ready' : 'degraded',

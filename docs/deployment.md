@@ -60,14 +60,18 @@ sudo bash autoconfig.sh
 What it sets up:
 - Node.js 22, pnpm, build tools
 - Systemd service (auto-restart on crash, survives reboot)
-- Nginx reverse proxy on port 8090 (port 80 left free for deployed apps)
-- UFW firewall (22, 80, 443, 8090)
+- Nginx reverse proxy on port 80 with path-based routing (`/dashboard/`, `/settings/`, `/product/`)
+- UFW firewall (22, 80, 443)
 - Hourly auto-update timer (git pull, drain pipeline, restart, rollback on failure)
 - Cloudflare real-IP restoration
 
 After deploy, add a Cloudflare DNS record:
 - A `<subdomain>` -> `<vm-ip>` (proxy enabled)
-- Origin Rules: route to port 8090
+
+Then authenticate Claude CLI for the app user:
+```bash
+sudo -u kanban claude auth login
+```
 
 ## Docker
 

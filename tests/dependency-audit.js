@@ -84,7 +84,7 @@ function main() {
   var hasDangerous = deps.filter(function(d) { return dangerous.includes(d); });
   assert('No known-dangerous packages', hasDangerous.length === 0, hasDangerous.join(', '));
 
-  var essential = ['express', 'better-sqlite3', 'pino', 'argon2'];
+  var essential = ['express', 'better-sqlite3', 'pino', 'argon2', 'express-rate-limit'];
   var extra = deps.filter(function(d) { return !essential.includes(d); });
   assert('Only essential dependencies (' + essential.join(', ') + ')', extra.length === 0, extra.length > 0 ? 'Extra: ' + extra.join(', ') : undefined);
 

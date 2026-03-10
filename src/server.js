@@ -455,7 +455,11 @@ const adminServer = adminApp.listen(ADMIN_PORT, '127.0.0.1', function() {
   const openCmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
     : process.platform === 'darwin' ? ['open', [url]]
     : ['xdg-open', [url]];
-  spawn(openCmd[0], openCmd[1], { stdio: 'ignore', windowsHide: true }).unref();
+  try {
+    var child = spawn(openCmd[0], openCmd[1], { stdio: 'ignore', windowsHide: true });
+    child.on('error', function() {}); // Swallow ENOENT on headless servers
+    child.unref();
+  } catch (_) {}
 });
 hardenServer(adminServer);
 

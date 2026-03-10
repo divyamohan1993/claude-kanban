@@ -79,7 +79,9 @@ info "App user: $APP_USER"
 if [ -d "$APP_DIR/.git" ]; then
   step "Pulling latest..."
   cd "$APP_DIR"
-  sudo -u "$APP_USER" git pull --ff-only origin main
+  git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
+  git pull --ff-only origin main
+  chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 else
   step "Cloning repository..."
   git clone "$REPO_URL" "$APP_DIR"
@@ -138,7 +140,6 @@ RestartSec=5
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
 ReadWritePaths=$APP_DIR/.data
 PrivateTmp=true
 

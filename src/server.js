@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 const { PORT, ADMIN_PORT, ADMIN_PATH, ROOT_DIR, DATA_DIR, LOGS_DIR, runtime } = require('./config');
 const { securityHeaders, requestId, enrichErrorResponse, originCheck, errorHandler, requireJsonContentType } = require('./middleware/security');
 const { rateLimiter, sseGuard } = require('./middleware/rate-limit');
+const expressRateLimit = require('express-rate-limit');
 const { log } = require('./lib/logger');
 const broker = require('./lib/secret-broker');
 const sso = require('./sso');
@@ -41,6 +42,13 @@ const adminRoutes = require('./routes/admin');
 // Shared middleware stack — applied to both public and admin apps
 // =============================================================================
 function applyCommonMiddleware(target) {
+  target.use(expressRateLimit({
+    windowMs: 60 * 1000,
+    max: Number(process.env.RATE_LIMIT_MAX) || 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: function(req) { return req.path === '/health' || req.path === '/health/ready'; },
+  }));
   target.use(rateLimiter);
   target.use(securityHeaders);
   target.use(requestId);

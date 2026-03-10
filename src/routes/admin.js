@@ -303,6 +303,10 @@ router.post('/api/factory-reset', requireAdmin, function(req, res) {
 
   var parentDir = path.resolve(ROOT_DIR, '..');
   var folderName = path.basename(ROOT_DIR);
+  // Validate paths don't contain shell injection characters
+  if (/[\0\r\n]/.test(parentDir) || /[\0\r\n]/.test(folderName)) {
+    return res.status(500).json({ error: 'Root directory path contains unsafe characters' });
+  }
   var envFile = path.join(ROOT_DIR, '.env');
   var envBackup = path.join(parentDir, '._kanban_env_backup');
   var resetLog = path.join(parentDir, '_kanban_reset.log');

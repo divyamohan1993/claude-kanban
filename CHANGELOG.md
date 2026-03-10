@@ -5,15 +5,15 @@ All notable changes to this project will be documented in this file.
 ## [3.3.2] - 2026-03-10
 
 ### Fixed
-- **CodeQL alerts**: Resolved all 42 code scanning alerts across 14 source files
-  - Shell command injection: allowlist validation for CLI model/effort args, regex validation on git remote URLs
-  - XSS/open redirect: return URL validation in login.html
-  - TOCTOU file races: atomic `{ flag: 'wx' }` creates, removed existsSync-before-write patterns
-  - Remote property injection: `Set` instead of plain object in intelligence.js, `hasOwnProperty` guard in db
-  - HTTP-to-file-access: `sanitizeForFile()` strips control chars before writing network data to files
-  - Path injection: project path validation in public routes
+- **CodeQL alerts**: Resolved all code scanning alerts (42 original + 30 re-detected)
+  - Missing rate limiting: added `express-rate-limit` as recognized app-level middleware
+  - Shell command injection: `assertSafeShellPath()` validates paths before embedding in scripts; allowlist for CLI args
+  - XSS/open redirect: `new URL()` origin validation in login.html (replaces string checks)
+  - TOCTOU file races: single-fd `openSync`/`fstatSync` pattern eliminates stat-then-read races
+  - Remote property injection: `Object.create(null)` for filtered objects; `Set` in intelligence.js
+  - HTTP-to-file-access: centralized `sanitizeForFile()` at all write sites
+  - Path injection: `path.relative()` containment check; slug regex validation before `mkdirSync`
   - Incomplete sanitization: fixed escape order in osascript command
-  - Missing rate limiting: idempotent `rateLimiter` applied to all routers and direct routes
   - Unused variables: removed dead code in test files
 - **CI test suite**: Fixed all test failures across Node 18/22, Ubuntu/Windows matrix
   - Auth flow tests use dynamic credentials instead of hardcoded `admin/admin`

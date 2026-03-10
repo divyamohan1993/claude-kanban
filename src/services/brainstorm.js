@@ -297,15 +297,16 @@ function executeBrainstorm(cardId) {
         // Mirror stdout to log on Windows (Linux uses tee)
         if (IS_WIN) {
           try {
-            const outStat = fs.statSync(outputFile);
-            if (outStat.size > lastMirroredSize) {
-              const fd = fs.openSync(outputFile, 'r');
-              const buf = Buffer.alloc(outStat.size - lastMirroredSize);
-              fs.readSync(fd, buf, 0, buf.length, lastMirroredSize);
-              fs.closeSync(fd);
-              fs.appendFileSync(bsLogFile, buf.toString('utf-8'));
-              lastMirroredSize = outStat.size;
-            }
+            const fd = fs.openSync(outputFile, 'r');
+            try {
+              const outStat = fs.fstatSync(fd);
+              if (outStat.size > lastMirroredSize) {
+                const buf = Buffer.alloc(outStat.size - lastMirroredSize);
+                fs.readSync(fd, buf, 0, buf.length, lastMirroredSize);
+                fs.appendFileSync(bsLogFile, buf.toString('utf-8'));
+                lastMirroredSize = outStat.size;
+              }
+            } finally { fs.closeSync(fd); }
           } catch (_) {}
         }
 

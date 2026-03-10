@@ -491,10 +491,11 @@ module.exports = {
         'parent_card_id': 'parent_card_id',
         'spec_score': 'spec_score',
       };
-      const filtered = {};
+      const filtered = Object.create(null);
       const allKeys = Object.keys(updates);
       for (let ki = 0; ki < allKeys.length; ki++) {
-        if (Object.prototype.hasOwnProperty.call(COLUMN_MAP, allKeys[ki])) filtered[allKeys[ki]] = updates[allKeys[ki]];
+        const key = allKeys[ki];
+        if (Object.prototype.hasOwnProperty.call(COLUMN_MAP, key)) filtered[key] = updates[key];
       }
       if (filtered.column_name && !VALID_COLUMNS.includes(filtered.column_name)) {
         throw new Error('Invalid column: ' + filtered.column_name);

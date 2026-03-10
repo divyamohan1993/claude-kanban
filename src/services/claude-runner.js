@@ -12,7 +12,19 @@ function sanitizeModel(m) { return ALLOWED_MODELS.includes(m) ? m : 'claude-sonn
 function sanitizeEffort(e) { return ALLOWED_EFFORTS.includes(e) ? e : 'high'; }
 
 // Strip null bytes and non-printable control chars (except newlines/tabs) from file content
-function sanitizeForFile(s) { return String(s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''); }
+function sanitizeForFile(s) {
+  const str = String(s);
+  // Remove null bytes and dangerous control characters
+  const cleaned = str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  return cleaned;
+}
+
+// Validate a path is safe for embedding in shell scripts (no injection characters)
+function assertSafeShellPath(p) {
+  const resolved = path.resolve(p);
+  if (/[\0\r\n]/.test(resolved)) throw new Error('Path contains unsafe characters');
+  return resolved;
+}
 
 // Spawn Claude CLI silently via .bat/.sh wrapper.
 // Returns { pid, scriptPath }. Caller is responsible for PID tracking.
@@ -23,6 +35,11 @@ function runClaudeSilent(opts) {
   const cliBase = 'claude --model ' + model + ' --effort ' + effort + ' --dangerously-skip-permissions';
   const safePrompt = sanitizeForFile(opts.prompt);
 
+  // Validate all paths before embedding in shell scripts
+  const safeCwd = assertSafeShellPath(opts.cwd);
+  const safeLogFile = opts.logFile ? assertSafeShellPath(opts.logFile) : '';
+  const safeStdoutFile = opts.stdoutFile ? assertSafeShellPath(opts.stdoutFile) : '';
+
   if (IS_WIN) {
     scriptPath = path.join(RUNTIME_DIR, '.run-' + opts.id + '.bat');
     // C6 fix: write prompt to temp file to avoid ALL bat metachar injection (%,^,&,|,!,<,>)
@@ -30,13 +47,13 @@ function runClaudeSilent(opts) {
     fs.writeFileSync(promptFile, safePrompt);
     lines = [
       '@echo off',
-      'cd /d "' + opts.cwd + '"',
+      'cd /d "' + safeCwd + '"',
       'set CLAUDECODE=',
     ];
-    if (opts.stdoutFile) {
-      lines.push('type "' + promptFile + '" | ' + cliBase + ' > "' + opts.stdoutFile + '" 2>> "' + opts.logFile + '"');
+    if (safeStdoutFile) {
+      lines.push('type "' + promptFile + '" | ' + cliBase + ' > "' + safeStdoutFile + '" 2>> "' + safeLogFile + '"');
     } else {
-      lines.push('type "' + promptFile + '" | ' + cliBase + ' >> "' + opts.logFile + '" 2>&1');
+      lines.push('type "' + promptFile + '" | ' + cliBase + ' >> "' + safeLogFile + '" 2>&1');
     }
     fs.writeFileSync(scriptPath, lines.join('\r\n'));
   } else {
@@ -44,19 +61,19 @@ function runClaudeSilent(opts) {
     const escapedPrompt = safePrompt.replace(/'/g, "'\\''").replace(/[\r\n]+/g, ' ');
     lines = [
       '#!/bin/bash',
-      'cd "' + opts.cwd + '"',
+      'cd "' + safeCwd + '"',
       'unset CLAUDECODE',
     ];
-    if (opts.stdoutFile) {
-      lines.push(cliBase + " -p '" + escapedPrompt + "' 2>> '" + opts.logFile + "' | tee '" + opts.stdoutFile + "' >> '" + opts.logFile + "'");
+    if (safeStdoutFile) {
+      lines.push(cliBase + " -p '" + escapedPrompt + "' 2>> '" + safeLogFile + "' | tee '" + safeStdoutFile + "' >> '" + safeLogFile + "'");
     } else {
-      lines.push(cliBase + " -p '" + escapedPrompt + "' >> '" + opts.logFile + "' 2>&1");
+      lines.push(cliBase + " -p '" + escapedPrompt + "' >> '" + safeLogFile + "' 2>&1");
     }
     fs.writeFileSync(scriptPath, lines.join('\n'), { mode: 0o755 });
   }
 
   const child = spawn(IS_WIN ? 'cmd' : 'bash', IS_WIN ? ['/c', scriptPath] : [scriptPath], {
-    cwd: opts.cwd,
+    cwd: safeCwd,
     stdio: 'ignore',
     windowsHide: true,
     detached: !IS_WIN,

@@ -518,22 +518,25 @@ router.get('/api/cards/:id/log-stream', optionalAuth, function(req, res) {
 
   const interval = setInterval(function() {
     try {
-      const stat = fs.statSync(logFile);
       if (!fileFound) {
-        fileFound = true;
+        // Read directly — avoids TOCTOU between stat and read
         const c = fs.readFileSync(logFile, 'utf-8');
+        fileFound = true;
         res.write('data: ' + JSON.stringify({ type: 'initial', content: c }) + '\n\n');
-        lastSize = stat.size;
+        lastSize = Buffer.byteLength(c, 'utf-8');
         return;
       }
-      if (stat.size > lastSize) {
-        const fd = fs.openSync(logFile, 'r');
-        const buf = Buffer.alloc(stat.size - lastSize);
-        fs.readSync(fd, buf, 0, buf.length, lastSize);
-        fs.closeSync(fd);
-        lastSize = stat.size;
-        res.write('data: ' + JSON.stringify({ type: 'append', content: buf.toString('utf-8') }) + '\n\n');
-      }
+      // Use single fd for stat+read to avoid TOCTOU race
+      const fd = fs.openSync(logFile, 'r');
+      try {
+        const stat = fs.fstatSync(fd);
+        if (stat.size > lastSize) {
+          const buf = Buffer.alloc(stat.size - lastSize);
+          fs.readSync(fd, buf, 0, buf.length, lastSize);
+          lastSize = stat.size;
+          res.write('data: ' + JSON.stringify({ type: 'append', content: buf.toString('utf-8') }) + '\n\n');
+        }
+      } finally { fs.closeSync(fd); }
     } catch (_) {}
   }, 1000);
 
@@ -819,13 +822,16 @@ router.post('/api/cards/:id/edit-file', requireAuth, express.json({ limit: '5mb'
     return res.status(403).json({ error: 'Project path not under allowed root' });
   }
   const resolvedProject = path.resolve(card.project_path);
-  const fullPath = path.resolve(resolvedProject, filePath);
-  if (!fullPath.startsWith(resolvedProject + path.sep) && fullPath !== resolvedProject) {
+  const normalizedInput = path.normalize(filePath).replace(/^(\.\.[/\\])+/, '');
+  const fullPath = path.resolve(resolvedProject, normalizedInput);
+  const relPath = path.relative(resolvedProject, fullPath);
+  if (relPath.startsWith('..') || path.isAbsolute(relPath)) {
     return res.status(403).json({ error: 'Path traversal not allowed' });
   }
   try {
-    // Sanitize: strip null bytes to prevent NUL injection
-    const safeContent = String(content).replace(/\0/g, '');
+    // Sanitize: strip null bytes and control chars via centralized sanitizer
+    const { sanitizeForFile } = require('../services/claude-runner');
+    const safeContent = sanitizeForFile(String(content));
     fs.writeFileSync(fullPath, safeContent, 'utf-8');
     broadcast('toast', { message: 'Saved: ' + filePath, type: 'success' });
     res.json({ success: true, file: filePath });
@@ -1045,17 +1051,24 @@ router.post('/api/ideas', requireAuth, function(req, res) {
       .substring(0, 50) || 'new-project';
     let folderName = slug;
     let counter = 1;
+    // Validate slug contains only safe characters (a-z, 0-9, hyphens)
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(folderName)) {
+      cards.delete(cardId);
+      return res.status(400).json({ error: 'Generated project name contains invalid characters' });
+    }
     while (fs.existsSync(path.join(PROJECTS_ROOT, folderName))) {
       folderName = slug + '-' + counter;
       counter++;
     }
     projectPath = path.join(PROJECTS_ROOT, folderName);
     // Validate generated path is safely under PROJECTS_ROOT
-    if (!isPathUnderProjectsRoot(projectPath)) {
+    const resolvedProject = path.resolve(projectPath);
+    const resolvedRoot = path.resolve(PROJECTS_ROOT);
+    if (!resolvedProject.startsWith(resolvedRoot + path.sep)) {
       cards.delete(cardId);
       return res.status(400).json({ error: 'Generated project path is not under allowed root' });
     }
-    fs.mkdirSync(projectPath, { recursive: true });
+    fs.mkdirSync(resolvedProject, { recursive: true });
   }
   cards.setProjectPath(cardId, projectPath);
 

@@ -62,6 +62,7 @@ jobs:
           RATE_LIMIT_GENERAL_REFILL: "10000"
           RATE_LIMIT_AUTH_BURST: "100"
           RATE_LIMIT_AUTH_REFILL: "50"
+          RATE_LIMIT_MAX: "50000"
         run: |
           node src/server.js &
           SERVER_PID=$!

@@ -97,9 +97,15 @@
       try {
         var data = JSON.parse(xhr.responseText);
         if (data.ok) {
-          var raw = new URLSearchParams(window.location.search).get('return') || '/';
-          var returnTo = (raw.charAt(0) === '/' && raw.charAt(1) !== '/' && raw.charAt(1) !== '\\') ? raw : '/';
-          window.location.replace(returnTo);
+          var returnPath = '/';
+          try {
+            var rawReturn = new URLSearchParams(window.location.search).get('return') || '/';
+            var parsed = new URL(rawReturn, window.location.origin);
+            if (parsed.origin === window.location.origin && parsed.pathname.charAt(0) === '/') {
+              returnPath = parsed.pathname + parsed.search;
+            }
+          } catch (e) { /* invalid URL, use default */ }
+          window.location.replace(returnPath);
         } else {
           errorMsg.textContent = data.error || 'Authentication failed';
           document.getElementById('password').value = '';

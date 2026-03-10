@@ -871,24 +871,11 @@ body.dark .label-default { color: var(--primary); }
    Mode Indicator (header)
    ---------------------------------------------------------------- */
 .mode-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
+  display: inline;
+  font-size: inherit;
+  color: var(--text-tertiary);
+  font-weight: 400;
 }
-.mode-badge {
-  padding: 3px 10px;
-  border-radius: 10px;
-  font-weight: 600;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.mode-single { background: var(--primary); color: #fff; }
-.mode-discovery { color: var(--primary); font-weight: 500; }
-.mode-initiative { color: var(--text-secondary); font-style: italic; }
-.spinner-sm { width: 10px; height: 10px; }
 
 /* ----------------------------------------------------------------
    Card Actions

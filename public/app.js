@@ -397,6 +397,8 @@ function renderStats() {
   if (!container) return;
   container.textContent = '';
   var total = state.cards.length;
+  if (total === 0) { container.style.display = 'none'; return; }
+  container.style.display = '';
   var active = queueInfo.active ? queueInfo.active.length : 0;
   var queued = queueInfo.queue ? queueInfo.queue.length : 0;
   var doneCount = state.cards.filter(function(c) { return c.column_name === 'done'; }).length;
@@ -1717,17 +1719,9 @@ function applyModeUI() {
   if (!modeIndicator) return;
 
   if (boardMode.mode === 'single-project') {
-    var parts = [];
-    parts.push(el('span', { className: 'mode-badge mode-single', textContent: 'Single Project' }));
-    if (boardMode.discoveryRunning) {
-      parts.push(el('span', { className: 'spinner spinner-sm' }));
-      parts.push(el('span', { className: 'mode-discovery', textContent: 'Scanning...' }));
-    }
-    if (boardMode.hasActiveInitiative) {
-      parts.push(el('span', { className: 'mode-initiative', textContent: 'Initiative active' }));
-    }
-    modeIndicator.textContent = '';
-    for (var i = 0; i < parts.length; i++) modeIndicator.appendChild(parts[i]);
+    var text = '/ Single Project';
+    if (boardMode.discoveryRunning) text += ' (scanning)';
+    modeIndicator.textContent = text;
     modeIndicator.style.display = '';
   } else {
     modeIndicator.style.display = 'none';

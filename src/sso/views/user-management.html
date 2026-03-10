@@ -64,13 +64,16 @@
   .status-disabled { color: #e74c3c; }
 
   .action-btn {
-    padding: 0.25rem 0.6rem; border: 1px solid #333; border-radius: 6px;
-    background: #1a1a1a; color: #ccc; font-size: 0.75rem; cursor: pointer;
-    transition: all 0.15s; margin-right: 0.3rem;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; padding: 0; border: 1px solid #333; border-radius: 6px;
+    background: #1a1a1a; color: #aaa; font-size: 0; cursor: pointer;
+    transition: all 0.15s; margin-right: 0.25rem; vertical-align: middle;
   }
-  .action-btn:hover { background: #222; border-color: #555; }
+  .action-btn svg { width: 15px; height: 15px; fill: currentColor; pointer-events: none; }
+  .action-btn:hover { background: #2a2a2a; border-color: #555; color: #eee; }
   .action-btn.danger { color: #e74c3c; border-color: #e74c3c33; }
-  .action-btn.danger:hover { background: #1a1010; }
+  .action-btn.danger:hover { background: #1a1010; color: #ff6b6b; }
+  .action-btn[title]:hover { transform: translateY(-1px); }
 
   button {
     padding: 0.6rem 1.2rem; border: none; border-radius: 8px; font-size: 0.85rem;
@@ -363,25 +366,40 @@
     }
   }
 
+  function svgIcon(pathD) {
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '15');
+    svg.setAttribute('height', '15');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'currentColor');
+    var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', pathD);
+    svg.appendChild(p);
+    return svg;
+  }
+
+  var ICON_EDIT = 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z';
+  var ICON_DELETE = 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z';
+
   function buildActions(user) {
     var frag = document.createDocumentFragment();
+    var editBtn = el('button', {
+      className: 'action-btn',
+      title: 'Edit user',
+      onclick: function() { openEditModal(user); },
+    });
+    editBtn.appendChild(svgIcon(ICON_EDIT));
+    frag.appendChild(editBtn);
+
     if (user.role !== 'superadmin') {
-      frag.appendChild(el('button', {
-        className: 'action-btn',
-        textContent: 'Edit',
-        onclick: function() { openEditModal(user); },
-      }));
-      frag.appendChild(el('button', {
+      var delBtn = el('button', {
         className: 'action-btn danger',
-        textContent: 'Delete',
+        title: 'Delete user',
         onclick: function() { openDeleteModal(user); },
-      }));
+      });
+      delBtn.appendChild(svgIcon(ICON_DELETE));
+      frag.appendChild(delBtn);
     } else {
-      frag.appendChild(el('button', {
-        className: 'action-btn',
-        textContent: 'Edit',
-        onclick: function() { openEditModal(user); },
-      }));
       frag.appendChild(el('span', { style: 'font-size:0.7rem;color:#555;margin-left:0.3rem' }, 'Protected'));
     }
     return frag;

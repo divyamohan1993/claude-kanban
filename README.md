@@ -49,11 +49,57 @@ Stop with `scripts/stop.sh` or `scripts\stop.bat`.
 
 See [Deployment](docs/deployment.md) for full details.
 
+## Two Modes
+
+### Single-Project Mode (Autonomous)
+
+Drop an `idea.md` in a folder. Walk away. The orchestrator does everything.
+
+```
+KANBAN_MODE=single-project
+SINGLE_PROJECT_PATH=/path/to/your/project
+AUTO_PROMOTE_BRAINSTORM=true
+```
+
+**The cycle:** Discovery reads `idea.md` as the north star. Every 30 minutes it analyzes the codebase and creates improvement cards. Each card goes through brainstorm, spec, build, review, auto-fix, commit, push. No human needed.
+
+**Folder layout:**
+```
+/your/project/         <-- SINGLE_PROJECT_PATH
+  idea.md              <-- your vision (orchestrator reads this)
+  package.json         <-- created by orchestrator
+  src/                 <-- all code built autonomously
+```
+
+**Demo included:** Run `sudo bash autoconfig.sh` and pick option 1. A demo project (AI Survival Guide) is created with a pre-written `idea.md`. Watch the orchestrator build it from scratch.
+
+**Human authority:** Log in anytime. Revert files, reject cards (with reasons the AI learns from), stop builds, pause the pipeline. You always override the orchestrator.
+
+### Global Mode (Multi-Project)
+
+Traditional kanban. You create cards, assign project folders under `PROJECTS_ROOT`, and control every stage.
+
+```
+KANBAN_MODE=global
+PROJECTS_ROOT=~/Projects
+```
+
+**Folder layout:**
+```
+~/Projects/            <-- PROJECTS_ROOT
+  my-app/              <-- each card points to a subfolder
+  another-project/
+```
+
+Every stage requires manual approval: spec review, build start, code review, commit.
+
 ## What It Does
 
 **Pipeline** -- Create a card, pick a project folder, and the full cycle runs autonomously: brainstorm spec, snapshot files, build, AI review (1-10 score), auto-fix if needed, commit on approve, rollback on reject. Card dependencies respected. Concurrency configurable.
 
 **Self-healing** -- Error scanner runs every 30s, groups failures by card, auto-fixes (2 attempts), escalates to a new card if it can't. Intelligence engine learns patterns, auto-labels cards, tunes timeouts.
+
+**Rejection learning** -- When you reject a card, the orchestrator asks why. Your feedback is stored and injected into future brainstorm and discovery prompts. The AI adapts to your preferences over time.
 
 **Board** -- Real-time SSE updates. Drag-and-drop. 9-step progress visualization. Labels, search, diff viewer, inline file editing. Dark mode. WCAG 2.2 AAA. Keyboard shortcuts (`N` new, `/` search, `D` dark mode).
 

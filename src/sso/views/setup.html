@@ -139,6 +139,7 @@
       <div class="step-dot active" id="dot1"></div>
       <div class="step-dot" id="dot2"></div>
       <div class="step-dot" id="dot3"></div>
+      <div class="step-dot" id="dot4"></div>
     </div>
 
     <!-- Step 1: Super Admin Account -->
@@ -285,8 +286,72 @@
       </div>
     </div>
 
-    <!-- Step 3: Review & Confirm -->
+    <!-- Step 3: Operating Mode -->
     <div class="step" id="step3">
+      <h2>Operating Mode</h2>
+      <p class="step-desc">
+        Choose how the orchestrator operates. This sets the kanban board's automation level.
+      </p>
+
+      <div class="sso-options">
+        <label class="sso-option selected" id="opt-single">
+          <input type="radio" name="kanban-mode" value="single-project" checked>
+          <div class="sso-option-title">Single-Project Mode (Autonomous Demo)</div>
+          <div class="sso-option-desc">
+            Fully autonomous. The orchestrator brainstorms, builds, reviews, and commits code with zero human intervention.
+            Ships with a demo idea (AI Survival Guide). You watch from the board and revert what you dislike.
+          </div>
+          <div class="check-mark">&#x2713;</div>
+        </label>
+        <label class="sso-option" id="opt-global">
+          <input type="radio" name="kanban-mode" value="global">
+          <div class="sso-option-title">Global Mode (Multi-Project)</div>
+          <div class="sso-option-desc">
+            Manual kanban board for managing multiple projects. You create cards, assign folders, and approve every stage.
+            Human-in-the-loop at every step.
+          </div>
+          <div class="check-mark">&#x2713;</div>
+        </label>
+      </div>
+
+      <div id="mode-single-fields">
+        <div class="field">
+          <label for="single-project-path">Project Folder Path</label>
+          <input type="text" id="single-project-path" placeholder="/home/kanban/demo-project">
+          <div class="field-hint">Where the orchestrator writes code. Leave blank for default (parent of app directory).</div>
+        </div>
+        <div class="field" style="margin-top: 0.5rem;">
+          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #e5e5e5;">
+            <input type="checkbox" id="use-demo-idea" checked style="width: auto;">
+            Start with demo idea (AI Survival Guide)
+          </label>
+          <div class="field-hint">Copies a pre-written idea.md into the project folder so the orchestrator has a north star from day one.</div>
+        </div>
+      </div>
+
+      <div id="mode-global-fields" style="display: none;">
+        <div class="field">
+          <label for="projects-root">Projects Root Folder</label>
+          <input type="text" id="projects-root" placeholder="/home/kanban/projects">
+          <div class="field-hint">Root folder for all project cards. Each card points to a subfolder under this path.</div>
+        </div>
+      </div>
+
+      <div class="warning-box" id="mode-warning">
+        <strong>Single-project mode:</strong> The orchestrator runs fully autonomously.
+        It will create files, commit to git, and push changes without asking.
+        You can always log in to pause, revert, or reject anything. Human authority overrides the AI.
+      </div>
+
+      <div class="error-msg" id="step3-error"></div>
+      <div class="btn-row">
+        <button type="button" class="btn-secondary" id="btn-step3-back">Back</button>
+        <button type="button" class="btn-primary" id="btn-step3-next">Continue</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Review & Confirm -->
+    <div class="step" id="step4">
       <h2>Review &amp; Complete Setup</h2>
       <p class="step-desc">
         Review your configuration before finalizing. This action is permanent.
@@ -297,6 +362,8 @@
         <tr><td>Display Name</td><td id="sum-display"></td></tr>
         <tr><td>Email</td><td id="sum-email"></td></tr>
         <tr><td>Auth Provider</td><td id="sum-provider"></td></tr>
+        <tr><td>Operating Mode</td><td id="sum-mode"></td></tr>
+        <tr><td>Project Path</td><td id="sum-project-path"></td></tr>
       </table>
 
       <div class="lock-notice">
@@ -305,11 +372,11 @@
         Make sure your super admin credentials are stored safely.
       </div>
 
-      <div class="error-msg" id="step3-error"></div>
-      <div class="success-msg" id="step3-success"></div>
+      <div class="error-msg" id="step4-error"></div>
+      <div class="success-msg" id="step4-success"></div>
       <div class="btn-row">
-        <button type="button" class="btn-secondary" id="btn-step3-back">Back</button>
-        <button type="button" class="btn-primary" id="btn-step3-submit">Complete Setup</button>
+        <button type="button" class="btn-secondary" id="btn-step4-back">Back</button>
+        <button type="button" class="btn-primary" id="btn-step4-submit">Complete Setup</button>
       </div>
     </div>
   </div>
@@ -320,11 +387,11 @@
   var currentStep = 1;
   var formData = {};
 
-  var steps = [null, document.getElementById('step1'), document.getElementById('step2'), document.getElementById('step3')];
-  var dots = [null, document.getElementById('dot1'), document.getElementById('dot2'), document.getElementById('dot3')];
+  var steps = [null, document.getElementById('step1'), document.getElementById('step2'), document.getElementById('step3'), document.getElementById('step4')];
+  var dots = [null, document.getElementById('dot1'), document.getElementById('dot2'), document.getElementById('dot3'), document.getElementById('dot4')];
 
   function showStep(n) {
-    for (var i = 1; i <= 3; i++) {
+    for (var i = 1; i <= 4; i++) {
       steps[i].classList.toggle('active', i === n);
       dots[i].classList.toggle('active', i === n);
       dots[i].classList.toggle('done', i < n);
@@ -434,20 +501,62 @@
       formData.ssoConfig.ldapSearchFilter = document.getElementById('ldap-filter').value.trim();
     }
 
-    var providerLabels = { builtin: 'Built-in Authentication', oidc: 'OpenID Connect', saml: 'SAML 2.0', ldap: 'LDAP / Active Directory' };
-    document.getElementById('sum-username').textContent = formData.username;
-    document.getElementById('sum-display').textContent = formData.displayName;
-    document.getElementById('sum-email').textContent = formData.email || '(not set)';
-    document.getElementById('sum-provider').textContent = providerLabels[provider] || provider;
     showStep(3);
   });
 
-  // Step 3: Submit
+  // Step 3: Mode selection
+  var modeOptions = document.querySelectorAll('#step3 .sso-option');
+  var modeSingleFields = document.getElementById('mode-single-fields');
+  var modeGlobalFields = document.getElementById('mode-global-fields');
+  var modeWarning = document.getElementById('mode-warning');
+
+  for (var mi = 0; mi < modeOptions.length; mi++) {
+    (function(opt) {
+      opt.addEventListener('click', function() {
+        for (var j = 0; j < modeOptions.length; j++) modeOptions[j].classList.remove('selected');
+        opt.classList.add('selected');
+        opt.querySelector('input[type="radio"]').checked = true;
+        var val = opt.querySelector('input[type="radio"]').value;
+        modeSingleFields.style.display = val === 'single-project' ? 'block' : 'none';
+        modeGlobalFields.style.display = val === 'global' ? 'block' : 'none';
+        modeWarning.style.display = val === 'single-project' ? 'block' : 'none';
+      });
+    })(modeOptions[mi]);
+  }
+
   document.getElementById('btn-step3-back').addEventListener('click', function() { showStep(2); });
-  document.getElementById('btn-step3-submit').addEventListener('click', function() {
-    var btn = document.getElementById('btn-step3-submit');
-    var errEl = document.getElementById('step3-error');
-    var successEl = document.getElementById('step3-success');
+  document.getElementById('btn-step3-next').addEventListener('click', function() {
+    var mode = document.querySelector('input[name="kanban-mode"]:checked').value;
+    formData.kanbanMode = mode;
+
+    if (mode === 'single-project') {
+      formData.singleProjectPath = document.getElementById('single-project-path').value.trim();
+      formData.useDemoIdea = document.getElementById('use-demo-idea').checked;
+    } else {
+      formData.projectsRoot = document.getElementById('projects-root').value.trim();
+    }
+
+    // Populate review summary
+    var providerLabels = { builtin: 'Built-in Authentication', oidc: 'OpenID Connect', saml: 'SAML 2.0', ldap: 'LDAP / Active Directory' };
+    var modeLabels = { 'single-project': 'Single-Project (Autonomous)', 'global': 'Global (Multi-Project)' };
+    document.getElementById('sum-username').textContent = formData.username;
+    document.getElementById('sum-display').textContent = formData.displayName;
+    document.getElementById('sum-email').textContent = formData.email || '(not set)';
+    document.getElementById('sum-provider').textContent = providerLabels[formData.ssoProvider] || formData.ssoProvider;
+    document.getElementById('sum-mode').textContent = modeLabels[mode] || mode;
+    document.getElementById('sum-project-path').textContent = mode === 'single-project'
+      ? (formData.singleProjectPath || '(default: parent of app directory)') + (formData.useDemoIdea ? ' + demo idea' : '')
+      : (formData.projectsRoot || '(default: ~/Projects)');
+
+    showStep(4);
+  });
+
+  // Step 4: Submit
+  document.getElementById('btn-step4-back').addEventListener('click', function() { showStep(3); });
+  document.getElementById('btn-step4-submit').addEventListener('click', function() {
+    var btn = document.getElementById('btn-step4-submit');
+    var errEl = document.getElementById('step4-error');
+    var successEl = document.getElementById('step4-success');
     errEl.textContent = '';
     successEl.textContent = '';
     btn.disabled = true;
@@ -465,7 +574,7 @@
         if (data.ok) {
           successEl.textContent = 'Setup complete. Redirecting...';
           btn.disabled = true;
-          document.getElementById('btn-step3-back').disabled = true;
+          document.getElementById('btn-step4-back').disabled = true;
           setTimeout(function() { window.location.href = '/auth/login'; }, 1500);
         } else {
           errEl.textContent = data.error || 'Setup failed';
@@ -483,6 +592,10 @@
       email: formData.email,
       password: formData.password,
       ssoConfig: formData.ssoConfig,
+      kanbanMode: formData.kanbanMode,
+      singleProjectPath: formData.singleProjectPath || '',
+      projectsRoot: formData.projectsRoot || '',
+      useDemoIdea: formData.useDemoIdea || false,
     }));
   });
 })();

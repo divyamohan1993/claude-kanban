@@ -26,6 +26,25 @@ broker.init().then(function() {
   return sso.init(db);
 }).then(function() {
   log.info('SSO user store initialized');
+
+  // Load mode config from DB (persists across restarts, overrides .env defaults)
+  const { config: dbConfig } = require('./db');
+  const savedMode = dbConfig.get('kanban_mode');
+  if (savedMode) {
+    runtime.mode = savedMode;
+    if (savedMode === 'single-project') {
+      const savedPath = dbConfig.get('single_project_path');
+      if (savedPath) runtime.singleProjectPath = savedPath;
+      const savedPromote = dbConfig.get('auto_promote_brainstorm');
+      if (savedPromote === 'true') runtime.autoPromoteBrainstorm = true;
+    }
+    const savedRoot = dbConfig.get('projects_root');
+    if (savedRoot) {
+      // Update PROJECTS_ROOT in the config module
+      require('./config').PROJECTS_ROOT = savedRoot;
+    }
+    log.info({ mode: savedMode }, 'Loaded mode config from DB');
+  }
 }).catch(function(err) {
   log.fatal({ err: err.message }, 'Startup failed (broker or SSO)');
   process.exit(1);

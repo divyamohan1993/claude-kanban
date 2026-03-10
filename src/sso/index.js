@@ -127,8 +127,44 @@ router.post('/auth/setup', async function(req, res) {
   // Complete setup with SSO configuration
   userStore.completeSetup(ssoConfig);
 
+  // --- Operating Mode Configuration ---
+  const { config: dbConfig } = require('../db');
+  const { runtime, ROOT_DIR } = require('../config');
+  const kanbanMode = String(body.kanbanMode || 'global').trim();
+
+  if (kanbanMode === 'single-project') {
+    const singlePath = String(body.singleProjectPath || '').trim();
+    const effectivePath = singlePath || require('path').resolve(ROOT_DIR, '..');
+    runtime.mode = 'single-project';
+    runtime.autoPromoteBrainstorm = true;
+    runtime.singleProjectPath = effectivePath;
+    dbConfig.set('kanban_mode', 'single-project');
+    dbConfig.set('single_project_path', effectivePath);
+    dbConfig.set('auto_promote_brainstorm', 'true');
+
+    // Copy demo idea.md if requested
+    if (body.useDemoIdea) {
+      const demoSrc = require('path').join(ROOT_DIR, 'demo', 'idea.md');
+      const demoFs = require('fs');
+      if (demoFs.existsSync(demoSrc)) {
+        demoFs.mkdirSync(effectivePath, { recursive: true });
+        const destPath = require('path').join(effectivePath, 'idea.md');
+        if (!demoFs.existsSync(destPath)) {
+          demoFs.copyFileSync(demoSrc, destPath);
+        }
+      }
+    }
+  } else {
+    const projectsRoot = String(body.projectsRoot || '').trim();
+    runtime.mode = 'global';
+    dbConfig.set('kanban_mode', 'global');
+    if (projectsRoot) {
+      dbConfig.set('projects_root', projectsRoot);
+    }
+  }
+
   const { log } = require('../lib/logger');
-  log.info({ username, provider: ssoConfig.provider }, 'First-run setup completed');
+  log.info({ username, provider: ssoConfig.provider, mode: kanbanMode }, 'First-run setup completed');
 
   res.json({ ok: true });
 });

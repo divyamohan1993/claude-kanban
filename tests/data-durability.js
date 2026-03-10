@@ -83,9 +83,15 @@ async function authenticate() {
     }
     return !!SESSION_COOKIE;
   }
-  var creds = [{ username: 'admin', password: 'admin' }, { username: 'testadmin', password: 'testadmin1234' }];
+  // testadmin first (CI creates this during setup)
+  var creds = [{ username: 'testadmin', password: 'testadmin1234' }, { username: 'admin', password: 'admin' }];
   for (var i = 0; i < creds.length; i++) {
     var res = await request('POST', '/auth/login', creds[i]);
+    // Handle rate limiting from prior test suites — wait and retry
+    if (res.status === 429) {
+      await new Promise(function(r) { setTimeout(r, 2000); });
+      res = await request('POST', '/auth/login', creds[i]);
+    }
     if (res.status === 200 && res.headers['set-cookie']) {
       var match = (Array.isArray(res.headers['set-cookie']) ? res.headers['set-cookie'][0] : res.headers['set-cookie']).match(/sid=([^;]+)/);
       if (match) { SESSION_COOKIE = 'sid=' + match[1]; return true; }

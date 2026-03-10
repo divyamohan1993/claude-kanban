@@ -14,8 +14,10 @@ const snapshot = require('../services/snapshot');
 const usageSvc = require('../services/usage');
 const autoDiscover = require('../services/auto-discover');
 const intelligence = require('../services/intelligence');
+const { rateLimiter } = require('../middleware/rate-limit');
 
 const router = express.Router();
+router.use(rateLimiter);
 
 // --- Security: Global card count cap — prevents DB spam via automated card creation ---
 function checkCardLimit() {
@@ -516,7 +518,6 @@ router.get('/api/cards/:id/log-stream', optionalAuth, function(req, res) {
 
   const interval = setInterval(function() {
     try {
-      if (!fs.existsSync(logFile)) return;
       const stat = fs.statSync(logFile);
       if (!fileFound) {
         fileFound = true;
@@ -823,7 +824,9 @@ router.post('/api/cards/:id/edit-file', requireAuth, express.json({ limit: '5mb'
     return res.status(403).json({ error: 'Path traversal not allowed' });
   }
   try {
-    fs.writeFileSync(fullPath, content, 'utf-8');
+    // Sanitize: strip null bytes to prevent NUL injection
+    const safeContent = String(content).replace(/\0/g, '');
+    fs.writeFileSync(fullPath, safeContent, 'utf-8');
     broadcast('toast', { message: 'Saved: ' + filePath, type: 'success' });
     res.json({ success: true, file: filePath });
   } catch (err) {
@@ -1047,6 +1050,11 @@ router.post('/api/ideas', requireAuth, function(req, res) {
       counter++;
     }
     projectPath = path.join(PROJECTS_ROOT, folderName);
+    // Validate generated path is safely under PROJECTS_ROOT
+    if (!isPathUnderProjectsRoot(projectPath)) {
+      cards.delete(cardId);
+      return res.status(400).json({ error: 'Generated project path is not under allowed root' });
+    }
     fs.mkdirSync(projectPath, { recursive: true });
   }
   cards.setProjectPath(cardId, projectPath);

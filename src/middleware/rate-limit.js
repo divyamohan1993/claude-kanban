@@ -99,6 +99,10 @@ function checkBucket(store, ip, config) {
 // This runs BEFORE everything — before body parsing, before sessions.
 // Must be as cheap as possible.
 function rateLimiter(req, res, next) {
+  // Idempotent — safe to apply at both app and router level without double-counting
+  if (req._rateLimited) return next();
+  req._rateLimited = true;
+
   const ip = getIp(req);
   const path = req.url;
 

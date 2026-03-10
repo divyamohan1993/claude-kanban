@@ -164,10 +164,10 @@ function learnFromFeedback(feedback) {
   // Extract 3+ char words, track frequency as prompt themes
   const words = feedback.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
     .filter(function(w) { return w.length >= 4; });
-  const seen = {};
+  const seen = new Set();
   for (let i = 0; i < words.length; i++) {
-    if (seen[words[i]]) continue;
-    seen[words[i]] = true;
+    if (seen.has(words[i])) continue;
+    seen.add(words[i]);
     learnings.upsert('prompt-theme', words[i], 'feedback-keyword', 30);
   }
 }

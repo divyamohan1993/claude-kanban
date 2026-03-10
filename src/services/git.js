@@ -17,9 +17,7 @@ function autoCommit(cardId) {
     if (!isGitRepo) {
       execFileSync('git', ['init'], execOpts);
       const gitignorePath = path.join(projectPath, '.gitignore');
-      if (!fs.existsSync(gitignorePath)) {
-        fs.writeFileSync(gitignorePath, 'node_modules/\n.env\n.task-complete\n.brainstorm-output-*\n');
-      }
+      try { fs.writeFileSync(gitignorePath, 'node_modules/\n.env\n.task-complete\n.brainstorm-output-*\n', { flag: 'wx' }); } catch (e) { if (e.code !== 'EEXIST') throw e; }
     }
 
     execFileSync('git', ['add', '-A'], execOpts);
@@ -62,13 +60,14 @@ function baselineCommit(cardId) {
   const projectPath = card.project_path;
   const markerPath = path.join(projectPath, '.pre-automation-checkpoint');
 
-  // One baseline per project — skip if marker already exists
-  if (fs.existsSync(markerPath)) {
-    return { success: true, action: 'already-checkpointed' };
-  }
+  fs.mkdirSync(projectPath, { recursive: true });
 
-  if (!fs.existsSync(projectPath)) {
-    fs.mkdirSync(projectPath, { recursive: true });
+  // Atomic marker create — if it already exists, skip (no TOCTOU race)
+  try {
+    fs.writeFileSync(markerPath, '', { flag: 'wx' });
+  } catch (e) {
+    if (e.code === 'EEXIST') return { success: true, action: 'already-checkpointed' };
+    return { success: false, reason: 'Cannot create checkpoint marker: ' + e.message };
   }
 
   const execOpts = { cwd: projectPath, stdio: 'pipe', windowsHide: true, timeout: 30000 };
@@ -79,13 +78,8 @@ function baselineCommit(cardId) {
     if (!isGitRepo) {
       execFileSync('git', ['init'], execOpts);
       const gitignorePath = path.join(projectPath, '.gitignore');
-      if (!fs.existsSync(gitignorePath)) {
-        fs.writeFileSync(gitignorePath, 'node_modules/\n.env\n.task-complete\n.brainstorm-output-*\n');
-      }
+      try { fs.writeFileSync(gitignorePath, 'node_modules/\n.env\n.task-complete\n.brainstorm-output-*\n', { flag: 'wx' }); } catch (e2) { if (e2.code !== 'EEXIST') throw e2; }
     }
-
-    // Create 0-byte safety checkpoint marker
-    fs.writeFileSync(markerPath, '');
 
     // Stage everything
     execFileSync('git', ['add', '-A'], execOpts);

@@ -41,8 +41,10 @@ const users = require('./users');
 const userStore = require('./user-store');
 const jwt = require('./jwt');
 const sessionStore = require('./session-store');
+const { rateLimiter } = require('../middleware/rate-limit');
 
 const router = express.Router();
+router.use(rateLimiter);
 
 // =============================================================================
 // INTERNAL: Verify session + JWT token, return validated claims or null.

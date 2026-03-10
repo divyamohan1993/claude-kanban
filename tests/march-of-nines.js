@@ -21,7 +21,8 @@ const path = require('path');
 const BASE = 'http://localhost:51777';
 let SESSION_COOKIE = '';
 let ADMIN_PATH = '';
-let ADMIN_PORT = '';
+let AUTH_USER = '';
+let AUTH_PASS = '';
 
 // Test counters
 let passed = 0;
@@ -134,6 +135,7 @@ async function authenticate() {
       // Login as the new superadmin
       const loginRes = await request('POST', '/auth/login', { username: 'testadmin', password: 'testadmin1234' });
       if (loginRes.status === 200 && loginRes.json && loginRes.json.ok) {
+        AUTH_USER = 'testadmin'; AUTH_PASS = 'testadmin1234';
         const setCookie = loginRes.headers['set-cookie'];
         if (setCookie) {
           const match = (Array.isArray(setCookie) ? setCookie[0] : setCookie).match(/sid=([^;]+)/);
@@ -150,35 +152,26 @@ async function authenticate() {
     }
   }
 
-  // Try login with default admin credentials
-  const loginRes = await request('POST', '/auth/login', { username: 'admin', password: 'admin' });
-  if (loginRes.status === 200 && loginRes.json && loginRes.json.ok) {
-    const setCookie = loginRes.headers['set-cookie'];
-    if (setCookie) {
-      const match = (Array.isArray(setCookie) ? setCookie[0] : setCookie).match(/sid=([^;]+)/);
-      if (match) SESSION_COOKIE = 'sid=' + match[1];
+  // Try credentials — testadmin first (CI creates this during setup)
+  const creds = [
+    { username: 'testadmin', password: 'testadmin1234' },
+    { username: 'admin', password: 'admin' },
+  ];
+  for (let ci = 0; ci < creds.length; ci++) {
+    const loginRes = await request('POST', '/auth/login', creds[ci]);
+    if (loginRes.status === 200 && loginRes.json && loginRes.json.ok) {
+      AUTH_USER = creds[ci].username; AUTH_PASS = creds[ci].password;
+      const setCookie = loginRes.headers['set-cookie'];
+      if (setCookie) {
+        const match = (Array.isArray(setCookie) ? setCookie[0] : setCookie).match(/sid=([^;]+)/);
+        if (match) SESSION_COOKIE = 'sid=' + match[1];
+      }
+      const sessionRes = await request('GET', '/auth/session');
+      if (sessionRes.json && sessionRes.json.adminPath) {
+        ADMIN_PATH = sessionRes.json.adminPath;
+      }
+      return true;
     }
-    // Get admin path
-    const sessionRes = await request('GET', '/auth/session');
-    if (sessionRes.json && sessionRes.json.adminPath) {
-      ADMIN_PATH = sessionRes.json.adminPath;
-    }
-    return true;
-  }
-
-  // Try superadmin
-  const saLogin = await request('POST', '/auth/login', { username: 'testadmin', password: 'testadmin1234' });
-  if (saLogin.status === 200 && saLogin.json && saLogin.json.ok) {
-    const setCookie = saLogin.headers['set-cookie'];
-    if (setCookie) {
-      const match = (Array.isArray(setCookie) ? setCookie[0] : setCookie).match(/sid=([^;]+)/);
-      if (match) SESSION_COOKIE = 'sid=' + match[1];
-    }
-    const sessionRes = await request('GET', '/auth/session');
-    if (sessionRes.json && sessionRes.json.adminPath) {
-      ADMIN_PATH = sessionRes.json.adminPath;
-    }
-    return true;
   }
   return false;
 }
@@ -875,7 +868,7 @@ async function testEdgeCases() {
     req.on('error', function() { resolve(false); });
     req.end();
   });
-  const [sseOk, apiRes] = await Promise.all([
+  const [, apiRes] = await Promise.all([
     ssePromise,
     request('GET', '/api/cards'),
   ]);
@@ -916,8 +909,8 @@ async function testEdgeCases() {
 async function testAuthFlow() {
   section('BONUS: AUTHENTICATION FLOW');
 
-  // Login with admin
-  const loginRes = await request('POST', '/auth/login', { username: 'admin', password: 'admin' });
+  // Login with known working credentials
+  const loginRes = await request('POST', '/auth/login', { username: AUTH_USER, password: AUTH_PASS });
   assert('Login returns 200', loginRes.status === 200);
   assert('Login returns ok:true', loginRes.json && loginRes.json.ok === true);
   assert('Login returns user info', loginRes.json && loginRes.json.user && loginRes.json.user.role);
@@ -941,14 +934,14 @@ async function testAuthFlow() {
   assert('Logout returns ok', logoutRes.status === 200 && logoutRes.json && logoutRes.json.ok);
 
   // Re-auth for remaining tests
-  const relogin = await request('POST', '/auth/login', { username: 'admin', password: 'admin' });
+  const relogin = await request('POST', '/auth/login', { username: AUTH_USER, password: AUTH_PASS });
   if (relogin.headers['set-cookie']) {
     const reMatch = (Array.isArray(relogin.headers['set-cookie']) ? relogin.headers['set-cookie'][0] : relogin.headers['set-cookie']).match(/sid=([^;]+)/);
     if (reMatch) SESSION_COOKIE = 'sid=' + reMatch[1];
   }
 
-  // Wrong password
-  const wrongPw = await request('POST', '/auth/login', { username: 'admin', password: 'wrongpassword' });
+  // Wrong password — use a username we know exists to test auth rejection
+  const wrongPw = await request('POST', '/auth/login', { username: AUTH_USER, password: 'wrongpassword' });
   assert('Wrong password returns 401', wrongPw.status === 401);
   assert('Wrong password error message', wrongPw.json && wrongPw.json.error === 'Invalid credentials');
 

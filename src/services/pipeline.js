@@ -827,7 +827,8 @@ function executeWork(cardId, projectPath) {
     claudeParts.push(cp.qualityGates);
   }
 
-  fs.writeFileSync(path.join(projectPath, 'CLAUDE.md'), claudeParts.join('\n'));
+  const { sanitizeForFile } = require('./claude-runner');
+  fs.writeFileSync(path.join(projectPath, 'CLAUDE.md'), sanitizeForFile(claudeParts.join('\n')));
   setActivity(cardId, 'build', 'CLAUDE.md written — launching Claude...');
 
   const buildLog = logPath(cardId, 'build');
@@ -1137,7 +1138,9 @@ function retryWithFeedback(cardId, feedback) {
   reviewFixCount.delete(cardId);
 
   const buildLog = logPath(cardId, 'build');
-  const header = '\n\n[' + new Date().toISOString() + '] Retry with feedback\nFeedback: ' + feedback + '\n---\n';
+  const { sanitizeForFile } = require('./claude-runner');
+  const safeFeedback = sanitizeForFile(feedback);
+  const header = '\n\n[' + new Date().toISOString() + '] Retry with feedback\nFeedback: ' + safeFeedback + '\n---\n';
   try { fs.appendFileSync(buildLog, header); } catch (_) { fs.writeFileSync(buildLog, header); }
 
   const completionFile = path.join(projectPath, '.task-complete');

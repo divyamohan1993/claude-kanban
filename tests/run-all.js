@@ -32,6 +32,11 @@ process.stdout.write('  TRUST VERIFICATION — Full Test Suite Runner\n');
 process.stdout.write('  Date: ' + new Date().toISOString() + '\n');
 process.stdout.write('================================================================\n\n');
 
+function sleepSync(ms) {
+  var end = Date.now() + ms;
+  while (Date.now() < end) { /* busy wait — only used for short CI delays */ }
+}
+
 for (var i = 0; i < suites.length; i++) {
   var suite = suites[i];
   var suitePath = path.join(__dirname, suite.file);
@@ -41,24 +46,23 @@ for (var i = 0; i < suites.length; i++) {
     continue;
   }
 
+  // Brief pause between suites to let auth rate limiters cool down
+  if (i > 0) sleepSync(1500);
+
   process.stdout.write('[RUN]  ' + suite.name + ' ...\n');
 
-  var output = '';
-  var exitCode = 0;
   try {
-    output = execFileSync(NODE, [suitePath], {
+    execFileSync(NODE, [suitePath], {
       cwd: ROOT,
       encoding: 'utf-8',
       timeout: 120000,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-  } catch (e) {
-    output = (e.stdout || '') + (e.stderr || '');
-    exitCode = e.status || 1;
+  } catch (_) {
+    // Suite failure captured via JSON report file, not stdout
   }
 
   // Parse the JSON report if written
-  var jsonFile = path.join(REPORT_DIR, suite.file.replace('.js', '.json'));
   // Map suite filenames to their actual report names
   var reportNames = {
     'march-of-nines.js': 'march-of-nines.json',

@@ -74,7 +74,7 @@ app.use(function(req, res, next) {
   // Allow setup endpoints, static assets, and health checks through
   if (req.path.startsWith('/auth/')) return next();
   if (req.path === '/health' || req.path === '/health/ready') return next();
-  if (req.path.startsWith('/pitch') || req.path.startsWith('/features')) return next();
+  if (req.path.startsWith('/product')) return next();
   if (req.path.match(/\.(css|js|png|jpg|ico|svg|woff|woff2|ttf)$/)) return next();
   return res.redirect('/auth/setup');
 });
@@ -82,7 +82,7 @@ app.use(function(req, res, next) {
 // Cache busting — serve HTML with server-start timestamp (busts on every deploy/restart)
 const BOOT_TS = Date.now();
 const indexHtmlPath = path.join(ROOT_DIR, 'public', 'index.html');
-app.get(['/', '/index.html'], function(req, res) {
+app.get(['/', '/index.html'], rateLimiter, function(req, res) {
   const html = fs.readFileSync(indexHtmlPath, 'utf8').replace(/__BUST__/g, String(BOOT_TS));
   res.type('html').send(html);
 });
@@ -96,7 +96,7 @@ app.get('/health', function(req, res) {
 });
 
 // Deep health check — readiness probe: DB, disk, pipeline, errors
-app.get('/health/ready', function(req, res) {
+app.get('/health/ready', rateLimiter, function(req, res) {
   const checks = {};
   let healthy = true;
 
@@ -154,7 +154,7 @@ app.get('/health/ready', function(req, res) {
 
 // Admin redirect — SSO-protected, requires admin or superadmin role
 // Path is auto-generated random hex (or pinned via ADMIN_PATH env)
-app.get('/' + ADMIN_PATH, function(req, res) {
+app.get('/' + ADMIN_PATH, rateLimiter, function(req, res) {
   const session = sso.verifySession(req);
   if (!session) return res.redirect('/auth/login?return=/' + ADMIN_PATH);
   if (session.user.role !== 'admin' && session.user.role !== 'superadmin') {

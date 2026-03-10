@@ -13,8 +13,10 @@ const autoDiscover = require('../services/auto-discover');
 const brainstormSvc = require('../services/brainstorm');
 const intelligence = require('../services/intelligence');
 const specIntelligence = require('../services/spec-intelligence');
+const { rateLimiter } = require('../middleware/rate-limit');
 
 const router = express.Router();
+router.use(rateLimiter);
 
 // --- Admin SSE (C2 fix: require auth) ---
 router.get('/api/events', requireAdmin, function(req, res) {
@@ -290,6 +292,10 @@ router.post('/api/factory-reset', requireAdmin, function(req, res) {
     repoUrl = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: ROOT_DIR, encoding: 'utf-8' }).trim();
   } catch (err) {
     return res.status(500).json({ error: 'Cannot determine git remote: ' + err.message });
+  }
+  // Validate repoUrl — must be a recognized git URL format (no shell metacharacters)
+  if (!/^(https?:\/\/[^\s"'`;&|]+|git@[^\s"'`;&|]+:[^\s"'`;&|]+\.git|ssh:\/\/[^\s"'`;&|]+)$/.test(repoUrl)) {
+    return res.status(500).json({ error: 'Git remote URL has unexpected format: ' + repoUrl });
   }
 
   auditLog('factory-reset', 'system', null, req.user.id, '', repoUrl, 'nuke + clone reset');

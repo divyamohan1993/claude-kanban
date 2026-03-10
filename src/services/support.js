@@ -173,7 +173,7 @@ function openClaude(cardId) {
     spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd /d "' + p + '" && set CLAUDECODE= && claude'], { detached: true, stdio: 'ignore' }).unref();
   } else if (IS_MAC) {
     const script = "cd '" + p.replace(/'/g, "'\\''") + "' && unset CLAUDECODE && claude";
-    spawn('osascript', ['-e', 'tell app "Terminal" to do script "' + script.replace(/"/g, '\\"') + '"'], { detached: true, stdio: 'ignore' }).unref();
+    spawn('osascript', ['-e', 'tell app "Terminal" to do script "' + script.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'], { detached: true, stdio: 'ignore' }).unref();
   } else {
     const bashCmd = "cd '" + p.replace(/'/g, "'\\''") + "' && unset CLAUDECODE && claude; exec bash";
     const child = spawn('gnome-terminal', ['--', 'bash', '-c', bashCmd], { detached: true, stdio: 'ignore' });

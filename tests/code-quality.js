@@ -328,7 +328,8 @@ async function main() {
   if (setupCheck.status === 200 && setupCheck.body && setupCheck.body.includes('setup')) {
     // setup needed but not our job here
   }
-  var creds = [{ username: 'admin', password: 'admin' }, { username: 'testadmin', password: 'testadmin1234' }];
+  // testadmin first (CI creates this during setup)
+  var creds = [{ username: 'testadmin', password: 'testadmin1234' }, { username: 'admin', password: 'admin' }];
   for (var i = 0; i < creds.length; i++) {
     var loginBody = JSON.stringify(creds[i]);
     var loginRes = await new Promise(function(resolve) {
@@ -346,6 +347,25 @@ async function main() {
       req.write(loginBody);
       req.end();
     });
+    // Handle rate limiting from prior test suites — wait and retry
+    if (loginRes.status === 429) {
+      await new Promise(function(r) { setTimeout(r, 2000); });
+      loginRes = await new Promise(function(resolve) {
+        var url = new URL(BASE + '/auth/login');
+        var req = http.request({
+          hostname: url.hostname, port: url.port, path: url.pathname,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        }, function(res) {
+          var chunks = [];
+          res.on('data', function(c) { chunks.push(c); });
+          res.on('end', function() { resolve({ status: res.statusCode, headers: res.headers }); });
+        });
+        req.on('error', function() { resolve({ status: 0, headers: {} }); });
+        req.write(loginBody);
+        req.end();
+      });
+    }
     if (loginRes.status === 200 && loginRes.headers['set-cookie']) {
       var cookie = Array.isArray(loginRes.headers['set-cookie']) ? loginRes.headers['set-cookie'][0] : loginRes.headers['set-cookie'];
       var match = cookie.match(/sid=([^;]+)/);

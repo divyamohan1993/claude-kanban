@@ -97,8 +97,9 @@
       try {
         var data = JSON.parse(xhr.responseText);
         if (data.ok) {
-          var returnTo = new URLSearchParams(window.location.search).get('return') || '/';
-          window.location.href = returnTo;
+          var raw = new URLSearchParams(window.location.search).get('return') || '/';
+          var returnTo = (raw.charAt(0) === '/' && raw.charAt(1) !== '/' && raw.charAt(1) !== '\\') ? raw : '/';
+          window.location.replace(returnTo);
         } else {
           errorMsg.textContent = data.error || 'Authentication failed';
           document.getElementById('password').value = '';

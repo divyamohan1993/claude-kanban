@@ -4,17 +4,30 @@ const path = require('path');
 const { IS_WIN, RUNTIME_DIR, runtime } = require('../config');
 const { usage } = require('../db');
 
+// Allowlists for CLI arguments — prevents environment injection
+const ALLOWED_MODELS = ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'claude-sonnet-4-5-20241022', 'claude-sonnet-4-20250514'];
+const ALLOWED_EFFORTS = ['low', 'medium', 'high', 'max'];
+
+function sanitizeModel(m) { return ALLOWED_MODELS.includes(m) ? m : 'claude-sonnet-4-6'; }
+function sanitizeEffort(e) { return ALLOWED_EFFORTS.includes(e) ? e : 'high'; }
+
+// Strip null bytes and non-printable control chars (except newlines/tabs) from file content
+function sanitizeForFile(s) { return String(s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''); }
+
 // Spawn Claude CLI silently via .bat/.sh wrapper.
 // Returns { pid, scriptPath }. Caller is responsible for PID tracking.
 function runClaudeSilent(opts) {
   let scriptPath, lines;
-  const cliBase = 'claude --model ' + runtime.claudeModel + ' --effort ' + runtime.claudeEffort + ' --dangerously-skip-permissions';
+  const model = sanitizeModel(runtime.claudeModel);
+  const effort = sanitizeEffort(runtime.claudeEffort);
+  const cliBase = 'claude --model ' + model + ' --effort ' + effort + ' --dangerously-skip-permissions';
+  const safePrompt = sanitizeForFile(opts.prompt);
 
   if (IS_WIN) {
     scriptPath = path.join(RUNTIME_DIR, '.run-' + opts.id + '.bat');
     // C6 fix: write prompt to temp file to avoid ALL bat metachar injection (%,^,&,|,!,<,>)
     const promptFile = path.join(RUNTIME_DIR, '.prompt-' + opts.id + '.txt');
-    fs.writeFileSync(promptFile, opts.prompt);
+    fs.writeFileSync(promptFile, safePrompt);
     lines = [
       '@echo off',
       'cd /d "' + opts.cwd + '"',
@@ -28,7 +41,7 @@ function runClaudeSilent(opts) {
     fs.writeFileSync(scriptPath, lines.join('\r\n'));
   } else {
     scriptPath = path.join(RUNTIME_DIR, '.run-' + opts.id + '.sh');
-    const escapedPrompt = opts.prompt.replace(/'/g, "'\\''").replace(/[\r\n]+/g, ' ');
+    const escapedPrompt = safePrompt.replace(/'/g, "'\\''").replace(/[\r\n]+/g, ' ');
     lines = [
       '#!/bin/bash',
       'cd "' + opts.cwd + '"',
@@ -100,4 +113,4 @@ function detectRateLimit(logFile) {
   return { detected: false };
 }
 
-module.exports = { runClaudeSilent: runClaudeSilent, detectRateLimit: detectRateLimit };
+module.exports = { runClaudeSilent: runClaudeSilent, detectRateLimit: detectRateLimit, sanitizeForFile: sanitizeForFile };

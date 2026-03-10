@@ -381,7 +381,6 @@ function listBackups() {
 function restoreBackup(backupPath) {
   const resolved = path.resolve(backupPath);
   if (!resolved.startsWith(BACKUP_DIR + path.sep)) return { success: false, reason: 'Invalid backup path' };
-  if (!fs.existsSync(resolved)) return { success: false, reason: 'Backup file not found' };
   try {
     const fd = fs.openSync(resolved, 'r');
     const buf = Buffer.alloc(16);
@@ -495,7 +494,7 @@ module.exports = {
       const filtered = {};
       const allKeys = Object.keys(updates);
       for (let ki = 0; ki < allKeys.length; ki++) {
-        if (COLUMN_MAP[allKeys[ki]]) filtered[allKeys[ki]] = updates[allKeys[ki]];
+        if (Object.prototype.hasOwnProperty.call(COLUMN_MAP, allKeys[ki])) filtered[allKeys[ki]] = updates[allKeys[ki]];
       }
       if (filtered.column_name && !VALID_COLUMNS.includes(filtered.column_name)) {
         throw new Error('Invalid column: ' + filtered.column_name);

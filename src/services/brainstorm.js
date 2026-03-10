@@ -295,7 +295,7 @@ function executeBrainstorm(cardId) {
         }
 
         // Mirror stdout to log on Windows (Linux uses tee)
-        if (IS_WIN && fs.existsSync(outputFile)) {
+        if (IS_WIN) {
           try {
             const outStat = fs.statSync(outputFile);
             if (outStat.size > lastMirroredSize) {

@@ -75,7 +75,11 @@ router.post('/api/backups/restore', requireAdmin, function(req, res) {
 });
 
 // --- Usage ---
-router.get('/api/usage', requireAdmin, function(_req, res) { res.json(usageSvc.getUsageStats()); });
+router.get('/api/usage', requireAdmin, function(_req, res) {
+  usageSvc.fetchClaudeUsage(false).then(function() {
+    res.json(usageSvc.getUsageStats());
+  });
+});
 
 router.post('/api/usage/refresh', requireAdmin, function(_req, res) {
   usageSvc.fetchClaudeUsage(true).then(function() {
@@ -756,90 +760,9 @@ router.get('/api/claude-cli', requireAdmin, function(_req, res) {
   res.json(result);
 });
 
-var _claudeAuthProc = null;
-router.post('/api/claude-cli/auth', requireAdmin, function(req, res) {
-  if (_claudeAuthProc) {
-    return res.status(409).json({ error: 'Auth already in progress' });
-  }
-  var spawnProc = require('child_process').spawn;
-  var output = '';
-  var responded = false;
-
-  _claudeAuthProc = spawnProc('claude', ['auth', 'login'], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    timeout: 120000,
-  });
-
-  function tryRespond() {
-    if (responded) return;
-    var urlMatch = output.match(/(https?:\/\/[^\s]+)/);
-    if (urlMatch) {
-      responded = true;
-      res.json({ ok: true, output: output.trim(), url: urlMatch[1] });
-    }
-  }
-
-  _claudeAuthProc.stdout.on('data', function(chunk) {
-    output += chunk.toString();
-    tryRespond();
-  });
-  _claudeAuthProc.stderr.on('data', function(chunk) {
-    output += chunk.toString();
-    tryRespond();
-  });
-
-  _claudeAuthProc.on('close', function() {
-    _claudeAuthProc = null;
-    if (!responded) {
-      responded = true;
-      res.json({ ok: false, output: output.trim() || 'Claude auth process exited without URL' });
-    }
-  });
-  _claudeAuthProc.on('error', function(err) {
-    _claudeAuthProc = null;
-    if (!responded) {
-      responded = true;
-      res.status(500).json({ error: 'Failed to start claude auth: ' + err.message });
-    }
-  });
-
-  setTimeout(function() {
-    if (!responded) {
-      responded = true;
-      res.json({ ok: false, output: output.trim() || 'Timed out waiting for device code' });
-    }
-  }, 15000);
-});
-
-router.post('/api/claude-cli/auth-code', requireAdmin, function(req, res) {
-  var code = (req.body.code || '').trim();
-  if (!code) return res.status(400).json({ error: 'Auth code is required' });
-  if (!_claudeAuthProc) return res.status(409).json({ error: 'No auth session in progress. Click Authenticate first.' });
-  try {
-    _claudeAuthProc.stdin.write(code + '\n');
-    // Give process a moment to consume the code
-    setTimeout(function() {
-      var credPath = path.join(os.homedir(), '.claude', '.credentials.json');
-      var authed = fs.existsSync(credPath);
-      if (authed) {
-        res.json({ ok: true, authenticated: true });
-      } else if (_claudeAuthProc) {
-        res.json({ ok: true, authenticated: false, pending: true });
-      } else {
-        res.json({ ok: true, authenticated: false });
-      }
-    }, 3000);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to send code: ' + err.message });
-  }
-});
-
 router.get('/api/claude-cli/auth-status', requireAdmin, function(_req, res) {
-  if (_claudeAuthProc) {
-    return res.json({ inProgress: true });
-  }
   var credPath = path.join(os.homedir(), '.claude', '.credentials.json');
-  res.json({ inProgress: false, authenticated: fs.existsSync(credPath) });
+  res.json({ authenticated: fs.existsSync(credPath) });
 });
 
 // Export for server.js periodic timer

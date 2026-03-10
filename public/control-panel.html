@@ -1747,76 +1747,48 @@ function renderClaudeCli(st, container) {
       'The orchestrator needs Claude authenticated to brainstorm, build, and review code.'));
   }
 
-  var authBtn = el('button', { class: 'btn ' + (st.authenticated ? '' : 'btn-primary'), onclick: function() {
-    authBtn.disabled = true;
-    authBtn.textContent = 'Starting auth...';
-    var outputBox = document.getElementById('cli-auth-output');
-    if (outputBox) outputBox.remove();
+  // SSH instructions (always shown, collapsed when authenticated)
+  var sshBox = el('div', { style: 'padding:14px;border-radius:var(--radius-sm);background:var(--surface-hover);border:1px solid var(--border)' });
+  sshBox.appendChild(el('p', { style: 'font-size:13px;font-weight:600;margin-bottom:8px' }, st.authenticated ? 'Re-authenticate via SSH' : 'Authenticate via SSH'));
+  sshBox.appendChild(el('p', { style: 'font-size:13px;color:var(--text-tertiary);margin-bottom:10px' }, 'Claude CLI requires interactive terminal authentication. SSH into the server and run:'));
 
-    api('POST', '/api/claude-cli/auth').then(function(r) {
-      authBtn.disabled = false;
-      authBtn.textContent = st.authenticated ? 'Re-authenticate' : 'Authenticate Claude';
+  var codeStyle = 'flex:1;display:block;padding:10px 12px;border-radius:var(--radius-sm);background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:13px;user-select:all';
+  var copyStyle = 'white-space:nowrap;padding:8px 12px';
 
-      var box = el('div', { id: 'cli-auth-output', style: 'margin-top:12px;padding:14px;border-radius:var(--radius-sm);background:var(--surface-hover);border:1px solid var(--border)' });
+  var cmd1 = 'sudo -u kanban claude auth login';
+  var cmdBox1 = el('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px' });
+  cmdBox1.appendChild(el('code', { style: codeStyle }, cmd1));
+  cmdBox1.appendChild(el('button', { class: 'btn', style: copyStyle, onclick: function() {
+    navigator.clipboard.writeText(cmd1).then(function() { toast('Copied!', 'success'); });
+  } }, 'Copy'));
+  sshBox.appendChild(cmdBox1);
 
-      if (r.ok && r.url) {
-        box.appendChild(el('p', { style: 'font-size:13px;font-weight:600;margin-bottom:8px' }, 'Step 1: Open this URL in your browser:'));
-        var link = el('a', { href: r.url, target: '_blank', rel: 'noopener', style: 'word-break:break-all;color:var(--primary-text);font-size:13px' }, r.url);
-        box.appendChild(link);
-        if (r.output) box.appendChild(el('pre', { style: 'margin-top:10px;font-size:12px;color:var(--text-tertiary);white-space:pre-wrap;font-family:var(--mono)' }, r.output));
+  sshBox.appendChild(el('p', { style: 'font-size:12px;color:var(--text-tertiary);margin-bottom:6px' }, 'Then trust the project folder:'));
+  var cmd2 = 'sudo -u kanban claude --dir /opt/claude-kanban';
+  var cmdBox2 = el('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:12px' });
+  cmdBox2.appendChild(el('code', { style: codeStyle }, cmd2));
+  cmdBox2.appendChild(el('button', { class: 'btn', style: copyStyle, onclick: function() {
+    navigator.clipboard.writeText(cmd2).then(function() { toast('Copied!', 'success'); });
+  } }, 'Copy'));
+  sshBox.appendChild(cmdBox2);
 
-        box.appendChild(el('p', { style: 'font-size:13px;font-weight:600;margin-top:14px;margin-bottom:6px' }, 'Step 2: Paste the authentication code from the browser here:'));
-        var codeInput = el('input', { type: 'text', placeholder: 'Paste auth code here...', style: 'width:100%;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13px;box-sizing:border-box' });
-        box.appendChild(codeInput);
-
-        var submitBtn = el('button', { class: 'btn btn-primary', style: 'margin-top:8px', onclick: function() {
-          var code = codeInput.value.trim();
-          if (!code) { toast('Paste the auth code from the browser first.', 'warning'); return; }
-          submitBtn.textContent = 'Submitting...';
-          submitBtn.disabled = true;
-          api('POST', '/api/claude-cli/auth-code', { code: code }).then(function(s) {
-            if (s.authenticated) {
-              toast('Claude CLI authenticated successfully!', 'success');
-              api('GET', '/api/claude-cli').then(function(fresh) { renderClaudeCli(fresh, container); });
-            } else if (s.pending) {
-              toast('Code submitted. Verifying...', 'info');
-              setTimeout(function() {
-                api('GET', '/api/claude-cli/auth-status').then(function(st) {
-                  if (st.authenticated) {
-                    toast('Claude CLI authenticated successfully!', 'success');
-                    api('GET', '/api/claude-cli').then(function(fresh) { renderClaudeCli(fresh, container); });
-                  } else {
-                    submitBtn.textContent = 'Submit Code';
-                    submitBtn.disabled = false;
-                    toast('Still processing. Try clicking Submit again in a moment.', 'info');
-                  }
-                });
-              }, 3000);
-            } else {
-              submitBtn.textContent = 'Submit Code';
-              submitBtn.disabled = false;
-              toast(s.error || 'Code not accepted. Try again.', 'warning');
-            }
-          }).catch(function(err) {
-            submitBtn.textContent = 'Submit Code';
-            submitBtn.disabled = false;
-            toast('Error: ' + (err.message || err), 'error');
-          });
-        } }, 'Submit Code');
-        box.appendChild(submitBtn);
+  var verifyBtn = el('button', { class: 'btn btn-primary', style: 'margin-top:4px', onclick: function() {
+    verifyBtn.textContent = 'Checking...';
+    verifyBtn.disabled = true;
+    api('GET', '/api/claude-cli/auth-status').then(function(s) {
+      if (s.authenticated) {
+        toast('Claude CLI authenticated!', 'success');
+        api('GET', '/api/claude-cli').then(function(fresh) { renderClaudeCli(fresh, container); });
       } else {
-        box.appendChild(el('p', { style: 'font-size:13px;color:var(--error-text)' }, r.output || r.error || 'Failed to start auth flow'));
+        toast('Not authenticated yet. Complete the SSH steps first.', 'warning');
+        verifyBtn.textContent = 'Verify Authentication';
+        verifyBtn.disabled = false;
       }
-
-      authArea.appendChild(box);
-    }).catch(function(err) {
-      authBtn.disabled = false;
-      authBtn.textContent = st.authenticated ? 'Re-authenticate' : 'Authenticate Claude';
-      toast('Auth failed: ' + (err.message || err), 'error');
     });
-  } }, st.authenticated ? 'Re-authenticate' : 'Authenticate Claude');
+  } }, 'Verify Authentication');
+  sshBox.appendChild(verifyBtn);
 
-  authArea.appendChild(authBtn);
+  authArea.appendChild(sshBox);
   container.appendChild(authArea);
 }
 

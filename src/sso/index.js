@@ -108,7 +108,7 @@ router.post('/auth/setup', async function(req, res) {
   const email = String(body.email || '').trim();
   const ssoConfig = body.ssoConfig || { provider: 'builtin' };
 
-  // Validation
+  // --- Input validation (all checks before any permanent state changes) ---
   if (!username || username.length < 2) {
     return res.status(400).json({ ok: false, error: 'Username must be at least 2 characters' });
   }
@@ -119,34 +119,19 @@ router.post('/auth/setup', async function(req, res) {
     return res.status(400).json({ ok: false, error: 'Password must be at least 8 characters' });
   }
 
-  // Create the super admin account
-  const result = await userStore.createUser(
-    username, password, 'superadmin', displayName || username, email,
-    ['superadministrators', 'administrators', 'users'], 'setup-wizard'
-  );
-
-  if (result.error) {
-    return res.status(400).json({ ok: false, error: result.error });
-  }
-
-  // Complete setup with SSO configuration
-  userStore.completeSetup(ssoConfig);
-
-  // --- Operating Mode Configuration ---
+  // --- Path validation BEFORE any permanent changes ---
   const { config: dbConfig } = require('../db');
   const { runtime, ROOT_DIR } = require('../config');
   const kanbanMode = String(body.kanbanMode || 'global').trim();
+  const pathFs = require('fs');
+  const pathDir = require('path');
 
+  var effectivePath = null;
   if (kanbanMode === 'single-project') {
     const singlePath = String(body.singleProjectPath || '').trim();
-    const effectivePath = singlePath || require('path').resolve(ROOT_DIR, '..');
-
-    // Validate write access BEFORE committing config
-    const pathFs = require('fs');
-    const pathDir = require('path');
+    effectivePath = singlePath || pathDir.resolve(ROOT_DIR, '..');
     try {
       pathFs.mkdirSync(effectivePath, { recursive: true });
-      // Probe write access with a temp file
       const probe = pathDir.join(effectivePath, '.write-probe-' + Date.now());
       pathFs.writeFileSync(probe, '');
       pathFs.unlinkSync(probe);
@@ -161,7 +146,42 @@ router.post('/auth/setup', async function(req, res) {
           + 'or SSH in and run: sudo mkdir -p "' + effectivePath + '" && sudo chown $(whoami) "' + effectivePath + '"'
       });
     }
+  } else {
+    const projectsRoot = String(body.projectsRoot || '').trim();
+    if (projectsRoot) {
+      try {
+        pathFs.mkdirSync(projectsRoot, { recursive: true });
+        const probe = pathDir.join(projectsRoot, '.write-probe-' + Date.now());
+        pathFs.writeFileSync(probe, '');
+        pathFs.unlinkSync(probe);
+      } catch (e) {
+        const { log: setupLog } = require('../lib/logger');
+        setupLog.warn({ path: projectsRoot, err: e.message }, 'Setup: projects root not writable');
+        return res.status(400).json({
+          ok: false,
+          error: 'Cannot write to projects root: ' + projectsRoot + '. '
+            + 'The server process does not have permission. '
+            + 'Either choose a writable path, '
+            + 'or SSH in and run: sudo mkdir -p "' + projectsRoot + '" && sudo chown $(whoami) "' + projectsRoot + '"'
+        });
+      }
+    }
+  }
 
+  // --- All validation passed. Now commit permanent state. ---
+
+  const result = await userStore.createUser(
+    username, password, 'superadmin', displayName || username, email,
+    ['superadministrators', 'administrators', 'users'], 'setup-wizard'
+  );
+  if (result.error) {
+    return res.status(400).json({ ok: false, error: result.error });
+  }
+
+  userStore.completeSetup(ssoConfig);
+
+  // --- Operating Mode Configuration ---
+  if (kanbanMode === 'single-project') {
     runtime.mode = 'single-project';
     runtime.autoPromoteBrainstorm = true;
     runtime.singleProjectPath = effectivePath;
@@ -169,7 +189,7 @@ router.post('/auth/setup', async function(req, res) {
     dbConfig.set('single_project_path', effectivePath);
     dbConfig.set('auto_promote_brainstorm', 'true');
 
-    // Copy demo idea.md if requested (path already validated writable above)
+    // Copy demo idea.md (path already validated writable)
     if (body.useDemoIdea) {
       try {
         const demoSrc = pathDir.join(ROOT_DIR, 'demo', 'idea.md');
@@ -189,24 +209,6 @@ router.post('/auth/setup', async function(req, res) {
     runtime.mode = 'global';
     dbConfig.set('kanban_mode', 'global');
     if (projectsRoot) {
-      // Validate write access for projects root too
-      const prFs = require('fs');
-      try {
-        prFs.mkdirSync(projectsRoot, { recursive: true });
-        const probe = require('path').join(projectsRoot, '.write-probe-' + Date.now());
-        prFs.writeFileSync(probe, '');
-        prFs.unlinkSync(probe);
-      } catch (e) {
-        const { log: setupLog } = require('../lib/logger');
-        setupLog.warn({ path: projectsRoot, err: e.message }, 'Setup: projects root not writable');
-        return res.status(400).json({
-          ok: false,
-          error: 'Cannot write to projects root: ' + projectsRoot + '. '
-            + 'The server process does not have permission. '
-            + 'Either choose a writable path, '
-            + 'or SSH in and run: sudo mkdir -p "' + projectsRoot + '" && sudo chown $(whoami) "' + projectsRoot + '"'
-        });
-      }
       dbConfig.set('projects_root', projectsRoot);
     }
   }

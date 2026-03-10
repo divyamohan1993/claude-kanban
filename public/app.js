@@ -413,7 +413,7 @@ function updateDemoTimer(data) {
     if (header) header.parentNode.insertBefore(bar, header.nextSibling);
     else document.body.prepend(bar);
   }
-  bar.style.display = '';
+  bar.style.display = 'flex';
   var targetTime = data.nextRunAt;
 
   function tick() {
@@ -427,8 +427,8 @@ function updateDemoTimer(data) {
     var secs = Math.floor((remaining % 60000) / 1000);
     var timeStr = mins > 0 ? mins + 'm ' + secs + 's' : secs + 's';
     bar.textContent = '';
-    bar.appendChild(el('span', { className: 'demo-timer-text' }, 'Next card in ' + timeStr));
-    bar.appendChild(el('span', { className: 'demo-timer-note' }, 'Demo mode: pacing builds to conserve the host account\'s Claude usage quota'));
+    bar.appendChild(el('span', { className: 'demo-timer-text' }, 'Next build starts in ' + timeStr));
+    bar.appendChild(el('span', { className: 'demo-timer-note' }, 'This is a live demo. Intentional delays between builds prevent draining the Claude usage quota.'));
   }
   tick();
   if (_demoTimerInterval) clearInterval(_demoTimerInterval);
@@ -2029,6 +2029,7 @@ async function init() {
   state.cards = results[0];
   cardActivities = results[1];
   pipelinePaused = results[2].paused;
+  if (results[2].demoTimer) updateDemoTimer(results[2].demoTimer);
   state.config = results[3];
   boardMode = results[4] || boardMode;
   applyModeUI();

@@ -324,7 +324,10 @@ router.get('/api/cards', optionalAuth, function(req, res) {
 
 router.get('/api/queue', optionalAuth, function(_req, res) { res.json(pipeline.getQueueInfo()); });
 router.get('/api/activities', optionalAuth, function(_req, res) { res.json(pipeline.getActivities()); });
-router.get('/api/pipeline', optionalAuth, function(_req, res) { res.json({ paused: pipeline.isPaused() }); });
+router.get('/api/pipeline', optionalAuth, function(_req, res) {
+  var st = pipeline.getPipelineState();
+  res.json({ paused: pipeline.isPaused(), demoTimer: st.demoTimer || null });
+});
 router.get('/api/search', optionalAuth, function(req, res) {
   if (!req.query.q) return res.json([]);
   res.json(enrichCards(cards.search(req.query.q), !!req.user));

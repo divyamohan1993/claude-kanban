@@ -1439,21 +1439,30 @@ input:focus, textarea:focus {
 .demo-timer-bar {
   display: none;
   text-align: center;
-  padding: 8px 16px;
-  background: var(--primary-soft, #fef3e6);
-  border-bottom: 1px solid var(--primary, #c97d2e);
+  padding: 10px 16px;
+  background: linear-gradient(135deg, var(--primary-soft, #fef3e6) 0%, #fff8f0 100%);
+  border-bottom: 2px solid var(--primary, #c97d2e);
   font-size: 13px;
   color: var(--text);
-  gap: 12px;
+  gap: 8px;
+  flex-direction: column;
+  align-items: center;
+  animation: demo-pulse 3s ease-in-out infinite;
+}
+@keyframes demo-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
 }
 .demo-timer-text {
-  font-weight: 600;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  margin-right: 12px;
+  font-size: 15px;
+  letter-spacing: 0.02em;
 }
 .demo-timer-note {
   color: var(--text-muted, #888);
   font-size: 12px;
+  margin-top: 2px;
 }
 
 /* ----------------------------------------------------------------

@@ -214,6 +214,7 @@ footer a{color:var(--text-secondary)}
   <a href="#ui" title="Interface" aria-label="Interface section"></a>
   <a href="#enterprise" title="Enterprise" aria-label="Enterprise section"></a>
   <a href="#api" title="API" aria-label="API section"></a>
+  <a href="#deploy" title="Deployment" aria-label="Deployment section"></a>
   <a href="#compare" title="Comparison" aria-label="Comparison section"></a>
 </div>
 
@@ -221,7 +222,7 @@ footer a{color:var(--text-secondary)}
 
 <!-- HERO -->
 <section class="hero" aria-labelledby="hero-title">
-  <div class="hero-badge">Open Source &middot; Apache 2.0</div>
+  <div class="hero-badge">v3.3.0 &middot; Open Source &middot; Apache 2.0</div>
   <h1 id="hero-title">Drop an idea.<br><em>Walk away.</em><br>Come back to committed code.</h1>
   <p>Claude Kanban is an autonomous AI development pipeline. It brainstorms specs, builds code, reviews it with a separate AI reviewer, auto-fixes findings, and commits. No babysitting.</p>
   <div class="hero-stats" role="list" aria-label="Project stats">
@@ -727,6 +728,79 @@ footer a{color:var(--text-secondary)}
 
 <hr class="divider">
 
+<!-- DEPLOYMENT -->
+<section class="section" aria-labelledby="deploy-title" id="deploy">
+  <div class="section-header">
+    <div class="section-tag ops">Deployment &amp; Infrastructure</div>
+    <h2 class="section-title" id="deploy-title">Docker, Kubernetes, bare metal. One command each.</h2>
+    <p class="section-desc">Multi-stage Docker image, K8s manifests with Kustomize, zero-intervention server provisioning, CI/CD pipeline with matrix testing.</p>
+  </div>
+  <div class="feat-grid">
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128230;</div>
+      <h3>Multi-Stage Docker Image</h3>
+      <p>Two-stage Alpine build: native module compilation (argon2, better-sqlite3) in builder stage, production image runs as non-root user (uid 1001). Built-in health check (curl /health every 30s). Persistent data via volume mount at /app/.data.</p>
+      <div class="feat-detail">Node 22 Alpine &middot; non-root &middot; HEALTHCHECK &middot; VOLUME</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128230;</div>
+      <h3>Docker Compose</h3>
+      <p>Single-command self-hosting: docker compose up. Resource limits (512MB memory, 1 CPU), log rotation (10MB max, 3 files), unless-stopped restart policy, health checks, named volume for data persistence.</p>
+      <div class="feat-detail">Resource limits &middot; log rotation &middot; auto-restart &middot; health check</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#9784;</div>
+      <h3>Kubernetes Manifests</h3>
+      <p>Production-ready K8s: Deployment with security context (non-root, read-only root filesystem, drop ALL capabilities), liveness probe (/health), readiness probe (/health/ready), PVC for data, ClusterIP Service, Kustomize base.</p>
+      <div class="feat-detail">SecurityContext &middot; liveness+readiness probes &middot; PVC &middot; Kustomize</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#9881;</div>
+      <h3>Zero-Intervention Autoconfig</h3>
+      <p>Blank GCP Ubuntu to running app in one script. Installs Node.js 22, pnpm, creates app user, clones repo, configures .env (mode 600), installs deps, sets up systemd service with security hardening (NoNewPrivileges, ProtectSystem=strict, PrivateTmp).</p>
+      <div class="feat-detail">Idempotent &middot; safe to re-run &middot; secret rotation on rerun</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128259;</div>
+      <h3>Hourly Auto-Update</h3>
+      <p>Systemd timer checks git hourly (with 5-min random jitter). If updates exist: pauses pipeline, drains active builds (10-min timeout), pulls, installs, restarts. Post-restart health check. Automatic rollback if new version fails health check.</p>
+      <div class="feat-detail">Pipeline drain &middot; health verify &middot; auto-rollback on failure</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128737;</div>
+      <h3>Nginx Reverse Proxy</h3>
+      <p>Auto-configured Nginx: Cloudflare real IP restoration (all CF CIDR ranges), WebSocket upgrade support, SSE proxy with buffering disabled, defense-in-depth security headers, admin panel access blocked at proxy level.</p>
+      <div class="feat-detail">CF real IP &middot; WebSocket &middot; SSE unbuffered &middot; admin blocked</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128274;</div>
+      <h3>UFW Firewall</h3>
+      <p>Auto-configured firewall: deny all incoming, allow outgoing, open only SSH (22), HTTP (80), HTTPS (443), and app port (8090). Port 80 left free for apps the kanban board deploys.</p>
+      <div class="feat-detail">Deny-all default &middot; 4 ports open &middot; port 80 reserved</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-green" aria-hidden="true">&#9989;</div>
+      <h3>CI/CD Pipeline</h3>
+      <p>GitHub Actions: matrix testing (Ubuntu + Windows, Node 18 + 22), syntax check all source files, dependency audit (high severity), server health probes (liveness + readiness), full 305-test suite, Docker image build and verify on main branch merge.</p>
+      <div class="feat-detail">2&times;2 matrix &middot; 305 tests &middot; Docker verify &middot; fail-fast: false</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128203;</div>
+      <h3>5 Test Suites</h3>
+      <p>March of Nines (reliability, 168 tests), dependency audit (27 tests), performance benchmarks (28 tests), data durability (35 tests), code quality (47 tests). Run individually or all at once with pnpm test.</p>
+      <div class="feat-detail">pnpm test:reliability &middot; test:security &middot; test:perf &middot; test:durability &middot; test:quality</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128203;</div>
+      <h3>Operational Scripts</h3>
+      <p>Cross-platform start/stop/watchdog scripts for Windows (.bat) and Linux (.sh). Silent execution on Windows (no visible terminal). Watchdog monitors heartbeat and auto-restarts on crash.</p>
+      <div class="feat-detail">start &middot; stop &middot; watchdog &middot; Windows + Linux</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
 <!-- API -->
 <section class="section" aria-labelledby="api-title" id="api">
   <div class="section-header">
@@ -778,6 +852,7 @@ footer a{color:var(--text-secondary)}
         <li>No learning between sessions</li>
         <li>No file rollback</li>
         <li>No queue, no priority</li>
+        <li>Manual deployment setup</li>
       </ul>
     </div>
     <div class="compare-col highlight">
@@ -792,7 +867,7 @@ footer a{color:var(--text-secondary)}
         <li>Builder ≠ reviewer (independent sessions)</li>
         <li>Self-learning intelligence engine</li>
         <li>Pre-build snapshots with rollback</li>
-        <li>Priority queue with dependency DAG</li>
+        <li>Docker, K8s, bare metal: one command each</li>
       </ul>
     </div>
   </div>
@@ -809,7 +884,7 @@ footer a{color:var(--text-secondary)}
   <div class="feat-grid">
     <div class="feat-card">
       <h3>Runtime</h3>
-      <p>Node.js 18+. Express. SQLite (WAL mode). Pino structured JSON logging. 4 production dependencies: argon2, better-sqlite3, express, pino.</p>
+      <p>Node.js 18+ (tested 18, 22). Express. SQLite (WAL mode). Pino structured JSON logging. 4 production dependencies: argon2, better-sqlite3, express, pino.</p>
     </div>
     <div class="feat-card">
       <h3>Database</h3>
@@ -820,8 +895,16 @@ footer a{color:var(--text-secondary)}
       <p>Dual-server: public app (0.0.0.0:51777) + admin (127.0.0.1:random). Shared middleware. SSE for real-time. All state in SQLite. Stateless request handling.</p>
     </div>
     <div class="feat-card">
+      <h3>Deployment</h3>
+      <p>Docker (multi-stage Alpine, non-root). Docker Compose (resource limits, health checks). Kubernetes (Kustomize, security context, probes). Bare metal (autoconfig.sh, systemd, Nginx). CI/CD (GitHub Actions, 2&times;2 matrix).</p>
+    </div>
+    <div class="feat-card">
       <h3>Observability</h3>
       <p>Correlation IDs on every request (X-Request-Id). Pino structured JSON. Error auto-persist to DB. Deep health check (DB, disk, pipeline, errors). Heartbeat file for external monitoring.</p>
+    </div>
+    <div class="feat-card">
+      <h3>Testing</h3>
+      <p>305 tests across 5 suites: reliability (168), dependency audit (27), performance (28), data durability (35), code quality (47). CI runs on Ubuntu + Windows, Node 18 + 22.</p>
     </div>
     <div class="feat-card">
       <h3>Performance</h3>
@@ -837,7 +920,7 @@ footer a{color:var(--text-secondary)}
 </main>
 
 <footer>
-  <p>Claude Kanban &middot; Built by <a href="https://dmj.one">Divya Mohan</a> and Claude Opus 4.6 &middot; <a href="https://github.com/divyamohan1993/claude-kanban">GitHub</a></p>
+  <p>Claude Kanban v3.3.0 &middot; Built by <a href="https://dmj.one">Divya Mohan</a> and Claude Opus 4.6 &middot; <a href="https://github.com/divyamohan1993/claude-kanban">GitHub</a></p>
 </footer>
 
 <script>

@@ -11,12 +11,12 @@ REM   4. On restart, recoverOrphanedCards() resets stuck cards
 REM   5. Recovery poller auto-resumes rate-limited cards when usage resets
 REM
 REM Usage:
-REM   watchdog.bat                  (run in foreground)
-REM   start /min watchdog.bat       (run minimized)
+REM   scripts\watchdog.bat            (run in foreground)
+REM   start /min scripts\watchdog.bat (run minimized)
 REM ============================================================================
 
 setlocal enabledelayedexpansion
-set "ROOT=%~dp0"
+set "ROOT=%~dp0\.."
 set "HEARTBEAT=%ROOT%.data\.heartbeat"
 set "RESTART_MARKER=%ROOT%.data\.restart-requested"
 set "WATCHDOG_LOG=%ROOT%.data\watchdog.log"

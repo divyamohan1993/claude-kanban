@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Kanban — Features</title>
+<meta name="description" content="Every feature of Claude Kanban: the autonomous AI development pipeline that turns ideas into committed, reviewed code.">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#FAFAF8;--surface:#FFFFFF;--surface-alt:#F5F0EB;--border:#E5E0DB;
+  --text:#1B1B18;--text-secondary:#6B6B68;--text-tertiary:#9B9B98;
+  --accent:#D97706;--accent-soft:rgba(217,119,6,0.08);--accent-border:rgba(217,119,6,0.2);
+  --green:#15803D;--green-soft:rgba(21,128,61,0.08);
+  --red:#DC2626;--red-soft:rgba(220,38,38,0.08);
+  --blue:#2563EB;--blue-soft:rgba(37,99,235,0.08);
+  --purple:#7C3AED;--purple-soft:rgba(124,58,237,0.08);
+  --cyan:#0891B2;--cyan-soft:rgba(8,145,178,0.08);
+  --radius:10px;--radius-lg:16px;
+  --shadow:0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04);
+  --shadow-lg:0 4px 16px rgba(0,0,0,0.08);
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  --mono:'SF Mono','Cascadia Code','Fira Code',Consolas,monospace;
+  --max-w:1200px;
+  --nav-h:64px;
+}
+
+[data-theme="dark"]{
+  --bg:#1A1A1D;--surface:#232326;--surface-alt:#2A2A2E;--border:#3A3A3E;
+  --text:#F0F0F0;--text-secondary:#A0A0A0;--text-tertiary:#707070;
+  --accent:#F59E0B;--accent-soft:rgba(245,158,11,0.1);--accent-border:rgba(245,158,11,0.25);
+  --green:#22C55E;--green-soft:rgba(34,197,94,0.1);
+  --red:#EF4444;--red-soft:rgba(239,68,68,0.1);
+  --blue:#3B82F6;--blue-soft:rgba(59,130,246,0.1);
+  --purple:#A78BFA;--purple-soft:rgba(167,139,250,0.1);
+  --cyan:#22D3EE;--cyan-soft:rgba(34,211,238,0.1);
+  --shadow:0 1px 3px rgba(0,0,0,0.3);
+  --shadow-lg:0 4px 16px rgba(0,0,0,0.4);
+}
+
+html{scroll-behavior:smooth;font-size:16px}
+body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.6;transition:background 0.3s,color 0.3s;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+a:focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:3px}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:3px}
+img{max-width:100%;height:auto}
+
+/* Skip link */
+.skip-link{position:absolute;top:-100%;left:16px;background:var(--accent);color:#fff;padding:8px 16px;border-radius:var(--radius);z-index:1000;font-weight:600}
+.skip-link:focus{top:8px}
+
+/* Nav */
+nav{position:sticky;top:0;z-index:100;background:var(--surface);border-bottom:1px solid var(--border);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.nav-inner{max-width:var(--max-w);margin:0 auto;padding:0 24px;height:var(--nav-h);display:flex;align-items:center;justify-content:space-between}
+.nav-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:1.1rem;color:var(--text)}
+.nav-diamond{color:var(--accent);font-size:1.3rem}
+.nav-links{display:flex;align-items:center;gap:6px}
+.nav-links a,.nav-links button{padding:6px 14px;border-radius:var(--radius);font-size:0.875rem;font-weight:500;color:var(--text-secondary);background:none;border:none;cursor:pointer;transition:all 0.15s;font-family:var(--font)}
+.nav-links a:hover,.nav-links button:hover{background:var(--accent-soft);color:var(--accent);text-decoration:none}
+.nav-cta{background:var(--accent)!important;color:#fff!important;font-weight:600!important}
+.nav-cta:hover{opacity:0.9!important}
+#theme-toggle{font-size:1.1rem;width:36px;height:36px;display:flex;align-items:center;justify-content:center;padding:0!important;border-radius:50%}
+
+/* Hero */
+.hero{padding:80px 24px 48px;text-align:center;max-width:800px;margin:0 auto}
+.hero-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 14px;border-radius:999px;font-size:0.8rem;font-weight:600;color:var(--accent);background:var(--accent-soft);border:1px solid var(--accent-border);margin-bottom:20px;letter-spacing:0.02em;text-transform:uppercase}
+.hero h1{font-size:clamp(2.2rem,5vw,3.4rem);font-weight:800;line-height:1.15;letter-spacing:-0.03em;margin-bottom:16px}
+.hero h1 em{font-style:normal;color:var(--accent)}
+.hero p{font-size:clamp(1.05rem,2vw,1.2rem);color:var(--text-secondary);max-width:600px;margin:0 auto 32px;line-height:1.65}
+.hero-stats{display:flex;justify-content:center;gap:32px;flex-wrap:wrap}
+.hero-stat{text-align:center}
+.hero-stat-val{font-size:1.5rem;font-weight:800;color:var(--text);font-family:var(--mono)}
+.hero-stat-label{font-size:0.75rem;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em;margin-top:2px}
+
+/* Section */
+.section{max-width:var(--max-w);margin:0 auto;padding:48px 24px}
+.section-header{margin-bottom:36px}
+.section-tag{font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px}
+.section-tag.pipeline{color:var(--accent)}
+.section-tag.security{color:var(--red)}
+.section-tag.intelligence{color:var(--purple)}
+.section-tag.ops{color:var(--cyan)}
+.section-tag.ui{color:var(--blue)}
+.section-tag.enterprise{color:var(--green)}
+.section-title{font-size:clamp(1.5rem,3vw,2rem);font-weight:800;letter-spacing:-0.02em;margin-bottom:8px}
+.section-desc{color:var(--text-secondary);font-size:1rem;max-width:640px}
+
+/* Feature Grid */
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.feat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;transition:box-shadow 0.2s,border-color 0.2s}
+.feat-card:hover{box-shadow:var(--shadow-lg);border-color:var(--accent-border)}
+.feat-icon{width:40px;height:40px;border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-size:1.2rem;margin-bottom:14px;flex-shrink:0}
+.feat-card h3{font-size:0.95rem;font-weight:700;margin-bottom:6px;line-height:1.3}
+.feat-card p{font-size:0.85rem;color:var(--text-secondary);line-height:1.55}
+.feat-detail{font-size:0.78rem;color:var(--text-tertiary);margin-top:8px;font-family:var(--mono);line-height:1.5}
+
+/* Color coded icons */
+.ic-amber{background:var(--accent-soft);color:var(--accent)}
+.ic-green{background:var(--green-soft);color:var(--green)}
+.ic-red{background:var(--red-soft);color:var(--red)}
+.ic-blue{background:var(--blue-soft);color:var(--blue)}
+.ic-purple{background:var(--purple-soft);color:var(--purple)}
+.ic-cyan{background:var(--cyan-soft);color:var(--cyan)}
+
+/* Pipeline flow */
+.pipeline-flow{display:flex;align-items:center;justify-content:center;gap:0;flex-wrap:wrap;padding:24px 0;margin:0 auto 40px;max-width:100%}
+.pipe-step{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 16px;min-width:90px}
+.pipe-dot{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:700;border:2px solid var(--border);background:var(--surface);transition:all 0.15s}
+.pipe-label{font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-secondary)}
+.pipe-arrow{font-size:1rem;color:var(--text-tertiary);margin:0 -4px;align-self:center}
+.pipe-step.active .pipe-dot{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+
+/* Divider */
+.divider{border:none;border-top:1px solid var(--border);margin:0}
+
+/* Spec table */
+.spec-table{width:100%;border-collapse:collapse;font-size:0.85rem;margin-top:16px;background:var(--surface);border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border)}
+.spec-table th{text-align:left;padding:10px 16px;background:var(--surface-alt);font-weight:700;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-secondary);border-bottom:1px solid var(--border)}
+.spec-table td{padding:10px 16px;border-bottom:1px solid var(--border)}
+.spec-table tr:last-child td{border-bottom:none}
+.spec-table code{font-family:var(--mono);font-size:0.8rem;background:var(--surface-alt);padding:2px 6px;border-radius:4px}
+
+/* Tags */
+.tag{display:inline-flex;padding:2px 8px;border-radius:6px;font-size:0.7rem;font-weight:600;letter-spacing:0.02em}
+.tag-g{background:var(--green-soft);color:var(--green)}
+.tag-r{background:var(--red-soft);color:var(--red)}
+.tag-b{background:var(--blue-soft);color:var(--blue)}
+.tag-a{background:var(--accent-soft);color:var(--accent)}
+.tag-p{background:var(--purple-soft);color:var(--purple)}
+
+/* Comparison */
+.compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px}
+.compare-col{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;position:relative}
+.compare-col.highlight{border-color:var(--accent-border);box-shadow:0 0 0 1px var(--accent-border)}
+.compare-col h3{font-size:1rem;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.compare-col ul{list-style:none;display:flex;flex-direction:column;gap:8px}
+.compare-col li{font-size:0.85rem;color:var(--text-secondary);display:flex;align-items:flex-start;gap:8px;line-height:1.4}
+.compare-col li::before{content:'';flex-shrink:0;width:6px;height:6px;border-radius:50%;margin-top:7px}
+.compare-col.highlight li::before{background:var(--green)}
+.compare-col:not(.highlight) li::before{background:var(--text-tertiary)}
+
+/* Number highlight */
+.num{font-family:var(--mono);font-weight:800;color:var(--accent)}
+
+/* Footer */
+footer{border-top:1px solid var(--border);padding:32px 24px;text-align:center;color:var(--text-tertiary);font-size:0.8rem}
+footer a{color:var(--text-secondary)}
+
+/* TOC */
+.toc{position:fixed;right:24px;top:50%;transform:translateY(-50%);z-index:50;display:flex;flex-direction:column;gap:4px}
+.toc a{width:8px;height:8px;border-radius:50%;background:var(--border);display:block;transition:all 0.2s}
+.toc a:hover,.toc a.active{background:var(--accent);transform:scale(1.4)}
+.toc a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Responsive */
+@media(max-width:768px){
+  .feat-grid{grid-template-columns:1fr}
+  .compare-grid{grid-template-columns:1fr}
+  .hero{padding:48px 16px 32px}
+  .section{padding:32px 16px}
+  .toc{display:none}
+  .pipe-arrow{display:none}
+  .pipeline-flow{gap:4px}
+  .pipe-step{min-width:70px;padding:8px}
+  .nav-links .hide-m{display:none}
+}
+@media(max-width:480px){
+  .hero-stats{gap:20px}
+  .pipe-step{min-width:60px;padding:6px 4px}
+  .pipe-label{font-size:0.6rem}
+}
+
+/* Reduced motion */
+@media(prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important}
+  html{scroll-behavior:auto}
+}
+
+/* Print */
+@media print{
+  nav,.toc,#theme-toggle{display:none}
+  .section{padding:16px 0}
+  .feat-card{break-inside:avoid}
+  body{background:#fff;color:#000}
+}
+</style>
+</head>
+<body>
+<a href="#main" class="skip-link">Skip to content</a>
+
+<nav role="navigation" aria-label="Main navigation">
+  <div class="nav-inner">
+    <a href="/" class="nav-brand" aria-label="Claude Kanban home">
+      <span class="nav-diamond" aria-hidden="true">&#9670;</span>
+      Claude Kanban
+    </a>
+    <div class="nav-links">
+      <a href="/pitch/" class="hide-m">Pitch</a>
+      <a href="/features/" aria-current="page" style="color:var(--accent)">Features</a>
+      <button id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode"></button>
+      <a href="/" class="nav-cta">Open Board</a>
+    </div>
+  </div>
+</nav>
+
+<div class="toc" role="navigation" aria-label="Page sections">
+  <a href="#pipeline" title="Pipeline" aria-label="Pipeline section"></a>
+  <a href="#intelligence" title="Intelligence" aria-label="Intelligence section"></a>
+  <a href="#security" title="Security" aria-label="Security section"></a>
+  <a href="#review" title="Code Review" aria-label="Code Review section"></a>
+  <a href="#resilience" title="Resilience" aria-label="Resilience section"></a>
+  <a href="#ui" title="Interface" aria-label="Interface section"></a>
+  <a href="#enterprise" title="Enterprise" aria-label="Enterprise section"></a>
+  <a href="#api" title="API" aria-label="API section"></a>
+  <a href="#compare" title="Comparison" aria-label="Comparison section"></a>
+</div>
+
+<main id="main">
+
+<!-- HERO -->
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero-badge">Open Source &middot; Apache 2.0</div>
+  <h1 id="hero-title">Drop an idea.<br><em>Walk away.</em><br>Come back to committed code.</h1>
+  <p>Claude Kanban is an autonomous AI development pipeline. It brainstorms specs, builds code, reviews it with a separate AI reviewer, auto-fixes findings, and commits. No babysitting.</p>
+  <div class="hero-stats" role="list" aria-label="Project stats">
+    <div class="hero-stat" role="listitem"><div class="hero-stat-val">12K</div><div class="hero-stat-label">Lines of Code</div></div>
+    <div class="hero-stat" role="listitem"><div class="hero-stat-val">79</div><div class="hero-stat-label">API Endpoints</div></div>
+    <div class="hero-stat" role="listitem"><div class="hero-stat-val">4</div><div class="hero-stat-label">Dependencies</div></div>
+    <div class="hero-stat" role="listitem"><div class="hero-stat-val">305</div><div class="hero-stat-label">Tests Passing</div></div>
+    <div class="hero-stat" role="listitem"><div class="hero-stat-val">0</div><div class="hero-stat-label">Frameworks</div></div>
+  </div>
+</section>
+
+<!-- PIPELINE VISUALIZATION -->
+<section class="section" aria-labelledby="pipeline-title" id="pipeline">
+  <div class="section-header">
+    <div class="section-tag pipeline">Autonomous Pipeline</div>
+    <h2 class="section-title" id="pipeline-title">Idea to committed code. Zero human steps required.</h2>
+    <p class="section-desc">Every stage runs autonomously. The pipeline pauses only when it needs human judgment, not human labor.</p>
+  </div>
+
+  <div class="pipeline-flow" role="img" aria-label="Pipeline stages: Idea, Brainstorm, Spec, Snapshot, Build, Review, Auto-Fix, Commit">
+    <div class="pipe-step active"><div class="pipe-dot">1</div><div class="pipe-label">Idea</div></div>
+    <span class="pipe-arrow" aria-hidden="true">&#8594;</span>
+    <div class="pipe-step active"><div class="pipe-dot">2</div><div class="pipe-label">Brainstorm</div></div>
+    <span class="pipe-arrow" aria-hidden="true">&#8594;</span>
+    <div class="pipe-step active"><div class="pipe-dot">3</div><div class="pipe-label">Spec</div></div>
+    <span class="pipe-arrow" aria-hidden="true">&#8594;</span>
+    <div class="pipe-step active"><div class="pipe-dot">4</div><div class="pipe-label">Snapshot</div></div>
+    <span class="pipe-arrow" aria-hidden="true">&#8594;</span>
+    <div class="pipe-step active"><div class="pipe-dot">5</div><div class="pipe-label">Build</div></div>
+    <span class="pipe-arrow" aria-hidden="true">&#8594;</span>
+    <div class="pipe-step active"><div class="pipe-dot">6</div><div class="pipe-label">Review</div></div>
+    <span class="pipe-arrow" aria-hidden="true">&#8594;</span>
+    <div class="pipe-step active"><div class="pipe-dot">7</div><div class="pipe-label">Fix</div></div>
+    <span class="pipe-arrow" aria-hidden="true">&#8594;</span>
+    <div class="pipe-step active"><div class="pipe-dot">8</div><div class="pipe-label">Commit</div></div>
+  </div>
+
+  <div class="feat-grid">
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#9670;</div>
+      <h3>Multi-Lens Brainstorming</h3>
+      <p>Every idea is analyzed from three mandatory perspectives: end-user, adversary, and maintainer. Card-type-aware lens profiles (bug, feature, security, refactor, performance) ensure relevant questions get asked.</p>
+      <div class="feat-detail">5 card-type profiles &middot; 3 lenses per brainstorm</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#9881;</div>
+      <h3>Spec Decomposition</h3>
+      <p>Brainstorm specs auto-decompose into independently buildable child tasks with dependency ordering. Each child queues, builds, and reviews autonomously. Parent completes when all children pass.</p>
+      <div class="feat-detail">Up to 10 child cards &middot; dependency DAG &middot; cascade revert on reject</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#128247;</div>
+      <h3>Pre-Build Snapshots</h3>
+      <p>Full file snapshot captured before every build. If review fails or code breaks, one-click revert restores the exact pre-build state. No git archaeology needed.</p>
+      <div class="feat-detail">Manifest tracking &middot; size-filtered &middot; archive rotation</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#9654;</div>
+      <h3>Priority Queue</h3>
+      <p>Work items queue by priority with project-level locking: one build per folder at a time. Dependency-aware scheduling blocks cards until their prerequisites complete.</p>
+      <div class="feat-detail">Configurable concurrency &middot; priority sort &middot; folder lock</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#128269;</div>
+      <h3>Auto-Discovery</h3>
+      <p>In single-project mode, 10 strategic lenses (security audit, testing gaps, UX friction, architecture debt, performance, accessibility, error handling, data integrity, DX, operational readiness) rotate via LRU to systematically find real work.</p>
+      <div class="feat-detail">LRU lens rotation &middot; devil's advocate &middot; one task per cycle</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#128736;</div>
+      <h3>Confrontational Challenges</h3>
+      <p>Before spec finalization, the AI must pass 3 of 5 critical thinking challenges: alternatives test, opportunity cost, failure pre-mortem, user reality check, and scope knife. Prevents weak specs from entering the build pipeline.</p>
+      <div class="feat-detail">70% default rate &middot; configurable &middot; randomized selection</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#128203;</div>
+      <h3>Spec Approval Gate</h3>
+      <p>Optional human gate: brainstorm output lands in "spec-ready" status for human review before proceeding to build. Keeps a human in the loop when stakes are high, stays fully autonomous when they're not.</p>
+      <div class="feat-detail">Per-project toggle &middot; manual promote &middot; auto-promote mode</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#128268;</div>
+      <h3>Retry with Feedback</h3>
+      <p>Not happy with a build? Send targeted feedback. The pipeline re-snapshots, appends your context, and rebuilds, keeping existing work and applying only the requested changes. Feedback keywords are learned for future specs.</p>
+      <div class="feat-detail">Feedback → snapshot → rebuild → re-review</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- INTELLIGENCE -->
+<section class="section" aria-labelledby="intel-title" id="intelligence">
+  <div class="section-header">
+    <div class="section-tag intelligence">Self-Learning Intelligence</div>
+    <h2 class="section-title" id="intel-title">Gets smarter with every build.</h2>
+    <p class="section-desc">Pattern engine learns from outcomes, auto-tunes configuration, and rolls back if changes hurt quality.</p>
+  </div>
+  <div class="feat-grid">
+    <div class="feat-card">
+      <div class="feat-icon ic-purple" aria-hidden="true">&#129504;</div>
+      <h3>Progressive Trust</h3>
+      <p>Projects earn trust through track record. New projects require score 8+ for auto-approval. After 10 successful builds with average score 7.5+, threshold drops to 7. Trust is earned, not assumed.</p>
+      <div class="feat-detail">4 tiers: new → building → trusted → proven</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-purple" aria-hidden="true">&#127991;</div>
+      <h3>Auto-Labeling</h3>
+      <p>80+ seed keyword rules learn from your labeling patterns. O(1) rule lookups per word, confidence-scored, max 3 labels. Penalizes labels you remove, reinforces labels you keep.</p>
+      <div class="feat-detail">O(n) word scan &middot; confidence threshold 60 &middot; label learning</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-purple" aria-hidden="true">&#128200;</div>
+      <h3>Spec Effectiveness Scoring</h3>
+      <p>Every spec gets a quality score based on: review score (base), fix rounds (penalty), timeouts (penalty), first-try auto-approve (bonus). Learns which spec structures produce high-quality builds.</p>
+      <div class="feat-detail">21 structural features analyzed &middot; pattern correlation</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-purple" aria-hidden="true">&#9881;</div>
+      <h3>Config Auto-Tuning</h3>
+      <p>If >30% of builds timeout, doubles the timeout cap. Detects low review scores across projects. Identifies high-frequency feedback themes. Every auto-change creates a rollback checkpoint.</p>
+      <div class="feat-detail">30-min analysis cycle &middot; checkpoint rollback &middot; audit trail</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-purple" aria-hidden="true">&#128218;</div>
+      <h3>Historical Context Injection</h3>
+      <p>Brainstorm prompts include: past review scores, common finding categories, spec patterns that worked (and didn't), workflow observations, feedback themes. AI builds on history, not from scratch.</p>
+      <div class="feat-detail">System-wide + per-project stats &middot; deduplicated findings</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-purple" aria-hidden="true">&#127919;</div>
+      <h3>Domain Coverage Tracking</h3>
+      <p>Tracks 10 strategic domains (security, testing, UX, architecture, performance, accessibility, error handling, data integrity, DX, operations). Highlights neglected areas with guiding questions in every brainstorm.</p>
+      <div class="feat-detail">Coverage % per domain &middot; gap detection &middot; guided prompts</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-purple" aria-hidden="true">&#128161;</div>
+      <h3>Creative Constraints</h3>
+      <p>19 context-aware thinking prompts across 7 themes (accessibility, resilience, simplicity, empathy, security, observability, scale). Weighted random selection with LRU prevents repetition. Forces novel approaches.</p>
+      <div class="feat-detail">7 themes &middot; 19 prompts &middot; card-type filtering</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-purple" aria-hidden="true">&#128260;</div>
+      <h3>Checkpoint Rollback</h3>
+      <p>Every auto-tuning change creates a rollback point. If a config change or learned pattern causes problems, roll back to a previous state with one API call. Changes are audited and broadcast to all clients.</p>
+      <div class="feat-detail">7-day retention &middot; config + label + prompt rollback</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- SECURITY -->
+<section class="section" aria-labelledby="sec-title" id="security">
+  <div class="section-header">
+    <div class="section-tag security">Defense in Depth</div>
+    <h2 class="section-title" id="sec-title">Security is not a feature. It is the foundation.</h2>
+    <p class="section-desc">Every layer independently protects. Assume host compromised, DB exfiltrated, attacker has root. Data stays safe.</p>
+  </div>
+  <div class="feat-grid">
+    <div class="feat-card">
+      <div class="feat-icon ic-red" aria-hidden="true">&#128274;</div>
+      <h3>AES-256-GCM Field Encryption</h3>
+      <p>PII (emails) encrypted at the field level, not just disk. Three-tier key derivation: Cloudflare Worker vault half + local .env half + HKDF derivation. Neither half alone produces the key. Stolen DB = useless ciphertext.</p>
+      <div class="feat-detail">IV(12) + AuthTag(16) + Ciphertext &middot; timing-safe decryption</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-red" aria-hidden="true">&#128272;</div>
+      <h3>Argon2id Password Hashing</h3>
+      <p>Memory-hard hashing: 64MB memory cost, 3 iterations, 4 parallelism. No bcrypt, no scrypt. Timing-safe comparison for non-existent users (compares against pre-computed dummy hash to prevent user enumeration).</p>
+      <div class="feat-detail">memoryCost=65536 &middot; timeCost=3 &middot; parallelism=4</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-red" aria-hidden="true">&#128737;</div>
+      <h3>Token Bucket Rate Limiting</h3>
+      <p>O(1) per request. Runs before body parsing, before session validation, before everything. Pre-built 429 response (~180 bytes), zero serialization on reject. Separate stricter bucket for auth endpoints.</p>
+      <div class="feat-detail">10K IP limit &middot; LRU eviction &middot; 200 burst / 5 auth burst</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-red" aria-hidden="true">&#128737;</div>
+      <h3>SSE Connection Guards</h3>
+      <p>Per-IP cap (5) and global cap (200) on Server-Sent Event connections. Pre-built rejection response. Decrements on disconnect. Prevents connection exhaustion attacks.</p>
+      <div class="feat-detail">Per-IP + global tracking &middot; auto-cleanup on disconnect</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-red" aria-hidden="true">&#128737;</div>
+      <h3>Security Headers</h3>
+      <p>CSP with nonce-based inline scripts. X-Frame-Options DENY. HSTS 1-year with subdomains. Permissions-Policy disables camera, microphone, geolocation. Referrer-Policy strict-origin-when-cross-origin.</p>
+      <div class="feat-detail">No eval &middot; no inline without nonce &middot; frame-ancestors none</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-red" aria-hidden="true">&#128274;</div>
+      <h3>CSRF Protection</h3>
+      <p>Dual validation: Origin header check against allowed origins + X-Requested-With fallback. All state-changing requests (POST, PUT, PATCH, DELETE) must pass. Both checks must fail before rejection.</p>
+      <div class="feat-detail">Origin + XHR header &middot; loopback-aware &middot; logged rejections</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-red" aria-hidden="true">&#128272;</div>
+      <h3>Session Fingerprinting</h3>
+      <p>SHA-256 hash of IP + User-Agent + Accept-Language + Accept-Encoding binds sessions to client identity. Mismatched fingerprint = session destroyed. Detects hijacking even with valid session ID.</p>
+      <div class="feat-detail">256-bit random session IDs &middot; HttpOnly + SameSite=Strict</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-red" aria-hidden="true">&#128274;</div>
+      <h3>Auth Rate Limiting</h3>
+      <p>Exponential backoff on failed logins: 2^(n-3) seconds after 3 failures, capped at 1 hour. 10 failures = permanent lock (requires server restart). Rate limit key: IP + User-Agent combined.</p>
+      <div class="feat-detail">3-fail trigger &middot; exponential 1s→1hr &middot; 10-fail permanent lock</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-red" aria-hidden="true">&#128736;</div>
+      <h3>Cloudflare Worker Secret Vault</h3>
+      <p>10-layer defense in depth. AES-256-GCM encrypted comms, HMAC-SHA256 request signing, HKDF key splitting across vault and client. Fail-safe fallback if vault unreachable. Multi-client broker support.</p>
+      <div class="feat-detail">10 security layers &middot; split-key architecture &middot; graceful degradation</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-red" aria-hidden="true">&#128203;</div>
+      <h3>Append-Only Audit Trail</h3>
+      <p>Every privileged operation logged: action, resource type, resource ID, actor, old value, new value, detail. Indexed by resource and timestamp. Configurable retention (default 10K rows).</p>
+      <div class="feat-detail">Immutable log &middot; indexed &middot; admin-queryable</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-red" aria-hidden="true">&#128275;</div>
+      <h3>Zero innerHTML</h3>
+      <p>Entire frontend, admin panel, and all dynamic rendering uses safe DOM APIs (el() helper, textContent). No innerHTML anywhere. No dynamic code execution. No raw HTML injection. XSS is structurally impossible.</p>
+      <div class="feat-detail">el() helper &middot; textContent only &middot; CSP nonce enforced</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-red" aria-hidden="true">&#128275;</div>
+      <h3>Webhook URL Validation</h3>
+      <p>Blocks private/internal IPs (127.*, 192.168.*, 10.*, 172.16-31.*) in webhook URLs. Prevents SSRF attacks via webhook configuration.</p>
+      <div class="feat-detail">IP range blocklist &middot; validated before storage</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- CODE REVIEW -->
+<section class="section" aria-labelledby="review-title" id="review">
+  <div class="section-header">
+    <div class="section-tag pipeline">Code Review &amp; Quality</div>
+    <h2 class="section-title" id="review-title">Builder and reviewer are never the same AI session.</h2>
+    <p class="section-desc">Separate AI sessions for build and review. The reviewer hasn't seen the builder's reasoning. Catches what the builder missed.</p>
+  </div>
+  <div class="feat-grid">
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#128270;</div>
+      <h3>AI Code Review</h3>
+      <p>Separate Claude session reviews every build against: quality, security, performance, accessibility, completeness, error handling. Produces a score (1-10), summary, categorized findings, and auto-approve recommendation.</p>
+      <div class="feat-detail">6-category checklist &middot; custom .kanban-review.md support</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#128736;</div>
+      <h3>Auto-Fix Loop</h3>
+      <p>Score below threshold? Reviewer findings feed directly into a fixer session. Fixer reads the actual files, applies targeted fixes (security, accessibility, quality), then re-submits for review. Up to 3 fix rounds.</p>
+      <div class="feat-detail">Max 3 attempts &middot; recursive review-fix cycle &middot; rate-limit aware</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#128203;</div>
+      <h3>Progressive Auto-Approval</h3>
+      <p>New projects need score 8+ with zero critical findings. Proven projects (10+ builds, avg 7.5+) auto-approve at 7+. Trust is earned per-project, not global. Human approval always available as override.</p>
+      <div class="feat-detail">Trust tiers: new(8) → building(8) → trusted(7) → proven(7)</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#128203;</div>
+      <h3>Initiative Lifecycle</h3>
+      <p>Parent brainstorms decompose into child tasks. Children build sequentially (respecting dependencies). When all children complete, parent auto-marks as done, commits changelog, and triggers next discovery cycle.</p>
+      <div class="feat-detail">Parent-child DAG &middot; cascade revert &middot; auto-enqueue next child</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#128218;</div>
+      <h3>Auto Changelog &amp; Git Commit</h3>
+      <p>On approval, the pipeline detects change type (feature, bugfix, refactor), writes a CHANGELOG.md entry (Added/Changed/Fixed/Removed), stages changes, and commits with the card title as message.</p>
+      <div class="feat-detail">Keep a Changelog format &middot; type detection &middot; auto-stage</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-amber" aria-hidden="true">&#128203;</div>
+      <h3>File Diff Viewer</h3>
+      <p>Compare snapshot (pre-build) against current state for any card. See exactly what the AI changed, file by file. Available via API and UI detail modal.</p>
+      <div class="feat-detail">Snapshot-based diff &middot; per-card &middot; API + UI</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- RESILIENCE -->
+<section class="section" aria-labelledby="res-title" id="resilience">
+  <div class="section-header">
+    <div class="section-tag ops">Operational Resilience</div>
+    <h2 class="section-title" id="res-title">Crashes, rate limits, timeouts. Handled.</h2>
+    <p class="section-desc">Self-healing, crash recovery, rate-limit detection with smart recovery. The pipeline survives what would kill a script.</p>
+  </div>
+  <div class="feat-grid">
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128296;</div>
+      <h3>Self-Healing Error Scanner</h3>
+      <p>Every 30 seconds, scans build logs and DB error table for patterns (Error, ENOENT, EACCES, SyntaxError, TIMEOUT). Auto-triggers fix sessions (max 2 attempts). If fixes fail, escalates to a human-readable card with error context.</p>
+      <div class="feat-detail">Regex detection &middot; dedup &middot; max 10 errors &middot; escalation cards</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128296;</div>
+      <h3>Crash Recovery</h3>
+      <p>On restart, orphaned cards auto-recover: building → interrupted (todo), reviewing → idle (review), fixing → fix-interrupted (todo), brainstorming → frozen (restarts on resume). Rate-limited cards trigger recovery poller.</p>
+      <div class="feat-detail">Per-status recovery &middot; PID cleanup &middot; queue rebuild</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128296;</div>
+      <h3>Rate Limit Recovery</h3>
+      <p>Detects rate limits during build/brainstorm/review polling. Kills process, pauses pipeline, starts smart recovery: fetches usage data (2 polls/hour budget), computes wait from API reset timestamps, auto-resumes when quota refreshes.</p>
+      <div class="feat-detail">Reset-time prediction &middot; 2 polls/hr budget &middot; 6hr max wait</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128296;</div>
+      <h3>Heartbeat &amp; Watchdog</h3>
+      <p>Server writes heartbeat every 30s (PID, uptime, memory, pipeline status). External watchdog monitors freshness. Uncaught exceptions logged but don't crash (up to 10 before controlled restart with marker file).</p>
+      <div class="feat-detail">.heartbeat file &middot; .restart-requested marker &middot; 5-min counter reset</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128296;</div>
+      <h3>Three-Tier Backup</h3>
+      <p>Rolling SQLite backups: hot (latest), hourly (24 retained), daily (7 retained). WAL checkpoint before each backup. Auto-recovery if DB missing: restores from best available backup. Pre-restore safety copy always created.</p>
+      <div class="feat-detail">5-min cycle &middot; WAL checkpoint &middot; 30-min alert threshold</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128296;</div>
+      <h3>Graceful Shutdown</h3>
+      <p>SIGTERM/SIGINT: kills all active builds, drains both servers, clears PID, closes DB. 5-second force-exit timeout. Zero orphaned processes, zero corrupted state.</p>
+      <div class="feat-detail">Signal handlers &middot; drain strategy &middot; force-exit timeout</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128296;</div>
+      <h3>Request Hardening</h3>
+      <p>Headers timeout: 30s (slowloris protection). Request timeout: 120s. Keep-alive: 120s. Max 50 headers per request. JSON body limit: 1MB. Content-Type validation on all API POST/PUT.</p>
+      <div class="feat-detail">Slowloris &middot; body size &middot; header count &middot; content-type</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-cyan" aria-hidden="true">&#128296;</div>
+      <h3>Usage Quota Management</h3>
+      <p>Tracks Claude Max plan usage (5-hour session, 7-day weekly). Self-imposed limits configurable (maxHourlySessions, maxWeeklySessions). Auto-pauses pipeline at 80% quota with webhook alert. Cache refreshes every 55 minutes.</p>
+      <div class="feat-detail">Plan-aware &middot; auto-pause &middot; webhook notification</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- UI/UX -->
+<section class="section" aria-labelledby="ui-title" id="ui">
+  <div class="section-header">
+    <div class="section-tag ui">Interface</div>
+    <h2 class="section-title" id="ui-title">Zero frameworks. Zero build step. Full experience.</h2>
+    <p class="section-desc">Vanilla JS, vanilla CSS. No React, no Tailwind, no webpack. Every DOM element built safely with el() helper. The entire frontend is 4 files.</p>
+  </div>
+  <div class="feat-grid">
+    <div class="feat-card">
+      <div class="feat-icon ic-blue" aria-hidden="true">&#128203;</div>
+      <h3>Real-Time Kanban Board</h3>
+      <p>Six-column board (Brainstorm, Todo, Working, Review, Done, Archive). Drag-and-drop cards. Collapsible columns. Card counts. Initiative grouping with visual connector lines. Live activity indicators.</p>
+      <div class="feat-detail">SSE real-time &middot; drag-and-drop &middot; collapsible columns</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-blue" aria-hidden="true">&#9654;</div>
+      <h3>Command Palette</h3>
+      <p>Ctrl+K opens a searchable command palette. Actions: new idea, pause/resume pipeline, toggle theme, view archive, view metrics, open control panel. Card search with 2+ character minimum.</p>
+      <div class="feat-detail">Ctrl+K &middot; fuzzy search &middot; keyboard navigation</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-blue" aria-hidden="true">&#127908;</div>
+      <h3>Voice Input</h3>
+      <p>Web Speech API integration in the idea modal. Click mic to dictate ideas hands-free. Appends transcript to textarea. Works in Chrome, Firefox, Safari.</p>
+      <div class="feat-detail">Web Speech API &middot; en-US &middot; append mode</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-blue" aria-hidden="true">&#127912;</div>
+      <h3>Idea Templates</h3>
+      <p>Six pre-built templates (Bug, Feature, Refactor, Security, Performance, Test) with category-specific prompts. Folder picker with auto-detection. Natural language input auto-creates cards.</p>
+      <div class="feat-detail">6 templates &middot; folder picker &middot; NLP card creation</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-blue" aria-hidden="true">&#127769;</div>
+      <h3>Dark / Light Mode</h3>
+      <p>Full theme system with CSS custom properties. Anthropic-inspired warm palette (light) and high-contrast dark mode. Persisted in localStorage. Respects prefers-color-scheme.</p>
+      <div class="feat-detail">CSS variables &middot; localStorage &middot; system preference</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-blue" aria-hidden="true">&#9000;</div>
+      <h3>Keyboard-First</h3>
+      <p>Full keyboard navigation: N (new card), / (search), D (dark mode), M (metrics), A (archive), ? (shortcuts), Esc (close). Cards navigable with Enter. Focus-visible rings on all interactive elements.</p>
+      <div class="feat-detail">8 shortcuts &middot; modal focus trapping &middot; ARIA live regions</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-blue" aria-hidden="true">&#128202;</div>
+      <h3>Pipeline Progress Visualization</h3>
+      <p>Each card shows a visual dot-pipeline: folder → spec → queue → snapshot → build → review → fix → approve → done. Live activity detail updates. Phase duration tracking (brainstorm, build, review times).</p>
+      <div class="feat-detail">9-step visual pipeline &middot; live activity &middot; phase durations</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-blue" aria-hidden="true">&#128200;</div>
+      <h3>Metrics Dashboard</h3>
+      <p>8-week completion trends, weekly scores, auto-approve rate, success rate sparklines. Stats grid: total, active, queued, done, success rate. All computed from real DB data.</p>
+      <div class="feat-detail">8-week sparklines &middot; real-time stats &middot; trend analysis</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-blue" aria-hidden="true">&#128276;</div>
+      <h3>Desktop Notifications</h3>
+      <p>Browser notifications for: card completed, build interrupted, review needed. Card title and score in notification body. Custom icon.</p>
+      <div class="feat-detail">Build events &middot; card title &middot; custom icon</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-blue" aria-hidden="true">&#128241;</div>
+      <h3>Responsive Design</h3>
+      <p>Desktop: full width, multi-column. Tablet (768px): sidebar overlay, single-column grids. Mobile (640px): optimized card padding, hidden stats. Touch-friendly throughout.</p>
+      <div class="feat-detail">3 breakpoints &middot; touch-friendly &middot; print styles</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-blue" aria-hidden="true">&#9855;</div>
+      <h3>WCAG 2.2 AA Accessibility</h3>
+      <p>Skip-to-content link. Semantic HTML (header, main, nav). ARIA labels on all interactives. Focus-visible rings. 7:1+ color contrast. Modal focus trapping. aria-live regions for stats and toasts. prefers-reduced-motion respected.</p>
+      <div class="feat-detail">Skip link &middot; landmarks &middot; ARIA &middot; focus trap &middot; reduced motion</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-blue" aria-hidden="true">&#128736;</div>
+      <h3>Bulk Import</h3>
+      <p>Textarea input: one card per line, "Title | Description" format. Up to 50 cards per batch, 50 batches max. Each card auto-labeled by the intelligence engine.</p>
+      <div class="feat-detail">50 per batch &middot; auto-labeled &middot; pipe-delimited</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ENTERPRISE -->
+<section class="section" aria-labelledby="ent-title" id="enterprise">
+  <div class="section-header">
+    <div class="section-tag enterprise">Enterprise Controls</div>
+    <h2 class="section-title" id="ent-title">Admin panel. SSO. Role-based access. Audit trail.</h2>
+    <p class="section-desc">Control every parameter. Manage users. Track every action. Built for teams that need governance.</p>
+  </div>
+  <div class="feat-grid">
+    <div class="feat-card">
+      <div class="feat-icon ic-green" aria-hidden="true">&#128100;</div>
+      <h3>SSO Identity Provider</h3>
+      <p>Built-in auth, OIDC, SAML 2.0, LDAP. First-run setup wizard creates superadmin and locks permanently (requires reclone to reset). SSO secrets encrypted at rest with AES-256-GCM.</p>
+      <div class="feat-detail">4 providers &middot; setup lock &middot; encrypted secrets</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-green" aria-hidden="true">&#128101;</div>
+      <h3>Role-Based Access Control</h3>
+      <p>Three roles: superadmin (1 max, full control), admin (control panel access), user (board only). Middleware enforces at every endpoint. Role escalation prevention: only superadmin can create/modify admins.</p>
+      <div class="feat-detail">3 roles &middot; middleware enforcement &middot; escalation prevention</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-green" aria-hidden="true">&#128203;</div>
+      <h3>User Management</h3>
+      <p>Full CRUD: create, update, delete users. Set role, display name, email, groups, enabled status. Cannot delete superadmin. Cannot disable last superadmin. All changes audited.</p>
+      <div class="feat-detail">Superadmin-only &middot; CRUD &middot; safety guards</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-green" aria-hidden="true">&#9881;</div>
+      <h3>Control Panel</h3>
+      <p>Admin dashboard with sidebar navigation: Overview (stats, pipeline, queue, system info), Users, Settings (60+ configurable fields), Prompts (per-role AI prompts), Data (backups, export), Logs (errors, audit), Security.</p>
+      <div class="feat-detail">7 sections &middot; 60+ config fields &middot; role-gated</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-green" aria-hidden="true">&#128218;</div>
+      <h3>Custom AI Prompts</h3>
+      <p>Per-role prompt customization: brainstorm instructions, build instructions, review criteria, quality gates. 100KB per field. Saved to DB. Applied to every AI session automatically.</p>
+      <div class="feat-detail">4 prompt types &middot; 100KB each &middot; DB-persisted</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-green" aria-hidden="true">&#128203;</div>
+      <h3>Export &amp; Import</h3>
+      <p>Full board export (public: limited, admin: complete history). Bulk import with auto-labeling. All data exportable, all data importable. No vendor lock-in.</p>
+      <div class="feat-detail">JSON export &middot; bulk import &middot; admin-only full export</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-green" aria-hidden="true">&#127760;</div>
+      <h3>Webhook Integration</h3>
+      <p>17 event types: build started/complete/timeout, brainstorm complete, auto-approved, auto-discovery, card queued, retry, review needs human, cascade revert, initiative complete, self-heal, rate-limit, usage, pipeline state, kill-all.</p>
+      <div class="feat-detail">17 events &middot; SSRF protection &middot; JSON payload</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-green" aria-hidden="true">&#128203;</div>
+      <h3>Housekeeping</h3>
+      <p>Automated cleanup: log rotation (configurable retention), snapshot archive pruning, stale runtime file removal, audit log trimming. Runs when pipeline is idle. Manual trigger available.</p>
+      <div class="feat-detail">7-day log retention &middot; 14-day snapshots &middot; 10K audit rows</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-green" aria-hidden="true">&#128163;</div>
+      <h3>Factory Reset</h3>
+      <p>Nuclear option: wipes project folder and fresh-clones from git. Requires explicit confirmation. Admin-only. For when everything needs to start over.</p>
+      <div class="feat-detail">Requires confirm:true &middot; background process &middot; admin-only</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon ic-green" aria-hidden="true">&#128268;</div>
+      <h3>Localhost Tool Integration</h3>
+      <p>One-click: open project in VS Code, open terminal in project folder, open in Claude desktop app, preview project build. All localhost-restricted for security.</p>
+      <div class="feat-detail">VS Code &middot; terminal &middot; Claude app &middot; preview</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- API -->
+<section class="section" aria-labelledby="api-title" id="api">
+  <div class="section-header">
+    <div class="section-tag ops">API Surface</div>
+    <h2 class="section-title" id="api-title">79 endpoints. REST. SSE. Everything documented.</h2>
+    <p class="section-desc">Full REST API with Server-Sent Events for real-time updates. Role-based access on every endpoint.</p>
+  </div>
+  <table class="spec-table" role="table" aria-label="API endpoint summary">
+    <thead>
+      <tr><th scope="col">Category</th><th scope="col">Endpoints</th><th scope="col">Auth</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Card CRUD</td><td><code>GET/POST/PUT/DELETE /api/cards</code></td><td><span class="tag tag-a">Auth</span></td></tr>
+      <tr><td>Card Actions</td><td>brainstorm, start-work, approve, reject, retry, promote, stop, feedback, unarchive</td><td><span class="tag tag-a">Auth</span></td></tr>
+      <tr><td>Card Data</td><td>review, sessions, snapshot, diff, log, log-stream (SSE), spec, labels, depends-on</td><td><span class="tag tag-b">Optional</span></td></tr>
+      <tr><td>Pipeline</td><td>pause, resume, kill-all, queue, activities, state</td><td><span class="tag tag-a">Auth</span></td></tr>
+      <tr><td>Board</td><td>metrics, trends, search, templates, export, archive, folders, mode</td><td><span class="tag tag-b">Optional</span></td></tr>
+      <tr><td>Real-Time</td><td><code>GET /api/events</code> (SSE), <code>GET /api/cards/:id/log-stream</code> (SSE)</td><td><span class="tag tag-b">Optional</span></td></tr>
+      <tr><td>Intelligence</td><td>insights, analyze, learnings, checkpoints, rollback, spec-intelligence</td><td><span class="tag tag-a">Auth</span></td></tr>
+      <tr><td>Admin Config</td><td>config (60+ fields), custom-prompts (4 types), mode, usage</td><td><span class="tag tag-g">Admin</span></td></tr>
+      <tr><td>Admin Data</td><td>backups, errors, audit, housekeeping, factory-reset</td><td><span class="tag tag-g">Admin</span></td></tr>
+      <tr><td>Admin Users</td><td><code>GET/POST/PUT/DELETE /api/users</code>, sso-config</td><td><span class="tag tag-p">Super</span></td></tr>
+      <tr><td>Health</td><td><code>GET /health</code> (shallow), <code>GET /health/ready</code> (deep)</td><td><span class="tag tag-b">Public</span></td></tr>
+      <tr><td>Auth</td><td>login, logout, setup, session</td><td><span class="tag tag-b">Public</span></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<hr class="divider">
+
+<!-- COMPARISON -->
+<section class="section" aria-labelledby="compare-title" id="compare">
+  <div class="section-header">
+    <div class="section-tag pipeline">How it Compares</div>
+    <h2 class="section-title" id="compare-title">Copilot assists. This ships.</h2>
+    <p class="section-desc">AI copilots help you write code faster. Claude Kanban builds, reviews, fixes, and commits while you sleep.</p>
+  </div>
+  <div class="compare-grid">
+    <div class="compare-col">
+      <h3><span style="color:var(--text-tertiary)">&#9671;</span> AI Copilots</h3>
+      <ul>
+        <li>Autocomplete in your editor</li>
+        <li>You write the spec, manually</li>
+        <li>You run the build</li>
+        <li>You review the output</li>
+        <li>You fix what's wrong</li>
+        <li>You commit and deploy</li>
+        <li>One session does everything</li>
+        <li>No learning between sessions</li>
+        <li>No file rollback</li>
+        <li>No queue, no priority</li>
+      </ul>
+    </div>
+    <div class="compare-col highlight">
+      <h3><span style="color:var(--accent)">&#9670;</span> Claude Kanban</h3>
+      <ul>
+        <li>Autonomous pipeline, end to end</li>
+        <li>Multi-lens brainstorm writes the spec</li>
+        <li>Queue manages builds automatically</li>
+        <li>Separate AI session reviews code</li>
+        <li>Auto-fix loop with re-review</li>
+        <li>Auto-changelog, auto-commit</li>
+        <li>Builder ≠ reviewer (independent sessions)</li>
+        <li>Self-learning intelligence engine</li>
+        <li>Pre-build snapshots with rollback</li>
+        <li>Priority queue with dependency DAG</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- TECH SPECS -->
+<section class="section" aria-labelledby="tech-title" id="tech">
+  <div class="section-header">
+    <div class="section-tag ops">Technical Specifications</div>
+    <h2 class="section-title" id="tech-title">Under the hood.</h2>
+  </div>
+  <div class="feat-grid">
+    <div class="feat-card">
+      <h3>Runtime</h3>
+      <p>Node.js 18+. Express. SQLite (WAL mode). Pino structured JSON logging. 4 production dependencies: argon2, better-sqlite3, express, pino.</p>
+    </div>
+    <div class="feat-card">
+      <h3>Database</h3>
+      <p>9 tables. 75+ prepared statements. WAL journaling. Soft delete. 5s busy timeout. Parameterized queries only. Zero SQL injection surface.</p>
+    </div>
+    <div class="feat-card">
+      <h3>Architecture</h3>
+      <p>Dual-server: public app (0.0.0.0:51777) + admin (127.0.0.1:random). Shared middleware. SSE for real-time. All state in SQLite. Stateless request handling.</p>
+    </div>
+    <div class="feat-card">
+      <h3>Observability</h3>
+      <p>Correlation IDs on every request (X-Request-Id). Pino structured JSON. Error auto-persist to DB. Deep health check (DB, disk, pipeline, errors). Heartbeat file for external monitoring.</p>
+    </div>
+    <div class="feat-card">
+      <h3>Performance</h3>
+      <p>Token bucket rate limiting: O(1). Pre-built 429 response: zero serialization. Static assets: 1-day immutable cache. Dynamic: no-store. SSE with connection caps.</p>
+    </div>
+    <div class="feat-card">
+      <h3>License</h3>
+      <p>Apache 2.0. Open source. No vendor lock-in. Full data export. Self-hosted. Your data never leaves your machine.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p>Claude Kanban &middot; Built by <a href="https://dmj.one">Divya Mohan</a> and Claude Opus 4.6 &middot; <a href="https://github.com/divyamohan1993/claude-kanban">GitHub</a></p>
+</footer>
+
+<script>
+(function(){
+  // Theme
+  var root = document.documentElement;
+  var btn = document.getElementById('theme-toggle');
+  var stored = localStorage.getItem('theme');
+  var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  var theme = stored || (prefersDark ? 'dark' : 'light');
+  root.setAttribute('data-theme', theme);
+  btn.textContent = theme === 'dark' ? '\u2600' : '\u263D';
+  btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+  btn.addEventListener('click', function(){
+    theme = theme === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    btn.textContent = theme === 'dark' ? '\u2600' : '\u263D';
+    btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+  });
+
+  // TOC active state
+  var tocLinks = document.querySelectorAll('.toc a');
+  var sections = [];
+  tocLinks.forEach(function(link){
+    var id = link.getAttribute('href').slice(1);
+    var el = document.getElementById(id);
+    if(el) sections.push({el: el, link: link});
+  });
+  function updateToc(){
+    var scrollY = window.scrollY + window.innerHeight / 3;
+    var active = null;
+    for(var i = sections.length - 1; i >= 0; i--){
+      if(sections[i].el.offsetTop <= scrollY){
+        active = sections[i]; break;
+      }
+    }
+    tocLinks.forEach(function(l){ l.classList.remove('active'); });
+    if(active) active.link.classList.add('active');
+  }
+  window.addEventListener('scroll', updateToc, {passive: true});
+  updateToc();
+})();
+</script>
+</body>
+</html>

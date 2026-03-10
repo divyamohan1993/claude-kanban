@@ -11,13 +11,13 @@
 #   5. Recovery poller auto-resumes rate-limited cards when usage resets
 #
 # Usage:
-#   ./watchdog.sh                 (run in foreground)
-#   nohup ./watchdog.sh &         (run in background)
+#   scripts/watchdog.sh             (run in foreground)
+#   nohup scripts/watchdog.sh &    (run in background)
 # ============================================================================
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HEARTBEAT="$ROOT/.data/.heartbeat"
 RESTART_MARKER="$ROOT/.data/.restart-requested"
 WATCHDOG_LOG="$ROOT/.data/watchdog.log"

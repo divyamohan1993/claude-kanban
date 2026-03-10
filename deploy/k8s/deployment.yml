@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: claude-kanban
+  labels:
+    app: claude-kanban
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: claude-kanban
+  template:
+    metadata:
+      labels:
+        app: claude-kanban
+    spec:
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: kanban
+          image: claude-kanban:latest
+          ports:
+            - containerPort: 51777
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: claude-kanban-env
+          volumeMounts:
+            - name: data
+              mountPath: /app/.data
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 250m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 51777
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 51777
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: claude-kanban-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

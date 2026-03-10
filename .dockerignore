@@ -1,0 +1,35 @@
+# Dependencies (rebuilt in container)
+node_modules/
+
+# Runtime data (mounted as volume)
+.data/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CI/CD (not needed in image)
+.github/
+
+# Scripts (host-only)
+scripts/
+autoconfig.sh
+
+# Config
+.env
+.env.*
+!.env.example
+
+# Deploy manifests (Dockerfile lives in deploy/)
+deploy/
+.dockerignore

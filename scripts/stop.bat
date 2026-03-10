@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-cd /d "%~dp0"
+cd /d "%~dp0\.."
 
 set PID_FILE=.data\server.pid
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 DATA_DIR=".data"
 PID_FILE="$DATA_DIR/server.pid"

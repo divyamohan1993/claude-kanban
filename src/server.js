@@ -73,6 +73,7 @@ app.use(function(req, res, next) {
   // Allow setup endpoints, static assets, and health checks through
   if (req.path.startsWith('/auth/')) return next();
   if (req.path === '/health' || req.path === '/health/ready') return next();
+  if (req.path.startsWith('/pitch') || req.path.startsWith('/features')) return next();
   if (req.path.match(/\.(css|js|png|jpg|ico|svg|woff|woff2|ttf)$/)) return next();
   return res.redirect('/auth/setup');
 });

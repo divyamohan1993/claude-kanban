@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -35,15 +35,32 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Syntax check
+        shell: bash
+        run: |
+          ERRORS=0
+          for f in $(find src -name '*.js'); do
+            if ! node --check "$f" 2>/dev/null; then
+              echo "Syntax error: $f"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "$ERRORS file(s) with syntax errors"
+            exit 1
+          fi
+          echo "All source files pass syntax check"
+
       - name: Audit dependencies
-        run: pnpm audit --prod --audit-level=critical
+        run: pnpm audit --prod --audit-level=high
         continue-on-error: true
 
-      - name: Start server and health check
+      - name: Start server
         shell: bash
         run: |
           node src/server.js &
           SERVER_PID=$!
+          echo "SERVER_PID=$SERVER_PID" >> "$GITHUB_ENV"
 
           # Wait for server to be ready (up to 15s)
           for i in $(seq 1 30); do
@@ -64,21 +81,55 @@ jobs:
           echo "Liveness probe: OK ($STATUS)"
 
           # Readiness probe
-          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:51777/health/ready)
-          if [ "$STATUS" != "200" ]; then
-            echo "Readiness probe returned $STATUS (non-blocking)"
-          else
-            echo "Readiness probe: OK ($STATUS)"
+          READY_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:51777/health/ready)
+          echo "Readiness probe: $READY_STATUS"
+
+      - name: Run test suite (305 tests)
+        shell: bash
+        run: pnpm test
+
+      - name: Stop server
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "$SERVER_PID" ]; then
+            kill "$SERVER_PID" 2>/dev/null || true
           fi
 
-          # Verify API responds
-          CARDS=$(curl -sf http://localhost:51777/api/cards)
-          if [ $? -ne 0 ]; then
-            echo "API /api/cards failed"
-            kill $SERVER_PID 2>/dev/null || true
+  docker:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -f deploy/Dockerfile -t claude-kanban:${{ github.sha }} .
+
+      - name: Verify Docker image runs
+        run: |
+          docker run -d --name kanban-test \
+            -p 51777:51777 \
+            -e ADMIN_PASSWORD=ci-test \
+            -e USER_PASSWORD=ci-test \
+            claude-kanban:${{ github.sha }}
+
+          # Wait for healthy
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:51777/health > /dev/null 2>&1; then
+              echo "Container healthy after ~$((i/2))s"
+              break
+            fi
+            sleep 1
+          done
+
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:51777/health)
+          docker stop kanban-test
+          docker rm kanban-test
+
+          if [ "$STATUS" != "200" ]; then
+            echo "Docker health check failed: $STATUS"
             exit 1
           fi
-          echo "API check: OK"
-
-          kill $SERVER_PID 2>/dev/null || true
-          echo "All checks passed"
+          echo "Docker image verified"

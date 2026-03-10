@@ -1,11 +1,17 @@
 {
   "name": "claude-kanban",
-  "version": "2.4.1",
+  "version": "3.3.0",
   "description": "AI-powered Kanban board that orchestrates autonomous Claude Code sessions — zero-touch build-review-ship pipeline",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "test": "node tests/run-all.js",
+    "test:reliability": "node tests/march-of-nines.js",
+    "test:security": "node tests/dependency-audit.js",
+    "test:perf": "node tests/performance-benchmark.js",
+    "test:durability": "node tests/data-durability.js",
+    "test:quality": "node tests/code-quality.js"
   },
   "keywords": [
     "claude",

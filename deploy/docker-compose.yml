@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  kanban:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: claude-kanban
+    restart: unless-stopped
+    ports:
+      - "${PORT:-51777}:51777"
+    env_file:
+      - ../.env
+    volumes:
+      - kanban-data:/app/.data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:51777/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+        reservations:
+          memory: 128M
+          cpus: "0.25"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  kanban-data:
+    driver: local

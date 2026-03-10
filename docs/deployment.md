@@ -7,13 +7,13 @@
 - **Claude Code CLI** — Must be installed and authenticated separately
 - **OS**: Windows, macOS, or Linux (Ubuntu, Debian, Fedora, Arch, Alpine, openSUSE)
 
-## Start Scripts
+## Quick Start (Local)
 
-### Linux / macOS (`start.sh`)
+### Linux / macOS
 
 ```bash
-chmod +x start.sh stop.sh
-./start.sh
+chmod +x scripts/start.sh scripts/stop.sh
+scripts/start.sh
 ```
 
 What it does:
@@ -24,10 +24,10 @@ What it does:
 5. Starts the server in the background with `nohup`
 6. Waits for PID file confirmation
 
-### Windows (`start.bat`)
+### Windows
 
 ```cmd
-start.bat
+scripts\start.bat
 ```
 
 Same steps but uses `winget` for Node.js and `Start-Process -WindowStyle Hidden` for invisible background operation.
@@ -40,14 +40,69 @@ pnpm start        # foreground
 pnpm dev          # foreground with --watch auto-reload
 ```
 
-## Stop Scripts
+## Stop
 
 ```bash
-./stop.sh         # Linux/macOS: SIGTERM → wait → SIGKILL
-stop.bat          # Windows: taskkill /T /F
+scripts/stop.sh         # Linux/macOS: SIGTERM -> wait -> SIGKILL
+scripts\stop.bat        # Windows: taskkill /T /F
 ```
 
 Both read the PID from `.data/server.pid` and clean up.
+
+## Production (GCP Ubuntu)
+
+Zero-intervention deploy from blank Ubuntu to running app:
+
+```bash
+sudo bash autoconfig.sh
+```
+
+What it sets up:
+- Node.js 22, pnpm, build tools
+- Systemd service (auto-restart on crash, survives reboot)
+- Nginx reverse proxy on port 8090 (port 80 left free for deployed apps)
+- UFW firewall (22, 80, 443, 8090)
+- Hourly auto-update timer (git pull, drain pipeline, restart, rollback on failure)
+- Cloudflare real-IP restoration
+
+After deploy, add a Cloudflare DNS record:
+- A `<subdomain>` -> `<vm-ip>` (proxy enabled)
+- Origin Rules: route to port 8090
+
+## Docker
+
+```bash
+# Build
+docker build -f deploy/Dockerfile -t claude-kanban .
+
+# Run
+docker run -d -p 51777:51777 -v kanban-data:/app/.data --env-file .env claude-kanban
+
+# Or with Docker Compose
+cd deploy && docker compose up -d
+```
+
+## Kubernetes
+
+```bash
+# Create secrets from .env
+kubectl create secret generic claude-kanban-env --from-env-file=.env
+
+# Deploy
+kubectl apply -k deploy/k8s/
+```
+
+## Watchdog
+
+For local deployments without systemd:
+
+```bash
+scripts/watchdog.sh             # Linux/macOS (foreground)
+nohup scripts/watchdog.sh &     # Linux/macOS (background)
+scripts\watchdog.bat            # Windows
+```
+
+Checks `.data/.heartbeat` every 60 seconds. If stale (>90s), kills orphaned processes and restarts.
 
 ## Graceful Shutdown
 
@@ -78,27 +133,6 @@ All runtime data lives in `.data/` (gitignored, auto-created on first start):
   custom-prompts.json    Custom brainstorm/build/review instructions
 ```
 
-## Platform Notes
-
-| Feature | Windows | macOS | Linux |
-|---------|---------|-------|-------|
-| Silent Claude sessions | `.bat` wrappers with `windowsHide: true` | `.sh` scripts | `.sh` scripts |
-| Process kill | `taskkill /PID /T /F` | `kill` (process group) | `kill` (process group) |
-| Auto-install Node | `winget` | Homebrew | apt/dnf/pacman/zypper/apk |
-| Open VS Code | `code` | `code` | `code` |
-| Terminal | `cmd` | Terminal.app | gnome-terminal / xterm |
-
-## Production Hardening
-
-Before exposing to a network:
-
-1. **Set passwords** — `ADMIN_PASSWORD` and `USER_PASSWORD` in `.env`. Default credentials log a loud warning.
-2. **Pin admin port** — Set `ADMIN_PORT` in `.env` if you need a stable URL (e.g., behind nginx).
-3. **HTTPS** — Put a reverse proxy (nginx, Caddy, Cloudflare) in front. The server auto-enables HSTS when it detects `X-Forwarded-Proto: https`.
-4. **Secure cookies** — Set `NODE_ENV=production` or `SECURE_COOKIES=true` for the `Secure` cookie flag.
-5. **Firewall** — Only port 51777 needs to be exposed. The admin port should never be reachable externally (it's already localhost-bound, but defense in depth).
-6. **Backups** — Enabled by default. Verify `.data/backups/` is on a different disk or synced offsite for DR.
-
 ## Health Checks
 
 | Endpoint | Type | Checks |
@@ -106,4 +140,4 @@ Before exposing to a network:
 | `GET /health` | Liveness | Server is running (always 200) |
 | `GET /health/ready` | Readiness | DB integrity, disk writability, pipeline state, unresolved error count |
 
-`/health/ready` returns 503 with a `degraded` status if any check fails. Use this for monitoring or load balancer health probes.
+`/health/ready` returns 503 with a `degraded` status if any check fails.

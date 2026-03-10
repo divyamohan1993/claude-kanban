@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.3.0] - 2026-03-10
+
+### Added
+- **Dockerfile**: Multi-stage Alpine build, non-root user (uid 1001), health check, volume for `.data/`
+- **autoconfig.sh**: Zero-intervention GCP Ubuntu deploy (Node.js, pnpm, systemd, Nginx reverse proxy, UFW, health check, hourly auto-update timer)
+- **Docker Compose** (`deploy/docker-compose.yml`): Single-command self-hosting with resource limits and health checks
+- **Kubernetes manifests** (`deploy/k8s/`): Deployment, Service, PVC, Kustomize base with security context and probes
+- **.dockerignore**: Prevents runtime data, git, and IDE files from entering Docker image
+- **Test scripts**: `pnpm test` runs full 305-test suite; individual suite scripts (`test:reliability`, `test:security`, `test:perf`, `test:durability`, `test:quality`)
+- **CI/CD**: Enhanced GitHub Actions pipeline with syntax check, dependency audit, server health probes, full test suite execution, and Docker image build/verify on main
+
+### Changed
+- **CI pipeline**: Split into `build-and-test` (matrix: ubuntu+windows, node 18+22) and `docker` (build + verify image) jobs
+- **Audit level**: Raised from `critical` to `high` in CI dependency audit
+
 ## [3.2.0] - 2026-03-10
 
 ### Added

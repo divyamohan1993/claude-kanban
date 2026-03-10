@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-cd /d "%~dp0"
+cd /d "%~dp0\.."
 
 set DATA_DIR=.data
 set PID_FILE=%DATA_DIR%\server.pid
@@ -83,7 +83,7 @@ goto :wait_pid
 set /p SERVER_PID=<"%PID_FILE%"
 echo.
 echo   [OK]   Running at http://localhost:%PORT% ^(PID %SERVER_PID%^)
-echo   [OK]   Stop with: stop.bat
+echo   [OK]   Stop with: scripts\stop.bat
 echo.
 exit /b 0
 

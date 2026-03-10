@@ -547,19 +547,25 @@ overlay.onclick = function() {
   menuBtn.setAttribute('aria-expanded', 'false');
 };
 
+// ── Base Paths ──
+var CBP = window.__BASE_PATH__ || ''; // settings/admin base path
+var BOARD_BP = window.__BOARD_PATH__ || ''; // board base path (for auth endpoints)
+// Auth endpoints live on the board server, so use BOARD_BP for /auth/* calls
+var AUTH_BP = BOARD_BP;
+
 // ── Auth ──
 function checkSession() {
-  return fetch('/auth/session').then(function(r) { return r.json(); }).then(function(d) {
-    if (d.authenticated && d.user.role === 'admin') {
+  return fetch(CBP + '/auth/session').then(function(r) { return r.json(); }).then(function(d) {
+    if (d.authenticated && (d.user.role === 'admin' || d.user.role === 'superadmin')) {
       document.getElementById('pin-overlay').classList.add('hidden');
       initApp();
     } else if (d.authenticated) {
       showAccessDenied();
     } else {
-      window.location.href = '/auth/login?return=' + encodeURIComponent(location.pathname);
+      window.location.href = AUTH_BP + '/auth/login?return=' + encodeURIComponent(location.pathname);
     }
   }).catch(function() {
-    window.location.href = '/auth/login?return=' + encodeURIComponent(location.pathname);
+    window.location.href = AUTH_BP + '/auth/login?return=' + encodeURIComponent(location.pathname);
   });
 }
 
@@ -567,16 +573,15 @@ function showAccessDenied() {
   var ov = document.getElementById('pin-overlay');
   ov.classList.remove('hidden');
   document.getElementById('access-denied-box').style.display = '';
-  var p = parseInt(location.port, 10);
-  document.getElementById('denied-back-link').href = location.protocol + '//localhost:' + (p - 1);
+  document.getElementById('denied-back-link').href = BOARD_BP + '/';
 }
 
 // ── API ──
 function api(method, url, body) {
   var opts = { method: method, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } };
   if (body) opts.body = JSON.stringify(body);
-  return fetch(url, opts).then(function(r) {
-    if (r.status === 401) { window.location.href = '/auth/login?return=' + encodeURIComponent(location.pathname); throw new Error('Auth'); }
+  return fetch(CBP + url, opts).then(function(r) {
+    if (r.status === 401) { window.location.href = AUTH_BP + '/auth/login?return=' + encodeURIComponent(location.pathname); throw new Error('Auth'); }
     if (r.status === 403) { toast('Admin access required', 'error'); throw new Error('Forbidden'); }
     return r.json();
   });
@@ -1764,7 +1769,7 @@ function showResetOverlay(port) {
 // ══════════════════════════════════════════════
 // SSE
 // ══════════════════════════════════════════════
-var es = new EventSource('/api/events');
+var es = new EventSource(CBP + '/api/events');
 es.addEventListener('toast', function(e) { var d = JSON.parse(e.data); toast(d.message, d.type); });
 es.addEventListener('pipeline-state', function() { loadPipeline(); loadOverview(); });
 es.addEventListener('config-updated', function() { loadConfig(); });

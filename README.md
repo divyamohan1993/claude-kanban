@@ -42,7 +42,7 @@ Stop with `scripts/stop.sh` or `scripts\stop.bat`.
 | Method | Command | Use case |
 |--------|---------|----------|
 | **Local** | `scripts/start.sh` | Dev, testing |
-| **GCP Ubuntu** | `sudo bash autoconfig.sh` | Production (systemd, Nginx, auto-update, UFW) |
+| **GCP Ubuntu** | `sudo bash autoconfig.sh` | Production (systemd, Nginx on :80, auto-update, UFW) |
 | **Docker** | `docker build -f deploy/Dockerfile -t claude-kanban .` | Containers |
 | **Docker Compose** | `cd deploy && docker compose up -d` | Self-hosting |
 | **Kubernetes** | `kubectl apply -k deploy/k8s/` | Orchestrated |

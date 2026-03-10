@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { cards, audit, auditLog, backups, db, errors: dbErrors } = require('../db');
 const { broadcast, adminClients } = require('../lib/broadcast');
-const { DATA_DIR, ROOT_DIR, IS_WIN, PORT, runtime } = require('../config');
+const { DATA_DIR, ROOT_DIR, IS_WIN, PORT, SETTINGS_BASE_PATH, BASE_PATH, runtime } = require('../config');
 const { requireAdmin } = require('../sso');
 const { log } = require('../lib/logger');
 const pipeline = require('../services/pipeline');
@@ -32,10 +32,12 @@ router.get('/api/events', requireAdmin, function(req, res) {
 
 // --- Control Panel ---
 router.get('/', function(_req, res) {
-  // Inject CSP nonce into the inline script tag
   let html = fs.readFileSync(path.join(ROOT_DIR, 'public', 'control-panel.html'), 'utf-8');
   const nonce = res.locals.cspNonce || '';
-  html = html.replace('<script>', '<script nonce="' + nonce + '">');
+  if (nonce) html = html.replace('<script>', '<script nonce="' + nonce + '">');
+  // Inject base paths so frontend JS can resolve API and board URLs
+  const bpScript = '<script>window.__BASE_PATH__=' + JSON.stringify(SETTINGS_BASE_PATH || '') + ';window.__BOARD_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
+  html = html.replace('</head>', bpScript + '</head>');
   res.type('html').send(html);
 });
 

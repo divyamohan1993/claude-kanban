@@ -1,8 +1,11 @@
 #!/bin/bash
 # =============================================================================
 # Claude Kanban — Zero-intervention deploy script
-# Blank GCP Ubuntu → running app on port 8090, proxied through Nginx.
-# Port 80 is left free for apps that the kanban board deploys.
+# Blank GCP Ubuntu → running app on port 80, path-routed through Nginx.
+#   /dashboard  → kanban board (Express :51777)
+#   /settings   → control panel (Express :51778, admin-only)
+#   /product    → product/marketing pages (Express :51777)
+#   /           → deployed apps (reserved for orchestrator output)
 # Idempotent: safe to re-run. Rotates secrets on each run.
 #
 # Usage:
@@ -16,7 +19,7 @@ set -euo pipefail
 APP_NAME="claude-kanban"
 APP_DIR="/opt/$APP_NAME"
 APP_PORT=51777
-NGINX_PORT=8090  # External port for the board. Port 80 left free for deployed apps.
+ADMIN_PORT=51778
 APP_USER="kanban"
 REPO_URL="https://github.com/divyamohan1993/claude-kanban.git"
 NODE_MAJOR=22
@@ -94,6 +97,10 @@ if [ ! -f "$APP_DIR/.env" ]; then
     fail ".env.example not found. Cannot configure."
   fi
 fi
+# Ensure path-routing config is present (idempotent)
+grep -q '^BASE_PATH=' "$APP_DIR/.env" 2>/dev/null || echo 'BASE_PATH=/dashboard' >> "$APP_DIR/.env"
+grep -q '^SETTINGS_BASE_PATH=' "$APP_DIR/.env" 2>/dev/null || echo 'SETTINGS_BASE_PATH=/settings' >> "$APP_DIR/.env"
+grep -q '^ADMIN_PORT=' "$APP_DIR/.env" 2>/dev/null || echo "ADMIN_PORT=$ADMIN_PORT" >> "$APP_DIR/.env"
 chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
 chmod 600 "$APP_DIR/.env"
 info ".env present (mode 600)"
@@ -299,12 +306,12 @@ systemctl daemon-reload
 systemctl enable --now "$APP_NAME-update.timer"
 info "Auto-update timer active (hourly, checks git for changes)"
 
-# --- Nginx reverse proxy ---
+# --- Nginx reverse proxy (path-based routing on port 80) ---
 step "Configuring Nginx reverse proxy..."
 cat > "/etc/nginx/sites-available/$APP_NAME" <<NGINX
 server {
-    listen $NGINX_PORT;
-    listen [::]:$NGINX_PORT;
+    listen 80;
+    listen [::]:80;
     server_name _;
 
     # Cloudflare real IP restoration
@@ -337,24 +344,58 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
-    # Proxy to app
-    location / {
-        proxy_pass http://127.0.0.1:51777;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+    # Shared proxy settings
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
 
-        # SSE support — disable buffering
+    # --- /dashboard → kanban board (strips prefix) ---
+    location /dashboard/ {
+        proxy_pass http://127.0.0.1:$APP_PORT/;
         proxy_buffering off;
         proxy_cache off;
         proxy_read_timeout 86400s;
     }
+    # Redirect /dashboard to /dashboard/ (trailing slash required)
+    location = /dashboard {
+        return 301 /dashboard/;
+    }
 
-    # Block admin panel from external access (defense in depth)
+    # --- /settings → admin control panel (strips prefix) ---
+    location /settings/ {
+        proxy_pass http://127.0.0.1:$ADMIN_PORT/;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;
+    }
+    location = /settings {
+        return 301 /settings/;
+    }
+
+    # --- /product → marketing/product pages ---
+    location /product/ {
+        proxy_pass http://127.0.0.1:$APP_PORT/product/;
+    }
+    location = /product {
+        return 301 /product/;
+    }
+
+    # --- /health → health checks (no prefix strip needed) ---
+    location /health {
+        proxy_pass http://127.0.0.1:$APP_PORT/health;
+    }
+
+    # --- / → reserved for deployed apps ---
+    # Default: show a landing page or redirect to /dashboard
+    location = / {
+        return 302 /dashboard/;
+    }
+
+    # Block admin panel HTML from direct access (defense in depth)
     location /control-panel.html {
         return 404;
     }
@@ -377,9 +418,8 @@ ufw default allow outgoing
 ufw allow 22/tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
-ufw allow "$NGINX_PORT"/tcp
 ufw --force enable
-info "Firewall active (22, 80, 443, $NGINX_PORT)"
+info "Firewall active (22, 80, 443)"
 
 # --- Start services ---
 step "Starting services..."
@@ -411,15 +451,16 @@ echo "========================================" | tee -a "$LOG_FILE"
 echo "  Deployment complete" | tee -a "$LOG_FILE"
 echo "========================================" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
-echo "  App:     http://localhost:$NGINX_PORT (Nginx → :$APP_PORT)" | tee -a "$LOG_FILE"
-echo "  Port 80: Free for deployed apps" | tee -a "$LOG_FILE"
-echo "  Logs:    journalctl -u $APP_NAME -f" | tee -a "$LOG_FILE"
-echo "  Updates: systemctl status $APP_NAME-update.timer" | tee -a "$LOG_FILE"
-echo "           journalctl -t $APP_NAME-update --since today" | tee -a "$LOG_FILE"
-echo "  Config:  $APP_DIR/.env" | tee -a "$LOG_FILE"
-echo "  Data:    $APP_DIR/.data/" | tee -a "$LOG_FILE"
+echo "  Board:     http://localhost/dashboard  (Nginx :80 → Express :$APP_PORT)" | tee -a "$LOG_FILE"
+echo "  Settings:  http://localhost/settings   (Nginx :80 → Express :$ADMIN_PORT)" | tee -a "$LOG_FILE"
+echo "  Product:   http://localhost/product    (marketing pages)" | tee -a "$LOG_FILE"
+echo "  Root /:    Reserved for deployed apps" | tee -a "$LOG_FILE"
+echo "  Logs:      journalctl -u $APP_NAME -f" | tee -a "$LOG_FILE"
+echo "  Updates:   systemctl status $APP_NAME-update.timer" | tee -a "$LOG_FILE"
+echo "  Config:    $APP_DIR/.env" | tee -a "$LOG_FILE"
+echo "  Data:      $APP_DIR/.data/" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
-echo "  Cloudflare DNS + origin:" | tee -a "$LOG_FILE"
+echo "  Cloudflare DNS (no origin rules needed):" | tee -a "$LOG_FILE"
 echo "    A  <subdomain>  →  <this-vm-ip>  (proxy enabled)" | tee -a "$LOG_FILE"
-echo "    Origin Rules: route to port $NGINX_PORT (CF defaults to 80)" | tee -a "$LOG_FILE"
+echo "    Everything runs on port 80 — standard HTTP." | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"

@@ -6,6 +6,7 @@ var COLUMNS = [
   { id: 'done', label: 'Done' },
 ];
 
+var BP = window.__BASE_PATH__ || ''; // base path prefix (e.g. '/dashboard' when behind Nginx)
 var userRole = 'public'; // 'public' | 'user' | 'admin'
 var adminPath = '/admin'; // configurable via ADMIN_PATH env, returned in session for admins
 var state = { cards: [] };
@@ -104,7 +105,7 @@ function labelClass(label) {
 
 // --- Auth (SSO — login handled by /auth/login, owned by SSO module) ---
 function showLogin() {
-  window.location.href = '/auth/login?return=' + encodeURIComponent(location.pathname);
+  window.location.href = BP + '/auth/login?return=' + encodeURIComponent(location.pathname);
 }
 
 // Check session on load — always init the board (reads are open).
@@ -112,7 +113,7 @@ function showLogin() {
 // If not authenticated, server returns cards without actions — UI shows no buttons.
 async function checkSession() {
   try {
-    var res = await fetch('/auth/session');
+    var res = await fetch(BP + '/auth/session');
     var data = await res.json();
     if (data.authenticated) {
       userRole = data.user.role || 'user';
@@ -160,7 +161,7 @@ function applyRoleUI() {
   var signOutBtn = document.getElementById('sign-out-btn');
   if (signOutBtn) {
     signOutBtn.addEventListener('click', function() {
-      fetch('/auth/logout', { method: 'POST' }).finally(function() {
+      fetch(BP + '/auth/logout', { method: 'POST' }).finally(function() {
         window.location.reload();
       });
     });
@@ -169,7 +170,7 @@ function applyRoleUI() {
 
 // --- API ---
 async function api(path, opts) {
-  var res = await fetch('/api' + path, {
+  var res = await fetch(BP + '/api' + path, {
     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
     ...opts,
     body: opts && opts.body ? JSON.stringify(opts.body) : undefined,
@@ -195,7 +196,7 @@ async function loadCards() {
 
 // --- SSE ---
 function connectSSE() {
-  var es = new EventSource('/api/events');
+  var es = new EventSource(BP + '/api/events');
   es.onerror = function() {
     es.close();
     setTimeout(function() {
@@ -357,7 +358,7 @@ function renderPipeline(card) {
 var trendData = null;
 
 function loadTrends() {
-  fetch('/api/trends').then(function(r) { return r.json(); }).then(function(data) {
+  fetch(BP + '/api/trends').then(function(r) { return r.json(); }).then(function(data) {
     trendData = data;
     renderStats();
   }).catch(function() {});
@@ -1078,7 +1079,7 @@ function showLiveLog(cardId, type) {
   if (activeLogStream) { activeLogStream.close(); activeLogStream = null; }
 
   function connectLogStream() {
-    var es = new EventSource('/api/cards/' + cardId + '/log-stream?type=' + type);
+    var es = new EventSource(BP + '/api/cards/' + cardId + '/log-stream?type=' + type);
     activeLogStream = es;
     var hasContent = false;
     es.onmessage = function(e) {
@@ -1195,7 +1196,7 @@ async function showDiff(cardId) {
   detailModal.classList.add('active');
 
   try {
-    var resp = await fetch('/api/cards/' + cardId + '/diff');
+    var resp = await fetch(BP + '/api/cards/' + cardId + '/diff');
     if (!resp.ok) {
       var errData = await resp.json().catch(function() { return {}; });
       body.textContent = '';
@@ -1773,7 +1774,7 @@ function renderTemplateGrid(container) {
     container.appendChild(grid);
   }
   if (cachedTemplates) { renderFromCache(cachedTemplates); return; }
-  fetch('/api/templates').then(function(r) { return r.json(); }).then(function(templates) {
+  fetch(BP + '/api/templates').then(function(r) { return r.json(); }).then(function(templates) {
     cachedTemplates = templates;
     renderFromCache(templates);
   }).catch(function() { container.textContent = ''; });
@@ -1968,10 +1969,10 @@ async function init() {
   requestNotifPermission();
 
   var cardsP = api('/cards');
-  var activitiesP = fetch('/api/activities').then(function(r) { return r.json(); }).catch(function() { return {}; });
-  var pipelineP = fetch('/api/pipeline').then(function(r) { return r.json(); }).catch(function() { return { paused: false }; });
-  var configP = fetch('/api/config').then(function(r) { return r.json(); }).catch(function() { return null; });
-  var modeP = fetch('/api/mode').then(function(r) { return r.json(); }).catch(function() { return { mode: 'global' }; });
+  var activitiesP = fetch(BP + '/api/activities').then(function(r) { return r.json(); }).catch(function() { return {}; });
+  var pipelineP = fetch(BP + '/api/pipeline').then(function(r) { return r.json(); }).catch(function() { return { paused: false }; });
+  var configP = fetch(BP + '/api/config').then(function(r) { return r.json(); }).catch(function() { return null; });
+  var modeP = fetch(BP + '/api/mode').then(function(r) { return r.json(); }).catch(function() { return { mode: 'global' }; });
   var results = await Promise.all([cardsP, activitiesP, pipelineP, configP, modeP]);
   state.cards = results[0];
   cardActivities = results[1];

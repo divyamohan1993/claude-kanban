@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { PORT, ADMIN_PORT, ADMIN_PATH, ROOT_DIR, DATA_DIR, LOGS_DIR, runtime } = require('./config');
+const { PORT, ADMIN_PORT, ADMIN_PATH, BASE_PATH, SETTINGS_BASE_PATH, ROOT_DIR, DATA_DIR, LOGS_DIR, runtime } = require('./config');
 const { securityHeaders, requestId, enrichErrorResponse, originCheck, errorHandler, requireJsonContentType } = require('./middleware/security');
 const { rateLimiter, sseGuard } = require('./middleware/rate-limit');
 const expressRateLimit = require('express-rate-limit');
@@ -103,14 +103,19 @@ app.use(function(req, res, next) {
   if (req.path === '/health' || req.path === '/health/ready') return next();
   if (req.path.startsWith('/product')) return next();
   if (req.path.match(/\.(css|js|png|jpg|ico|svg|woff|woff2|ttf)$/)) return next();
-  return res.redirect('/auth/setup');
+  return res.redirect(BASE_PATH + '/auth/setup');
 });
 
 // Cache busting — serve HTML with server-start timestamp (busts on every deploy/restart)
+// Also injects BASE_PATH so frontend JS knows its mount point
 const BOOT_TS = Date.now();
 const indexHtmlPath = path.join(ROOT_DIR, 'public', 'index.html');
 app.get(['/', '/index.html'], rateLimiter, function(req, res) {
-  const html = fs.readFileSync(indexHtmlPath, 'utf8').replace(/__BUST__/g, String(BOOT_TS));
+  let html = fs.readFileSync(indexHtmlPath, 'utf8').replace(/__BUST__/g, String(BOOT_TS));
+  // Inject BASE_PATH for frontend path resolution
+  const baseTag = BASE_PATH ? '<base href="' + BASE_PATH + '/">' : '';
+  const scriptTag = '<script>window.__BASE_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
+  html = html.replace('</head>', baseTag + scriptTag + '</head>');
   res.type('html').send(html);
 });
 
@@ -181,11 +186,17 @@ app.get('/health/ready', rateLimiter, function(req, res) {
 
 // Admin redirect — SSO-protected, requires admin or superadmin role
 // Path is auto-generated random hex (or pinned via ADMIN_PATH env)
+// When SETTINGS_BASE_PATH is set, Nginx routes /settings → admin server directly,
+// so this redirect path is only used for direct-access (no Nginx) scenarios.
 app.get('/' + ADMIN_PATH, rateLimiter, function(req, res) {
   const session = sso.verifySession(req);
-  if (!session) return res.redirect('/auth/login?return=/' + ADMIN_PATH);
+  if (!session) return res.redirect(BASE_PATH + '/auth/login?return=' + BASE_PATH + '/' + ADMIN_PATH);
   if (session.user.role !== 'admin' && session.user.role !== 'superadmin') {
     return res.status(403).send('Admin access required');
+  }
+  // If SETTINGS_BASE_PATH is configured (Nginx mode), redirect there
+  if (SETTINGS_BASE_PATH) {
+    return res.redirect(SETTINGS_BASE_PATH + '/');
   }
   const adminPort = dbConfig.get('admin_port');
   if (!adminPort) return res.status(503).send('Admin server not ready');

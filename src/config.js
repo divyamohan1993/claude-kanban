@@ -141,6 +141,13 @@ function getEffectiveProjectPath() {
 
 const PORT = Number(process.env.PORT) || 51777;
 
+// Base path prefix — when behind Nginx path-routing (e.g. '/dashboard')
+// Empty string = serve at root (default, local dev)
+const BASE_PATH = (process.env.BASE_PATH || '').replace(/\/+$/, '');
+
+// Settings base path — where the admin panel is mounted (e.g. '/settings')
+const SETTINGS_BASE_PATH = (process.env.SETTINGS_BASE_PATH || '').replace(/\/+$/, '');
+
 // Admin port: env override or random ephemeral port each start
 const ADMIN_PORT = process.env.ADMIN_PORT
   ? Number(process.env.ADMIN_PORT)
@@ -175,6 +182,8 @@ module.exports = {
   MAX_AUDIT_ROWS,
   RUNTIME_STALE_HOURS,
   PORT: PORT,
+  BASE_PATH: BASE_PATH,
+  SETTINGS_BASE_PATH: SETTINGS_BASE_PATH,
   ADMIN_PORT: ADMIN_PORT,
   ADMIN_PATH: ADMIN_PATH,
   getEffectiveProjectPath: getEffectiveProjectPath,

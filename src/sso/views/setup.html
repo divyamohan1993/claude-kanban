@@ -562,8 +562,9 @@
     btn.disabled = true;
     btn.textContent = 'Setting up...';
 
+    var bp = window.__BASE_PATH__ || '';
     var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/auth/setup');
+    xhr.open('POST', bp + '/auth/setup');
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
     xhr.onload = function() {
@@ -575,7 +576,7 @@
           successEl.textContent = 'Setup complete. Redirecting...';
           btn.disabled = true;
           document.getElementById('btn-step4-back').disabled = true;
-          setTimeout(function() { window.location.href = '/auth/login'; }, 1500);
+          setTimeout(function() { window.location.href = bp + '/auth/login'; }, 1500);
         } else {
           errEl.textContent = data.error || 'Setup failed';
         }

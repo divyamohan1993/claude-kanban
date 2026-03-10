@@ -72,9 +72,12 @@ function resolveIdentity(req) {
 // =============================================================================
 
 // --- Safe return URL validation ---
+const { BASE_PATH } = require('../config');
+
 function safeReturnUrl(raw) {
-  if (!raw || typeof raw !== 'string') return '/';
-  if (raw[0] !== '/' || raw[1] === '/' || raw[1] === '\\') return '/';
+  const fallback = BASE_PATH + '/';
+  if (!raw || typeof raw !== 'string') return fallback;
+  if (raw[0] !== '/' || raw[1] === '/' || raw[1] === '\\') return fallback;
   return raw;
 }
 
@@ -82,11 +85,13 @@ function safeReturnUrl(raw) {
 // Only available when setup is not complete. Permanently locked after first setup.
 router.get('/auth/setup', function(req, res) {
   if (userStore.isSetupComplete()) {
-    return res.redirect('/');
+    return res.redirect(BASE_PATH + '/');
   }
   let html = fs.readFileSync(path.join(__dirname, 'views', 'setup.html'), 'utf-8');
   const nonce = res.locals.cspNonce || '';
   if (nonce) html = html.replace('<script>', '<script nonce="' + nonce + '">');
+  const bpScript = '<script>window.__BASE_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
+  html = html.replace('</head>', bpScript + '</head>');
   res.type('html').send(html);
 });
 
@@ -178,6 +183,8 @@ router.get('/auth/login', function(req, res) {
   let html = fs.readFileSync(path.join(__dirname, 'views', 'login.html'), 'utf-8');
   const nonce = res.locals.cspNonce || '';
   if (nonce) html = html.replace('<script>', '<script nonce="' + nonce + '">');
+  const bpScript = '<script>window.__BASE_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
+  html = html.replace('</head>', bpScript + '</head>');
   res.type('html').send(html);
 });
 
@@ -240,7 +247,7 @@ router.get('/auth/session', function(req, res) {
       try {
         const dbConfig = require('../db').config;
         const ap = dbConfig.get('admin_path');
-        if (ap) payload.adminPath = '/' + ap;
+        if (ap) payload.adminPath = BASE_PATH + '/' + ap;
       } catch (_) {}
     }
     // Superadmin: include user management flag

@@ -89,7 +89,8 @@
     submitBtn.disabled = true;
     errorMsg.textContent = '';
     var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/auth/login');
+    var bp = window.__BASE_PATH__ || '';
+    xhr.open('POST', bp + '/auth/login');
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
     xhr.onload = function() {
@@ -97,9 +98,9 @@
       try {
         var data = JSON.parse(xhr.responseText);
         if (data.ok) {
-          var returnPath = '/';
+          var returnPath = bp + '/';
           try {
-            var rawReturn = new URLSearchParams(window.location.search).get('return') || '/';
+            var rawReturn = new URLSearchParams(window.location.search).get('return') || (bp + '/');
             var parsed = new URL(rawReturn, window.location.origin);
             if (parsed.origin === window.location.origin && parsed.pathname.charAt(0) === '/') {
               returnPath = parsed.pathname + parsed.search;

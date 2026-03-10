@@ -193,7 +193,9 @@ async function api(path, opts) {
   }
   if (!res.ok) {
     var err = await res.json().catch(function() { return { error: 'Request failed' }; });
-    var e = new Error(err.error || 'Request failed');
+    var msg = err.error || 'Request failed';
+    if (res.status === 403) toast(msg, 'error');
+    var e = new Error(msg);
     e.code = err.code || null;
     e.data = err;
     throw e;

@@ -429,6 +429,19 @@ function updateDemoTimer(data) {
     bar.textContent = '';
     bar.appendChild(el('span', { className: 'demo-timer-text' }, 'Next build starts in ' + timeStr));
     bar.appendChild(el('span', { className: 'demo-timer-note' }, 'This is a live demo. Intentional delays between builds prevent draining the Claude usage quota.'));
+    if (userRole === 'admin' || userRole === 'superadmin') {
+      var skipBtn = el('button', {
+        className: 'btn-sm demo-skip-btn',
+        onclick: function() {
+          if (!confirm('Skip the demo delay and start building now?')) return;
+          api('/pipeline/skip-demo-timer', { method: 'POST' }).then(function(r) {
+            if (r.skipped) toast('Timer skipped, building now', 'success');
+            else toast('No active timer to skip', 'info');
+          }).catch(function(e) { toast(e.message, 'error'); });
+        }
+      }, 'Skip Wait');
+      bar.appendChild(skipBtn);
+    }
   }
   tick();
   if (_demoTimerInterval) clearInterval(_demoTimerInterval);

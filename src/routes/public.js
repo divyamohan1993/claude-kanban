@@ -969,6 +969,13 @@ router.post('/api/cards/:id/approve-spec', requireAuth, function(req, res) {
 // --- Pipeline Control ---
 router.post('/api/pipeline/pause', requireAuth, function(_req, res) { pipeline.setPaused(true); res.json({ paused: true }); });
 router.post('/api/pipeline/resume', requireAuth, function(_req, res) { pipeline.setPaused(false); res.json({ paused: false }); });
+router.post('/api/pipeline/skip-demo-timer', requireAuth, function(req, res) {
+  if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  var skipped = pipeline.skipDemoTimer();
+  res.json({ skipped: skipped });
+});
 router.post('/api/cards/:id/stop', requireAuth, function(req, res) {
   try { res.json(pipeline.stopCard(Number(req.params.id))); }
   catch (e) { res.status(400).json({ error: e.message }); }

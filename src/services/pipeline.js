@@ -680,6 +680,14 @@ function clearDemoTimer() {
   }
 }
 
+function skipDemoTimer() {
+  if (!_demoTimer) return false;
+  clearDemoTimer();
+  log.info('demo-mode: timer skipped by admin');
+  processQueueImmediate();
+  return true;
+}
+
 function startDemoTimer(delayMs) {
   clearDemoTimer();
   _demoNextRunAt = Date.now() + delayMs;
@@ -1495,4 +1503,6 @@ module.exports = {
   handleRateLimitDetected: handleRateLimitDetected,
   startRecoveryPoller: startRecoveryPoller,
   stopRecoveryPoller: stopRecoveryPoller,
+  // Demo mode
+  skipDemoTimer: skipDemoTimer,
 };

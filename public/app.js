@@ -218,7 +218,7 @@ function connectSSE() {
       connectSSE();
       // Full state sync on reconnect — catch up on missed events
       loadCards();
-      loadQueue();
+      api('/queue').then(function(q) { queueInfo = q; debouncedRender(); }).catch(function() {});
     }, 3000);
   };
 

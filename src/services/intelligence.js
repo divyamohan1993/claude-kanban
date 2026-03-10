@@ -15,7 +15,7 @@
 //
 
 const { runtime } = require('../config');
-const { cards, learnings, checkpoints, config: dbConfig, auditLog } = require('../db');
+const { cards, learnings, checkpoints, auditLog } = require('../db');
 const { broadcast } = require('../lib/broadcast');
 const { log } = require('../lib/logger');
 
@@ -82,10 +82,11 @@ function autoLabel(title, description) {
   const text = ((title || '') + ' ' + (description || '')).toLowerCase();
   const words = text.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(function(w) { return w.length >= 3; });
 
-  // O(n) word scan with O(1) rule lookups
+  // O(n) word scan with O(1) rule lookups — cap at 500 words to bound iteration
   const labelScores = {};
   const matchedRuleIds = new Set();
-  for (let wi = 0; wi < words.length; wi++) {
+  const wordLimit = Math.min(words.length, 500);
+  for (let wi = 0; wi < wordLimit; wi++) {
     const rule = ruleMap.get(words[wi]);
     if (rule) {
       labelScores[rule.pattern_value] = (labelScores[rule.pattern_value] || 0) + rule.confidence;

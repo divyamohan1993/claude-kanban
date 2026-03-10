@@ -4,7 +4,7 @@ const { runtime, RUNTIME_DIR, getEffectiveProjectPath } = require('../config');
 const { cards, config: dbConfig } = require('../db');
 const { broadcast } = require('../lib/broadcast');
 const { log } = require('../lib/logger');
-const { logPath, sendWebhook } = require('../lib/helpers');
+const { sendWebhook } = require('../lib/helpers');
 const { runClaudeSilent } = require('./claude-runner');
 
 // --- Strategic Discovery Lenses ---
@@ -170,7 +170,7 @@ function runDiscovery() {
 
   // Build discovery prompt — reads the project and suggests improvements
   // Always discover exactly 1 idea — finish it end-to-end before the next
-  const prompt = buildDiscoveryPrompt(projectPath, 1);
+  const prompt = buildDiscoveryPrompt(projectPath);
 
   const run = runClaudeSilent({
     id: 'discovery-' + Date.now(),
@@ -374,7 +374,6 @@ function processDiscoveryOutput(content, projectPath) {
   if (!Array.isArray(ideas) || ideas.length === 0) return;
 
   const brainstormSvc = require('./brainstorm');
-  const pipeline = require('./pipeline');
   let created = 0;
 
   // Only create 1 card per discovery cycle — sequential pipeline

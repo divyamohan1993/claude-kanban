@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { IS_WIN, IS_MAC, PROJECTS_ROOT, LOGS_DIR, RUNTIME_DIR, runtime, getEffectiveProjectPath } = require('../config');
-const { cards, sessions } = require('../db');
+const { cards } = require('../db');
 const { broadcast } = require('../lib/broadcast');
 const { killProcess } = require('../lib/process-manager');
 const { logPath, suggestName, sendWebhook } = require('../lib/helpers');
@@ -101,7 +101,6 @@ function setPaused(paused, reason) {
       startRecoveryPoller();
     }
   } else {
-    const wasPauseReason = pauseReason;
     pauseReason = null;
     stopRecoveryPoller();
 
@@ -168,7 +167,7 @@ function killAll() {
 
   // 1. Kill active builds
   for (const entry of activeBuilds) {
-    const projectPath = entry[0], cardId = entry[1];
+    const cardId = entry[1];
     const pid = buildPids.get(cardId);
     if (pid) { killProcess(pid); buildPids.delete(cardId); }
     const poller = activePollers.get(cardId);
@@ -831,11 +830,11 @@ function executeWork(cardId, projectPath) {
   fs.writeFileSync(path.join(projectPath, 'CLAUDE.md'), claudeParts.join('\n'));
   setActivity(cardId, 'build', 'CLAUDE.md written — launching Claude...');
 
-  const log = logPath(cardId, 'build');
+  const buildLog = logPath(cardId, 'build');
   const header = '[' + new Date().toISOString() + '] Build started\n'
     + 'Card: ' + card.title + '\nProject: ' + projectPath + '\n'
     + 'Mode: ' + (isExisting ? 'EXISTING' : 'NEW') + '\nSnapshot: ' + snapInfo.fileCount + ' files\n---\n';
-  fs.writeFileSync(log, header);
+  fs.writeFileSync(buildLog, header);
 
   const buildPrompt = 'Read CLAUDE.md and complete the task as specified. You are an autonomous orchestrator with FULL access to all tools — use subagents, agent teams, web search, file operations, terminal commands — whatever it takes. Maximize parallelism. Think deeply. Deliver production-quality work. When fully done, create .task-complete file as instructed in CLAUDE.md.';
 
@@ -845,7 +844,7 @@ function executeWork(cardId, projectPath) {
     cwd: projectPath,
     prompt: buildPrompt,
     stdoutFile: null,
-    logFile: log,
+    logFile: buildLog,
   });
 
   buildPids.set(cardId, run.pid);
@@ -867,7 +866,7 @@ function startWork(cardId) {
 
 function pollForCompletion(cardId, projectPath) {
   const completionFile = path.join(projectPath, '.task-complete');
-  const log = logPath(cardId, 'build');
+  const buildLog = logPath(cardId, 'build');
   let pollCount = 0;
 
   const interval = setInterval(function() {
@@ -886,12 +885,12 @@ function pollForCompletion(cardId, projectPath) {
 
       // Rate-limit fast-fail: check log for rate-limit errors after minimum polls
       if (pollCount >= runtime.rateLimitMinPolls && pollCount % 3 === 0) {
-        const rl = detectRateLimit(log);
+        const rl = detectRateLimit(buildLog);
         if (rl.detected) {
           clearInterval(interval);
           activePollers.delete(cardId);
           trackPhase(cardId, 'build', 'end');
-          handleRateLimitDetected(cardId, 'build', log);
+          handleRateLimitDetected(cardId, 'build', buildLog);
           return;
         }
       }
@@ -899,7 +898,7 @@ function pollForCompletion(cardId, projectPath) {
       let isIdle = false;
       let idleMinutes = 0;
       try {
-        const logStat = fs.statSync(log);
+        const logStat = fs.statSync(buildLog);
         const msSinceWrite = Date.now() - logStat.mtimeMs;
         idleMinutes = Math.round(msSinceWrite / 60000);
         isIdle = msSinceWrite > runtime.idleTimeoutMs;
@@ -920,7 +919,7 @@ function pollForCompletion(cardId, projectPath) {
         cards.setStatus(cardId, 'interrupted');
         broadcast('card-updated', cards.get(cardId));
         setActivity(cardId, 'build', 'TIMEOUT — ' + reason);
-        try { fs.appendFileSync(log, '\n---\n[' + new Date().toISOString() + '] TIMEOUT — ' + reason + '\n'); } catch (_) {}
+        try { fs.appendFileSync(buildLog, '\n---\n[' + new Date().toISOString() + '] TIMEOUT — ' + reason + '\n'); } catch (_) {}
         broadcast('toast', { message: 'Build timed out (' + reason + '): ' + card.title, type: 'error' });
         sendWebhook('build-timeout', { cardId: cardId, title: card.title, reason: reason });
         needsQueueProcess = true;
@@ -968,7 +967,7 @@ function pollForCompletion(cardId, projectPath) {
         broadcast('card-updated', cards.get(cardId));
         sendWebhook('build-complete', { cardId: cardId, title: card.title });
 
-        try { fs.appendFileSync(log, '\n---\n[' + new Date().toISOString() + '] Build completed\n' + content + '\n'); } catch (_) {}
+        try { fs.appendFileSync(buildLog, '\n---\n[' + new Date().toISOString() + '] Build completed\n' + content + '\n'); } catch (_) {}
 
         // Lazy require review to avoid circular dep
         try {
@@ -976,7 +975,7 @@ function pollForCompletion(cardId, projectPath) {
           reviewSvc.autoReview(cardId);
         } catch (reviewErr) {
           log.error({ cardId, err: reviewErr.message }, 'autoReview failed');
-          try { fs.appendFileSync(log, '\n[ERROR] autoReview failed: ' + reviewErr.message + '\n'); } catch (_) {}
+          try { fs.appendFileSync(buildLog, '\n[ERROR] autoReview failed: ' + reviewErr.message + '\n'); } catch (_) {}
           cards.setStatus(cardId, 'idle');
           broadcast('card-updated', cards.get(cardId));
           broadcast('toast', { message: 'AI Review failed to start: ' + reviewErr.message, type: 'error' });
@@ -1137,9 +1136,9 @@ function retryWithFeedback(cardId, feedback) {
   cards.setReviewData(cardId, 0, '');
   reviewFixCount.delete(cardId);
 
-  const log = logPath(cardId, 'build');
+  const buildLog = logPath(cardId, 'build');
   const header = '\n\n[' + new Date().toISOString() + '] Retry with feedback\nFeedback: ' + feedback + '\n---\n';
-  try { fs.appendFileSync(log, header); } catch (_) { fs.writeFileSync(log, header); }
+  try { fs.appendFileSync(buildLog, header); } catch (_) { fs.writeFileSync(buildLog, header); }
 
   const completionFile = path.join(projectPath, '.task-complete');
   try { fs.unlinkSync(completionFile); } catch (_) {}
@@ -1159,7 +1158,7 @@ function retryWithFeedback(cardId, feedback) {
     cardId: cardId,
     cwd: projectPath,
     prompt: prompt,
-    logFile: log,
+    logFile: buildLog,
   });
 
   buildPids.set(cardId, run.pid);

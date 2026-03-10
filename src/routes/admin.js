@@ -9,7 +9,6 @@ const { log } = require('../lib/logger');
 const pipeline = require('../services/pipeline');
 const support = require('../services/support');
 const usageSvc = require('../services/usage');
-const snapshot = require('../services/snapshot');
 const autoDiscover = require('../services/auto-discover');
 const brainstormSvc = require('../services/brainstorm');
 const intelligence = require('../services/intelligence');

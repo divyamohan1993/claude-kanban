@@ -142,9 +142,7 @@ function autoChangelog(cardId) {
 
   try {
     let existing = '';
-    if (fs.existsSync(changelogPath)) {
-      existing = fs.readFileSync(changelogPath, 'utf-8');
-    }
+    try { existing = fs.readFileSync(changelogPath, 'utf-8'); } catch (_) {}
 
     const dateHeader = '## [' + today + ']';
     const typeHeader = '### ' + changeType;

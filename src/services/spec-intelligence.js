@@ -133,7 +133,6 @@ function gatherHistoricalContext(card) {
     const findingMessages = {}; // category -> [messages]
     const scores = [];
     const specScores = [];
-    let fixRoundsTotal = 0;
     let fixRoundsCount = 0;
     let projectScores = [];
 
@@ -647,7 +646,7 @@ function buildDomainCoverageSection() {
     for (let i = 0; i < domainKeys.length; i++) {
       const key = domainKeys[i];
       const count = coverage[key];
-      const pct = totalCompleted > 0 ? Math.round(count / totalCompleted * 100) : 0;
+      const pct = Math.round(count / totalCompleted * 100);
 
       if (count === 0 || pct < 10) {
         neglected.push({

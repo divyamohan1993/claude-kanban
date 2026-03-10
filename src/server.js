@@ -9,7 +9,7 @@ const { log } = require('./lib/logger');
 const broker = require('./lib/secret-broker');
 const sso = require('./sso');
 const db = require('./db');
-const { cards, auditLog, config: dbConfig, errors: dbErrors } = db;
+const { cards, config: dbConfig, errors: dbErrors } = db;
 
 // Initialize secret broker FIRST (fetches secrets from CF Worker vault).
 // If broker is not configured (no SECRET_BROKER_URL), this is a no-op.

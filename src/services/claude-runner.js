@@ -78,21 +78,25 @@ const RATE_LIMIT_PATTERNS = [
 ];
 
 function detectRateLimit(logFile) {
+  let fd;
   try {
-    const stat = fs.statSync(logFile);
-    if (stat.size === 0) return { detected: false };
+    fd = fs.openSync(logFile, 'r');
+    const stat = fs.fstatSync(fd);
+    if (stat.size === 0) { fs.closeSync(fd); return { detected: false }; }
     const readSize = Math.min(stat.size, 4000);
-    const fd = fs.openSync(logFile, 'r');
     const buf = Buffer.alloc(readSize);
     fs.readSync(fd, buf, 0, readSize, Math.max(0, stat.size - readSize));
     fs.closeSync(fd);
+    fd = null;
     const tail = buf.toString('utf-8');
     for (let i = 0; i < RATE_LIMIT_PATTERNS.length; i++) {
       if (RATE_LIMIT_PATTERNS[i].test(tail)) {
         return { detected: true, pattern: RATE_LIMIT_PATTERNS[i].source };
       }
     }
-  } catch (_) {}
+  } catch (_) {
+    if (fd) try { fs.closeSync(fd); } catch (_e) {}
+  }
   return { detected: false };
 }
 

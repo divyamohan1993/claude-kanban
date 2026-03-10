@@ -23,13 +23,13 @@ Instead, please email **divyamohan1993** on GitHub or open a [private security a
 
 ## Security Posture
 
-This project has undergone two formal security audits (41 findings, 35 fixed). See [docs/security-audit.md](../docs/security-audit.md) for full details.
+This project has undergone two formal security audits (41 findings, 35 fixed) plus a CodeQL SAST scan (72 alerts resolved). See [docs/security-audit.md](../docs/security-audit.md) for full details.
 
 ### Key protections
 
 - Argon2id password hashing (64MB memory, 3 iterations, timing-safe)
 - JWT authentication with randomized secret per instance
-- Rate limiting (token bucket, 60 req/s burst) with SSE connection cap
+- Rate limiting (token bucket, 200 burst, 100/s refill) with SSE connection cap
 - CSP, HSTS, CORS, secure cookies, CSRF protection
 - Path traversal protection on all file operations
 - Command injection blocking on all spawn sites
@@ -42,5 +42,6 @@ This project has undergone two formal security audits (41 findings, 35 fixed). S
 
 | Version | Supported |
 |---------|-----------|
-| 2.x     | Yes       |
+| 3.x     | Yes       |
+| 2.x     | Best effort |
 | < 2.0   | No        |

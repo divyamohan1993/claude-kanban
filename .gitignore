@@ -4,7 +4,6 @@ node_modules/
 # All runtime data (db, logs, snapshots, pid, server.log)
 .data/
 .playwright-mcp/
-docs/security-audit.md
 
 # Environment (contains credentials)
 .env
@@ -24,6 +23,8 @@ Thumbs.db
 *.swp
 *.swo
 
-# recording
+# Local-only files
+linkedin-post.txt
+record.html
 record.bat
 screen-recorder.html

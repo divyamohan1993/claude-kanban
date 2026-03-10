@@ -1,7 +1,7 @@
 {
   "name": "claude-kanban",
-  "version": "3.3.1",
-  "description": "AI-powered Kanban board that orchestrates autonomous Claude Code sessions — zero-touch build-review-ship pipeline",
+  "version": "3.3.2",
+  "description": "AI-powered Kanban board that orchestrates autonomous Claude Code sessions: zero-touch build-review-ship pipeline",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

@@ -16,7 +16,7 @@ Idea -> Brainstorm -> Snapshot -> Build -> AI Review (1-10)
   <5   Human review
 ```
 
-4 dependencies. Zero build step. One command to start.
+5 dependencies. Zero build step. One command to start.
 
 ## Quick Start
 
@@ -63,7 +63,7 @@ See [Deployment](docs/deployment.md) for full details.
 
 ## Trust
 
-305 automated tests across 5 suites. [View the report](docs/trust/).
+305 automated tests across 5 suites. [View the report](public/product/trust/).
 
 | Suite | Tests |
 |-------|-------|
@@ -87,7 +87,7 @@ pnpm test:reliability  # single suite
 | [API Reference](docs/api.md) | 91 endpoints with examples |
 | [Configuration](docs/configuration.md) | All environment variables |
 | [Deployment](docs/deployment.md) | Local, Docker, K8s, GCP autoconfig |
-| [Security Audit](docs/security-audit.md) | Two audits, 35 findings fixed |
+| [Security Audit](docs/security-audit.md) | Three audits, 35 findings + 72 CodeQL alerts fixed |
 
 ## License
 

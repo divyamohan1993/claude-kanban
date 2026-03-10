@@ -38,7 +38,7 @@ Open `http://localhost:51777`.
 
 ## Adding dependencies
 
-This project has 4 production dependencies. That's intentional. If you want to add a dependency, explain why the problem can't be solved without it. The bar is high.
+This project has 5 production dependencies. That's intentional. If you want to add a dependency, explain why the problem can't be solved without it. The bar is high.
 
 ## Reporting bugs
 

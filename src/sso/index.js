@@ -140,6 +140,28 @@ router.post('/auth/setup', async function(req, res) {
   if (kanbanMode === 'single-project') {
     const singlePath = String(body.singleProjectPath || '').trim();
     const effectivePath = singlePath || require('path').resolve(ROOT_DIR, '..');
+
+    // Validate write access BEFORE committing config
+    const pathFs = require('fs');
+    const pathDir = require('path');
+    try {
+      pathFs.mkdirSync(effectivePath, { recursive: true });
+      // Probe write access with a temp file
+      const probe = pathDir.join(effectivePath, '.write-probe-' + Date.now());
+      pathFs.writeFileSync(probe, '');
+      pathFs.unlinkSync(probe);
+    } catch (e) {
+      const { log: setupLog } = require('../lib/logger');
+      setupLog.warn({ path: effectivePath, err: e.message }, 'Setup: project path not writable');
+      return res.status(400).json({
+        ok: false,
+        error: 'Cannot write to project path: ' + effectivePath + '. '
+          + 'The server process does not have permission. '
+          + 'Either choose a path the service user can write to, '
+          + 'or SSH in and run: sudo mkdir -p "' + effectivePath + '" && sudo chown $(whoami) "' + effectivePath + '"'
+      });
+    }
+
     runtime.mode = 'single-project';
     runtime.autoPromoteBrainstorm = true;
     runtime.singleProjectPath = effectivePath;
@@ -147,21 +169,19 @@ router.post('/auth/setup', async function(req, res) {
     dbConfig.set('single_project_path', effectivePath);
     dbConfig.set('auto_promote_brainstorm', 'true');
 
-    // Copy demo idea.md if requested (best-effort — may lack write permission)
+    // Copy demo idea.md if requested (path already validated writable above)
     if (body.useDemoIdea) {
       try {
-        const demoSrc = require('path').join(ROOT_DIR, 'demo', 'idea.md');
-        const demoFs = require('fs');
-        if (demoFs.existsSync(demoSrc)) {
-          demoFs.mkdirSync(effectivePath, { recursive: true });
-          const destPath = require('path').join(effectivePath, 'idea.md');
-          if (!demoFs.existsSync(destPath)) {
-            demoFs.copyFileSync(demoSrc, destPath);
+        const demoSrc = pathDir.join(ROOT_DIR, 'demo', 'idea.md');
+        if (pathFs.existsSync(demoSrc)) {
+          const destPath = pathDir.join(effectivePath, 'idea.md');
+          if (!pathFs.existsSync(destPath)) {
+            pathFs.copyFileSync(demoSrc, destPath);
           }
         }
       } catch (e) {
         const { log: setupLog } = require('../lib/logger');
-        setupLog.warn({ path: effectivePath, err: e.message }, 'Could not copy demo idea.md — permission denied or path not writable');
+        setupLog.warn({ path: effectivePath, err: e.message }, 'Could not copy demo idea.md');
       }
     }
   } else {
@@ -169,6 +189,24 @@ router.post('/auth/setup', async function(req, res) {
     runtime.mode = 'global';
     dbConfig.set('kanban_mode', 'global');
     if (projectsRoot) {
+      // Validate write access for projects root too
+      const prFs = require('fs');
+      try {
+        prFs.mkdirSync(projectsRoot, { recursive: true });
+        const probe = require('path').join(projectsRoot, '.write-probe-' + Date.now());
+        prFs.writeFileSync(probe, '');
+        prFs.unlinkSync(probe);
+      } catch (e) {
+        const { log: setupLog } = require('../lib/logger');
+        setupLog.warn({ path: projectsRoot, err: e.message }, 'Setup: projects root not writable');
+        return res.status(400).json({
+          ok: false,
+          error: 'Cannot write to projects root: ' + projectsRoot + '. '
+            + 'The server process does not have permission. '
+            + 'Either choose a writable path, '
+            + 'or SSH in and run: sudo mkdir -p "' + projectsRoot + '" && sudo chown $(whoami) "' + projectsRoot + '"'
+        });
+      }
       dbConfig.set('projects_root', projectsRoot);
     }
   }

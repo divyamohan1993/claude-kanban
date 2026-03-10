@@ -69,7 +69,7 @@
   .btn-secondary:hover { background: #2a2a2a; }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  .error-msg { color: #e74c3c; font-size: 0.78rem; text-align: center; margin-top: 0.75rem; min-height: 1.2em; }
+  .error-msg { color: #e74c3c; font-size: 0.78rem; text-align: center; margin-top: 0.75rem; min-height: 1.2em; word-break: break-word; line-height: 1.5; }
   .success-msg { color: #4a9; font-size: 0.78rem; text-align: center; margin-top: 0.75rem; }
 
   .sso-options { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; }
@@ -567,6 +567,7 @@
     xhr.open('POST', bp + '/auth/setup');
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.timeout = 30000;
     xhr.onload = function() {
       btn.disabled = false;
       btn.textContent = 'Complete Setup';
@@ -585,7 +586,12 @@
     xhr.onerror = function() {
       btn.disabled = false;
       btn.textContent = 'Complete Setup';
-      errEl.textContent = 'Connection failed';
+      errEl.textContent = 'Connection failed. Check server logs.';
+    };
+    xhr.ontimeout = function() {
+      btn.disabled = false;
+      btn.textContent = 'Complete Setup';
+      errEl.textContent = 'Request timed out. The server may be processing slowly. Check server logs.';
     };
     xhr.send(JSON.stringify({
       username: formData.username,

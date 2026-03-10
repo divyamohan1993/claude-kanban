@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.3.1] - 2026-03-10
+
+### Added
+- **Uniform error schema**: All API error responses now include `requestId` and `code` fields via `enrichErrorResponse` middleware
+- **Dependabot**: Automated dependency updates for npm packages (weekly, grouped by severity) and GitHub Actions
+- **SEO meta tags**: Title, description, Open Graph, Twitter Card, theme-color, and inline SVG favicon on main board page
+
+### Fixed
+- **Accessibility**: Decorative SVGs in header buttons now have `aria-hidden="true"` for screen reader compliance
+- **Code documentation**: Added O(n*m) complexity bounds comment on intelligence.js label-learning loop
+
 ## [3.3.0] - 2026-03-10
 
 ### Added

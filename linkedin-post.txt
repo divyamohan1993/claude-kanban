@@ -1,0 +1,15 @@
+Drop an idea into a text box. Walk away. Come back to reviewed, committed code.
+
+Built with Claude, built for @Anthropic, open for everyone. Your move.
+
+Claude Kanban orchestrates autonomous Claude Code sessions: brainstorm, build, review, auto-fix, and ship. No human in the loop unless the AI flags something it can't resolve. Self-healing pipeline recovers from crashes, rate limits, and stuck builds without intervention.
+
+Open source, Apache 2.0. Deploy it at your company, plug in Claude Code, and let your team ship faster. One SQLite file, 4 dependencies, zero lock-in.
+
+305 tests across 5 suites. AES-256-GCM field encryption. Argon2id auth. Runs anywhere Node runs.
+
+github.com/divyamohan1993/claude-kanban
+
+node.js · express · sqlite · claude code · pino
+
+#OpenSource #AI #DevTools #ClaudeCode

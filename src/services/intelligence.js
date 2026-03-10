@@ -59,7 +59,8 @@ function learnFromLabels(cardId) {
   const words = card.title.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
     .filter(function(w) { return w.length >= 3; });
 
-  // For each word-label pair, reinforce the mapping
+  // O(n * m) where n = words (typically <=15), m = labels (typically <=5).
+  // Offline learning only — called once per user-labeled card, not in hot paths.
   for (let wi = 0; wi < words.length; wi++) {
     for (let li = 0; li < labelList.length; li++) {
       learnings.upsert('label-rule', words[wi], labelList[li], 50);

@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { PORT, ADMIN_PORT, ADMIN_PATH, ROOT_DIR, DATA_DIR, LOGS_DIR, runtime } = require('./config');
-const { securityHeaders, requestId, originCheck, errorHandler, requireJsonContentType } = require('./middleware/security');
+const { securityHeaders, requestId, enrichErrorResponse, originCheck, errorHandler, requireJsonContentType } = require('./middleware/security');
 const { rateLimiter, sseGuard } = require('./middleware/rate-limit');
 const { log } = require('./lib/logger');
 const broker = require('./lib/secret-broker');
@@ -44,6 +44,7 @@ function applyCommonMiddleware(target) {
   target.use(rateLimiter);
   target.use(securityHeaders);
   target.use(requestId);
+  target.use(enrichErrorResponse);
   target.use(originCheck);
   target.use(requireJsonContentType);
   target.use(express.json({ limit: '1mb' }));

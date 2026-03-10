@@ -97,4 +97,17 @@ function requireJsonContentType(req, res, next) {
   next();
 }
 
-module.exports = { securityHeaders, requestId, originCheck, errorHandler, requireJsonContentType };
+// Auto-enrich error responses with requestId — ensures uniform { error, code, requestId } schema
+function enrichErrorResponse(req, res, next) {
+  const originalJson = res.json.bind(res);
+  res.json = function(body) {
+    if (body && body.error && req.id) {
+      if (!body.requestId) body.requestId = req.id;
+      if (!body.code) body.code = 'UNKNOWN_ERROR';
+    }
+    return originalJson(body);
+  };
+  next();
+}
+
+module.exports = { securityHeaders, requestId, enrichErrorResponse, originCheck, errorHandler, requireJsonContentType };

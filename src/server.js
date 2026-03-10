@@ -112,9 +112,10 @@ const BOOT_TS = Date.now();
 const indexHtmlPath = path.join(ROOT_DIR, 'public', 'index.html');
 app.get(['/', '/index.html'], rateLimiter, function(req, res) {
   let html = fs.readFileSync(indexHtmlPath, 'utf8').replace(/__BUST__/g, String(BOOT_TS));
-  // Inject BASE_PATH for frontend path resolution
+  // Inject BASE_PATH for frontend path resolution (with CSP nonce)
+  const nonce = res.locals.cspNonce || '';
   const baseTag = BASE_PATH ? '<base href="' + BASE_PATH + '/">' : '';
-  const scriptTag = '<script>window.__BASE_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
+  const scriptTag = '<script nonce="' + nonce + '">window.__BASE_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
   html = html.replace('</head>', baseTag + scriptTag + '</head>');
   res.type('html').send(html);
 });

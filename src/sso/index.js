@@ -90,7 +90,7 @@ router.get('/auth/setup', function(req, res) {
   let html = fs.readFileSync(path.join(__dirname, 'views', 'setup.html'), 'utf-8');
   const nonce = res.locals.cspNonce || '';
   if (nonce) html = html.replace('<script>', '<script nonce="' + nonce + '">');
-  const bpScript = '<script>window.__BASE_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
+  const bpScript = '<script nonce="' + nonce + '">window.__BASE_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
   html = html.replace('</head>', bpScript + '</head>');
   res.type('html').send(html);
 });
@@ -183,7 +183,7 @@ router.get('/auth/login', function(req, res) {
   let html = fs.readFileSync(path.join(__dirname, 'views', 'login.html'), 'utf-8');
   const nonce = res.locals.cspNonce || '';
   if (nonce) html = html.replace('<script>', '<script nonce="' + nonce + '">');
-  const bpScript = '<script>window.__BASE_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
+  const bpScript = '<script nonce="' + nonce + '">window.__BASE_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
   html = html.replace('</head>', bpScript + '</head>');
   res.type('html').send(html);
 });

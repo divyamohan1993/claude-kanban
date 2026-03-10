@@ -36,7 +36,7 @@ router.get('/', function(_req, res) {
   const nonce = res.locals.cspNonce || '';
   if (nonce) html = html.replace('<script>', '<script nonce="' + nonce + '">');
   // Inject base paths so frontend JS can resolve API and board URLs
-  const bpScript = '<script>window.__BASE_PATH__=' + JSON.stringify(SETTINGS_BASE_PATH || '') + ';window.__BOARD_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
+  const bpScript = '<script nonce="' + nonce + '">window.__BASE_PATH__=' + JSON.stringify(SETTINGS_BASE_PATH || '') + ';window.__BOARD_PATH__=' + JSON.stringify(BASE_PATH) + ';</script>';
   html = html.replace('</head>', bpScript + '</head>');
   res.type('html').send(html);
 });

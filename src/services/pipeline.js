@@ -1414,10 +1414,12 @@ function recoverOrphanedCards() {
     startRecoveryPoller();
   }
 
-  // Autonomous mode: re-enqueue recovered cards so pipeline resumes automatically
-  if (recovered > 0 && runtime.mode === 'single-project' && runtime.autoPromoteBrainstorm) {
+  // Autonomous mode: always re-enqueue cards on restart so pipeline auto-resumes
+  // Runs regardless of whether orphaned cards were found — idle todo cards must resume too
+  if (runtime.mode === 'single-project' && runtime.autoPromoteBrainstorm) {
     setTimeout(function() {
       const toRequeue = cards.getAll();
+      let requeued = 0;
       for (let ri = 0; ri < toRequeue.length; ri++) {
         const rc = toRequeue[ri];
         // Re-enqueue interrupted/idle cards in todo that have specs
@@ -1425,19 +1427,26 @@ function recoverOrphanedCards() {
         if (rc.column_name === 'todo' && rc.spec && (rc.status === 'interrupted' || rc.status === 'idle' || rc.status === 'fix-interrupted') && rc.approved_by !== 'human-rejected') {
           cards.setStatus(rc.id, 'idle');
           try { enqueue(rc.id, 0); } catch (_) {}
-          log.info({ cardId: rc.id, title: rc.title }, 'Autonomous crash recovery: re-enqueued');
+          log.info({ cardId: rc.id, title: rc.title }, 'Auto-resume: re-enqueued todo card');
+          requeued++;
         }
         // Re-trigger review for idle cards stuck in review column
         if (rc.column_name === 'review' && rc.status === 'idle') {
           try { require('./review').autoReview(rc.id); } catch (_) {}
-          log.info({ cardId: rc.id, title: rc.title }, 'Autonomous crash recovery: re-reviewing');
+          log.info({ cardId: rc.id, title: rc.title }, 'Auto-resume: re-reviewing');
+          requeued++;
         }
         // Re-brainstorm frozen cards
         if (rc.status === 'frozen' && rc.column_name === 'brainstorm') {
           cards.setStatus(rc.id, 'idle');
           try { require('./brainstorm').brainstorm(rc.id); } catch (_) {}
-          log.info({ cardId: rc.id, title: rc.title }, 'Autonomous crash recovery: re-brainstorming');
+          log.info({ cardId: rc.id, title: rc.title }, 'Auto-resume: re-brainstorming');
+          requeued++;
         }
+      }
+      if (requeued > 0) {
+        log.info({ requeued }, 'Auto-resume: pipeline will continue autonomously');
+        broadcast('toast', { message: 'Pipeline auto-resumed: ' + requeued + ' card(s) re-queued', type: 'info' });
       }
     }, 5000); // Delay to let server fully initialize
   }

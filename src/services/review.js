@@ -148,7 +148,7 @@ function autoReview(cardId) {
             try { require('./intelligence').learnFromBuild(cardId); } catch (_) {}
             // Spec intelligence: score spec effectiveness (auto-approved, fix rounds completed before this review)
             try { require('./spec-intelligence').computeSpecEffectiveness(cardId, score, fixCount, true); } catch (_) {}
-            snapshot.clear(cardId);
+            // Keep snapshot for diff/revert — only cleared on archive
             broadcast('card-updated', cards.get(cardId));
             broadcast('toast', { message: 'AI Review: ' + score + '/10 — Auto-approved!', type: 'success' });
             sendWebhook('auto-approved', { cardId: cardId, title: card.title, score: score });
@@ -299,7 +299,7 @@ function autoReview(cardId) {
             cards.setStatus(cardId, 'complete');
             cards.setApprovedBy(cardId, 'ai-autonomous');
             cards.move(cardId, 'done');
-            snapshot.clear(cardId);
+            // Keep snapshot for diff/revert — only cleared on archive
             broadcast('card-updated', cards.get(cardId));
             broadcast('toast', { message: 'Review timed out twice — auto-accepted (autonomous)', type: 'warning' });
             git.autoChangelog(cardId);

@@ -45,6 +45,17 @@ broker.init().then(function() {
     }
     log.info({ mode: savedMode }, 'Loaded mode config from DB');
   }
+
+  // Load demo mode config from DB (persists across restarts, overrides .env defaults)
+  const savedDemoMode = dbConfig.get('demo_mode');
+  if (savedDemoMode !== null && savedDemoMode !== undefined) {
+    runtime.demoMode = savedDemoMode === 'true';
+    const savedMinDelay = dbConfig.get('demo_delay_min_mins');
+    if (savedMinDelay) runtime.demoDelayMinMins = Number(savedMinDelay);
+    const savedMaxDelay = dbConfig.get('demo_delay_max_mins');
+    if (savedMaxDelay) runtime.demoDelayMaxMins = Number(savedMaxDelay);
+    log.info({ demoMode: runtime.demoMode, minMins: runtime.demoDelayMinMins, maxMins: runtime.demoDelayMaxMins }, 'Loaded demo mode config from DB');
+  }
 }).catch(function(err) {
   log.fatal({ err: err.message }, 'Startup failed (broker or SSO)');
   process.exit(1);

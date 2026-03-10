@@ -284,10 +284,10 @@ function setConfig(updates) {
   if (updates.housekeepingIntervalMins !== undefined) { runtime.housekeepingIntervalMins = Math.max(10, Number(updates.housekeepingIntervalMins)); changed.housekeepingIntervalMins = runtime.housekeepingIntervalMins; }
   // Error Handling
   if (updates.maxUncaughtBeforeExit !== undefined) { runtime.maxUncaughtBeforeExit = Math.max(3, Number(updates.maxUncaughtBeforeExit)); changed.maxUncaughtBeforeExit = runtime.maxUncaughtBeforeExit; }
-  // Demo Mode
-  if (updates.demoMode !== undefined) { runtime.demoMode = !!updates.demoMode; changed.demoMode = runtime.demoMode; }
-  if (updates.demoDelayMinMins !== undefined) { runtime.demoDelayMinMins = Math.max(1, Math.min(120, Number(updates.demoDelayMinMins))); changed.demoDelayMinMins = runtime.demoDelayMinMins; }
-  if (updates.demoDelayMaxMins !== undefined) { runtime.demoDelayMaxMins = Math.max(1, Math.min(360, Number(updates.demoDelayMaxMins))); changed.demoDelayMaxMins = runtime.demoDelayMaxMins; }
+  // Demo Mode — persist to DB so settings survive restart
+  if (updates.demoMode !== undefined) { runtime.demoMode = !!updates.demoMode; changed.demoMode = runtime.demoMode; dbConfig.set('demo_mode', String(runtime.demoMode)); }
+  if (updates.demoDelayMinMins !== undefined) { runtime.demoDelayMinMins = Math.max(1, Math.min(120, Number(updates.demoDelayMinMins))); changed.demoDelayMinMins = runtime.demoDelayMinMins; dbConfig.set('demo_delay_min_mins', String(runtime.demoDelayMinMins)); }
+  if (updates.demoDelayMaxMins !== undefined) { runtime.demoDelayMaxMins = Math.max(1, Math.min(360, Number(updates.demoDelayMaxMins))); changed.demoDelayMaxMins = runtime.demoDelayMaxMins; dbConfig.set('demo_delay_max_mins', String(runtime.demoDelayMaxMins)); }
   // Usage Recovery
   if (updates.usageCacheTtlMins !== undefined) { runtime.usageCacheTtlMins = Math.max(5, Number(updates.usageCacheTtlMins)); changed.usageCacheTtlMins = runtime.usageCacheTtlMins; }
   if (updates.maxRecoveryWaitHours !== undefined) { runtime.maxRecoveryWaitHours = Math.max(1, Number(updates.maxRecoveryWaitHours)); changed.maxRecoveryWaitHours = runtime.maxRecoveryWaitHours; }

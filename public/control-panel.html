@@ -529,9 +529,14 @@ document.getElementById('theme-toggle-2').onclick = toggleTheme;
 
 // ── Back link ──
 (function() {
-  var p = parseInt(location.port, 10);
-  var boardPort = p - 1;
-  document.getElementById('back-link').href = location.protocol + '//localhost:' + boardPort;
+  var bp = window.__BOARD_PATH__ || '';
+  if (bp) {
+    document.getElementById('back-link').href = bp + '/';
+  } else {
+    var p = parseInt(location.port, 10);
+    var boardPort = p - 1;
+    document.getElementById('back-link').href = location.protocol + '//localhost:' + boardPort;
+  }
 })();
 
 // ── Mobile sidebar ──
@@ -708,7 +713,7 @@ function buildNav() {
       'aria-selected': n.id === _activePage ? 'true' : 'false',
       'aria-controls': 'page-' + n.id,
       onclick: n.external
-        ? function() { window.location.href = n.external; }
+        ? function() { window.location.href = CBP + n.external; }
         : function() { switchPage(n.id); }
     }, [
       el('span', { class: 'nav-icon', 'aria-hidden': 'true' }, n.icon),

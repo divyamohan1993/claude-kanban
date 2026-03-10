@@ -121,6 +121,29 @@ app.get(['/', '/index.html'], rateLimiter, function(req, res) {
   res.type('html').send(html);
 });
 
+// Product pages — inject CSP nonce into inline <script> tags before serving
+// Must come before express.static so we intercept HTML requests
+app.use('/product', function(req, res, next) {
+  // Only intercept HTML page requests (not .css, .js, .json, images)
+  if (req.path.match(/\.(css|js|json|png|jpg|svg|ico|woff|woff2|ttf)$/)) return next();
+  // Resolve the file path (directory → index.html)
+  var filePath = path.join(ROOT_DIR, 'public', 'product', req.path);
+  if (!filePath.endsWith('.html')) {
+    var dirIndex = path.join(filePath, 'index.html');
+    if (fs.existsSync(dirIndex)) filePath = dirIndex;
+    else if (fs.existsSync(filePath + '.html')) filePath = filePath + '.html';
+    else return next(); // Let express.static handle 404
+  }
+  if (!fs.existsSync(filePath)) return next();
+  try {
+    var html = fs.readFileSync(filePath, 'utf8');
+    var nonce = res.locals.cspNonce || '';
+    // Inject nonce into all bare <script> tags (not ones that already have nonce or src)
+    html = html.replace(/<script>/g, '<script nonce="' + nonce + '">');
+    res.type('html').send(html);
+  } catch (_) { next(); }
+});
+
 // Board is always public — no login gate. Auth is optional overlay.
 app.use(express.static(path.join(ROOT_DIR, 'public')));
 

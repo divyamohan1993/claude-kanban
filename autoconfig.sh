@@ -121,7 +121,7 @@ info ".env present (mode 600)"
 # --- Dependencies ---
 step "Installing dependencies..."
 cd "$APP_DIR"
-sudo -u "$APP_USER" pnpm install --frozen-lockfile 2>/dev/null || sudo -u "$APP_USER" pnpm install
+sudo -u "$APP_USER" CI=true pnpm install --frozen-lockfile 2>/dev/null || sudo -u "$APP_USER" CI=true pnpm install
 info "Dependencies installed"
 
 # --- Data directory ---
@@ -238,7 +238,7 @@ ROLLBACK_REV="$LOCAL"
 
 # --- Pull and install ---
 sudo -u kanban git pull --ff-only origin main
-sudo -u kanban pnpm install --frozen-lockfile 2>/dev/null || sudo -u kanban pnpm install
+sudo -u kanban CI=true pnpm install --frozen-lockfile 2>/dev/null || sudo -u kanban CI=true pnpm install
 
 # --- Restart service ---
 # SIGTERM triggers graceful shutdown: killAll() builds, drain connections, close DB.
@@ -265,7 +265,7 @@ fi
 logger -t "$LOG_TAG" "ROLLBACK: health check failed after update — reverting to $ROLLBACK_REV"
 
 sudo -u kanban git checkout "$ROLLBACK_REV"
-sudo -u kanban pnpm install --frozen-lockfile 2>/dev/null || sudo -u kanban pnpm install
+sudo -u kanban CI=true pnpm install --frozen-lockfile 2>/dev/null || sudo -u kanban CI=true pnpm install
 systemctl restart "$APP_NAME"
 
 # Verify rollback

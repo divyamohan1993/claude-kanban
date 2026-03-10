@@ -1988,7 +1988,7 @@ function showCPOnboarding() {
   // Build modal
   var overlay = el('div', { class: 'pin-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'cp-onboard-title',
     style: 'display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5)' });
-  var modal = el('div', { style: 'background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:28px;width:460px;max-width:92vw;box-shadow:0 8px 32px rgba(0,0,0,0.3);animation:fadeIn 0.2s ease' });
+  var modal = el('div', { style: 'background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px;width:460px;max-width:92vw;box-shadow:0 8px 32px rgba(0,0,0,0.3);animation:fadeIn 0.2s ease' });
   var dotsRow = el('div', { style: 'display:flex;gap:6px;justify-content:center;margin-bottom:20px' });
   var content = el('div', { style: 'text-align:center' });
   var actions = el('div', { style: 'display:flex;gap:8px;justify-content:center;margin-top:4px' });
@@ -2004,7 +2004,7 @@ function showCPOnboarding() {
 
     for (var i = 0; i < steps.length; i++) {
       var dotStyle = 'width:8px;height:8px;border-radius:50%;transition:all 0.2s;';
-      if (i === step) dotStyle += 'background:var(--accent);box-shadow:0 0 6px var(--accent)';
+      if (i === step) dotStyle += 'background:var(--primary);box-shadow:0 0 6px var(--primary)';
       else if (i < step) dotStyle += 'background:var(--success,#4a9)';
       else dotStyle += 'background:var(--border)';
       dotsRow.appendChild(el('div', { style: dotStyle }));
@@ -2012,14 +2012,14 @@ function showCPOnboarding() {
 
     content.appendChild(el('div', { style: 'font-size:48px;margin-bottom:14px;line-height:1;opacity:0.9' }, s.icon));
     content.appendChild(el('div', { id: 'cp-onboard-title', style: 'font-size:18px;font-weight:700;margin-bottom:8px;color:var(--text)' }, s.title));
-    content.appendChild(el('div', { style: 'font-size:14px;line-height:1.65;color:var(--text-dim);margin-bottom:16px;max-width:380px;margin-left:auto;margin-right:auto' }, s.desc));
+    content.appendChild(el('div', { style: 'font-size:14px;line-height:1.65;color:var(--text-tertiary);margin-bottom:16px;max-width:380px;margin-left:auto;margin-right:auto' }, s.desc));
 
     if (s.sections) {
       var grid = el('div', { style: 'display:grid;gap:8px;text-align:left;margin-bottom:12px' });
       for (var si = 0; si < s.sections.length; si++) {
-        var row = el('div', { style: 'display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;background:var(--hover-bg);font-size:13px' });
+        var row = el('div', { style: 'display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;background:var(--surface-hover);font-size:13px' });
         row.appendChild(el('span', { style: 'font-weight:600;color:var(--text);min-width:70px' }, s.sections[si][0]));
-        row.appendChild(el('span', { style: 'color:var(--text-dim)' }, s.sections[si][1]));
+        row.appendChild(el('span', { style: 'color:var(--text-tertiary)' }, s.sections[si][1]));
         grid.appendChild(row);
       }
       content.appendChild(grid);
@@ -2028,8 +2028,8 @@ function showCPOnboarding() {
     if (step > 0) actions.appendChild(el('button', { class: 'btn', onclick: function() { step--; renderStep(); } }, 'Back'));
     else actions.appendChild(el('button', { class: 'btn', onclick: dismiss }, 'Skip'));
 
-    if (step < steps.length - 1) actions.appendChild(el('button', { class: 'btn btn-accent', onclick: function() { step++; renderStep(); } }, 'Next'));
-    else actions.appendChild(el('button', { class: 'btn btn-accent', onclick: dismiss }, 'Got It'));
+    if (step < steps.length - 1) actions.appendChild(el('button', { class: 'btn btn-primary', onclick: function() { step++; renderStep(); } }, 'Next'));
+    else actions.appendChild(el('button', { class: 'btn btn-primary', onclick: dismiss }, 'Got It'));
   }
 
   function dismiss() {

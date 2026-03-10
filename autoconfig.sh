@@ -129,6 +129,15 @@ mkdir -p "$APP_DIR/.data"
 chown -R "$APP_USER:$APP_USER" "$APP_DIR/.data"
 info "Data directory ready"
 
+# --- Demo project directory ---
+DEMO_DIR="/home/$APP_USER/demo-project"
+mkdir -p "$DEMO_DIR"
+if [ -f "$APP_DIR/demo/idea.md" ]; then
+  cp "$APP_DIR/demo/idea.md" "$DEMO_DIR/idea.md"
+fi
+chown -R "$APP_USER:$APP_USER" "$DEMO_DIR"
+info "Demo project directory ready at $DEMO_DIR"
+
 # --- Systemd service ---
 step "Configuring systemd service..."
 cat > "/etc/systemd/system/$APP_NAME.service" <<UNIT

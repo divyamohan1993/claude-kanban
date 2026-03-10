@@ -1005,25 +1005,25 @@ body.dark .modal-overlay { background: rgba(0, 0, 0, 0.6); }
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 5px;
   margin-bottom: 20px;
 }
 .onboarding-flow-step {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 5px 10px;
+  padding: 4px 8px;
   border-radius: 6px;
   background: var(--primary-soft);
   color: var(--primary-text);
   white-space: nowrap;
 }
 .onboarding-flow-arrow {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-tertiary);
+  flex-shrink: 0;
 }
 .onboarding-dots {
   display: flex;
@@ -1083,8 +1083,9 @@ body.dark .modal-overlay { background: rgba(0, 0, 0, 0.6); }
 }
 @media (max-width: 480px) {
   .onboarding-shortcuts { grid-template-columns: 1fr; }
-  .onboarding-flow { gap: 4px; }
-  .onboarding-flow-step { font-size: 11px; padding: 4px 7px; }
+  .onboarding-flow { gap: 3px; }
+  .onboarding-flow-step { font-size: 10px; padding: 3px 6px; }
+  .onboarding-flow-arrow { font-size: 9px; }
 }
 
 /* ----------------------------------------------------------------

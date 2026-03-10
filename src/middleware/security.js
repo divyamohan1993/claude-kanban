@@ -19,8 +19,11 @@ function securityHeaders(req, res, next) {
   // L3 fix: Cache-Control — no-store for dynamic, cacheable for static assets
   if (req.path.startsWith('/api') || req.path.startsWith('/auth')) {
     res.setHeader('Cache-Control', 'no-store');
-  } else {
+  } else if (req.path.match(/\.(js|css|png|jpg|svg|ico|woff2?|ttf|eot)(\?|$)/)) {
     res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+  } else {
+    // HTML pages: short cache, revalidate on each visit
+    res.setHeader('Cache-Control', 'public, max-age=60, must-revalidate');
   }
   next();
 }

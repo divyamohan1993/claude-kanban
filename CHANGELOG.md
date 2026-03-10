@@ -20,6 +20,9 @@ All notable changes to this project will be documented in this file.
   - Test suites handle 429 rate-limit responses with retry after delay
   - Performance thresholds relaxed for CI runners (detect `process.env.CI`)
   - Inter-suite delay in run-all.js prevents auth rate limiter bleed
+  - Superadmin assertions accept 200 when test user IS superadmin
+  - CI workflow sets high rate limits so tests are not throttled
+  - Bulk create threshold lowered for CI (SQLite concurrency limits)
 
 ### Added
 - **Product demonstration suite** (`/product/`): Central hub linking features, trust report, pitch deck, control panel showcase, SSO/security overview, architecture, and quick start

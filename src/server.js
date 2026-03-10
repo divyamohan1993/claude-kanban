@@ -15,7 +15,7 @@ const { cards, config: dbConfig, errors: dbErrors } = db;
 // Initialize secret broker FIRST (fetches secrets from CF Worker vault).
 // If broker is not configured (no SECRET_BROKER_URL), this is a no-op.
 // Must complete before SSO init, which needs the master encryption key.
-broker.init().then(function() {
+var _configReady = broker.init().then(function() {
   if (broker.isEnabled()) {
     log.info({ keys: broker.keyCount() }, 'Secret vault connected');
   }
@@ -447,11 +447,16 @@ function scanDbErrors() {
 const publicServer = app.listen(PORT, '0.0.0.0', function() {
   // Store PID in DB instead of file
   dbConfig.set('server_pid', String(process.pid));
-  pipeline.init();
-  const orphanCount = pipeline.recoverOrphanedCards();
-  if (orphanCount > 0) {
-    log.info({ recovered: orphanCount }, 'Crash recovery: reset ' + orphanCount + ' orphaned card(s) to safe states');
-  }
+
+  // Wait for config to load from DB before initializing pipeline
+  // (mode, demo settings, single-project path must be set before recovery runs)
+  _configReady.then(function() {
+    pipeline.init();
+    const orphanCount = pipeline.recoverOrphanedCards();
+    if (orphanCount > 0) {
+      log.info({ recovered: orphanCount }, 'Crash recovery: reset ' + orphanCount + ' orphaned card(s) to safe states');
+    }
+  });
   intelligence.init();
   specIntelligence.init();
 

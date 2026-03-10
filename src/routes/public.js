@@ -39,6 +39,11 @@ function isAllowedLogType(type) {
 const resolvedProjectsRoot = path.resolve(PROJECTS_ROOT);
 function isPathUnderProjectsRoot(p) {
   const resolved = path.resolve(p);
+  // In single-project mode, also accept the configured single project path
+  if (runtime.mode === 'single-project' && runtime.singleProjectPath) {
+    const resolvedSingle = path.resolve(runtime.singleProjectPath);
+    if (resolved === resolvedSingle || resolved.startsWith(resolvedSingle + path.sep)) return true;
+  }
   return resolved === resolvedProjectsRoot || resolved.startsWith(resolvedProjectsRoot + path.sep);
 }
 

@@ -1,7 +1,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { IS_WIN, IS_MAC, PROJECTS_ROOT, DATA_DIR } = require('../config');
+const { IS_WIN, IS_MAC, PROJECTS_ROOT, DATA_DIR, runtime } = require('../config');
 const { cards, sessions, audit } = require('../db');
 const snapshot = require('./snapshot');
 const { suggestName } = require('../lib/helpers');
@@ -18,6 +18,13 @@ function validateProjectPath(p) {
   if (!path.isAbsolute(p)) return 'Project path must be absolute';
   if (SHELL_METACHAR_RE.test(p)) return 'Project path contains disallowed characters';
   const resolved = path.resolve(p);
+
+  // In single-project mode, accept the configured single project path directly
+  if (runtime.mode === 'single-project' && runtime.singleProjectPath) {
+    const resolvedSingle = path.resolve(runtime.singleProjectPath);
+    if (resolved === resolvedSingle) return null; // valid
+  }
+
   const prefix = resolvedProjectsRoot.endsWith(path.sep) ? resolvedProjectsRoot : resolvedProjectsRoot + path.sep;
   if (resolved !== resolvedProjectsRoot && !resolved.startsWith(prefix)) {
     return 'Project path must be under PROJECTS_ROOT (' + PROJECTS_ROOT + ')';

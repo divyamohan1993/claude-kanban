@@ -23,3 +23,7 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# recording
+record.bat
+screen-recorder.html

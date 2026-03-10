@@ -1,0 +1,28 @@
+{
+  "suite": "performance-benchmark",
+  "date": "2026-03-10T05:54:18.546Z",
+  "passed": 28,
+  "failed": 0,
+  "total": 28,
+  "score": 100,
+  "duration": "2.4s",
+  "metrics": {
+    "healthP50": "1.1",
+    "healthP95": "1.8",
+    "healthP99": "2.2",
+    "cardsP50": "12.2",
+    "cardsP95": "17.3",
+    "writeP50": "2.1",
+    "writeP95": "3.2",
+    "throughputRps": "990",
+    "throughputSuccessRate": "100.0",
+    "avgLatencyUnderLoad": "7.1",
+    "bulkCreateMs": 178,
+    "bulkCreateSuccess": 50,
+    "bulkDeleteMs": 48,
+    "sseConnectMs": "1.8",
+    "cardsResponseBytes": 226327,
+    "healthResponseBytes": 30
+  },
+  "failures": []
+}

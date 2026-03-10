@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Kanban: Pitch | dmj.one</title>
+  <meta name="description" content="Autonomous AI pipeline that brainstorms, builds, reviews, fixes, and ships code while you sleep.">
+  <meta property="og:title" content="Claude Kanban: Pitch">
+  <meta property="og:description" content="Drop an idea. Walk away. Come back to committed code. Zero-touch AI build-review-ship pipeline.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://github.com/divyamohan1993/claude-kanban">
+  <meta name="theme-color" content="#0a0a0a">
+  <style>
+    /*
+     * WCAG 2.2 AAA Compliance Notes:
+     * - All text meets 7:1 contrast ratio on #0a0a0a (AAA normal text)
+     * - Large text (>=18pt or >=14pt bold) meets 4.5:1 (AAA large text)
+     * - Accent #F9A825 on #0a0a0a = 7.3:1 (passes AAA normal text)
+     * - Focus indicators: 3px solid, high-contrast, always visible
+     * - Skip link, aria-live announcements, aria-hidden on inactive slides
+     * - prefers-reduced-motion fully respected
+     * - All interactive elements keyboard-operable with visible focus
+     * - Nav controls visible and labeled
+     */
+
+    :root {
+      /* AAA-safe palette on #0a0a0a */
+      --accent: #F9A825;       /* 7.3:1 on bg -passes AAA normal text */
+      --accent-dim: #D4881A;   /* 5.3:1 on bg -AAA large text only */
+      --bg: #0a0a0a;
+      --text: #f0f0f0;         /* 17.4:1 on bg */
+      --text-body: #d4d4d4;    /* 12.8:1 on bg -AAA body text */
+      --muted: #b0b0b0;        /* 8.6:1 on bg -passes AAA normal */
+      --dim: #909090;          /* 5.8:1 on bg -AAA large text only, used only on large labels */
+      --green: #86EFAC;        /* 12.0:1 on bg */
+      --red-muted: #a0a0a0;    /* 7.4:1 on bg -"no" column, readable */
+      --focus: #F9A825;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; scroll-behavior: smooth; }
+
+    body {
+      overflow: hidden; background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* === Skip Link -WCAG 2.4.1 === */
+    .skip-link {
+      position: absolute; top: -80px; left: 16px; z-index: 200;
+      padding: 12px 20px; background: var(--accent); color: var(--bg);
+      font-size: 14px; font-weight: 700; text-decoration: none;
+      border-radius: 0 0 8px 8px; transition: top 0.15s;
+    }
+    .skip-link:focus { top: 0; outline: none; }
+
+    /* === Focus -WCAG 2.4.7 / 2.4.13 AAA === */
+    *:focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 3px;
+      border-radius: 4px;
+    }
+    a:focus-visible { outline-offset: 2px; }
+
+    /* === Deck === */
+    .deck { width: 100vw; height: 100vh; position: relative; }
+
+    .slide {
+      width: 100%; height: 100%; position: absolute; top: 0; left: 0;
+      display: flex; flex-direction: column; justify-content: center;
+      padding: 8vh 10vw;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s ease;
+      contain: content;
+    }
+    .slide.active { opacity: 1; pointer-events: auto; }
+    .slide.active > * { animation: fadeUp 0.25s ease-out both; }
+    .slide.active > *:nth-child(1) { animation-delay: 0ms; }
+    .slide.active > *:nth-child(2) { animation-delay: 80ms; }
+    .slide.active > *:nth-child(3) { animation-delay: 160ms; }
+    .slide.active > *:nth-child(4) { animation-delay: 240ms; }
+    .slide.active > *:nth-child(5) { animation-delay: 320ms; }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+
+    /* === Typography -AAA contrast verified === */
+    .slide h1 {
+      font-size: clamp(2.5rem, 5vw, 4.5rem); font-weight: 800;
+      line-height: 1.05; margin-bottom: 1.5rem; letter-spacing: -0.02em;
+      color: var(--text); /* 17.4:1 */
+    }
+    .slide h2 {
+      font-size: clamp(1.5rem, 3vw, 2.5rem); font-weight: 800;
+      line-height: 1.1; margin-bottom: 1.2rem; letter-spacing: -0.01em;
+      color: var(--text);
+    }
+    .accent { color: var(--accent); } /* 7.3:1 -AAA normal text */
+    .stat {
+      font-size: clamp(3rem, 8vw, 7rem); font-weight: 900;
+      color: var(--accent); line-height: 1; margin: 0.5rem 0;
+    }
+    .slide p, .slide li {
+      font-size: clamp(1.1rem, 2vw, 1.4rem); line-height: 1.6;
+      max-width: 65ch; color: var(--text-body); /* 12.8:1 */
+    }
+    .subtle {
+      font-size: 0.95rem; color: var(--muted); margin-top: 2rem; /* 8.6:1 */
+    }
+    .slide ul { list-style: none; padding: 0; }
+    .slide li { padding: 0.3rem 0; }
+    .slide li::before {
+      content: ''; display: inline-block; width: 8px; height: 8px;
+      background: var(--accent); border-radius: 50%; margin-right: 12px;
+      vertical-align: middle;
+    }
+
+    /* === Pipeline === */
+    .pipeline { display: flex; align-items: center; gap: 0; flex-wrap: wrap; margin: 1.5rem 0; }
+    .pipeline .step {
+      background: rgba(249,168,37,0.12); border: 1px solid rgba(249,168,37,0.35);
+      padding: 0.6rem 1.2rem; border-radius: 6px; font-size: clamp(0.8rem, 1.5vw, 1rem);
+      color: var(--text); font-weight: 500; white-space: nowrap;
+    }
+    .pipeline .arrow { color: var(--accent); font-size: 1.2rem; padding: 0 0.3rem; }
+    .pipeline .step.highlight {
+      background: rgba(249,168,37,0.25); border-color: var(--accent);
+      font-weight: 700;
+    }
+
+    /* === Comparison grid -AAA contrast === */
+    .compare {
+      display: grid; grid-template-columns: auto 1fr 1fr; gap: 0;
+      margin: 1rem 0; font-size: clamp(0.9rem, 1.5vw, 1.1rem);
+    }
+    .compare > div {
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .compare .hdr {
+      color: var(--accent); font-weight: 700;
+      border-bottom: 2px solid rgba(249,168,37,0.35);
+    }
+    .compare .label { color: var(--muted); } /* 8.6:1 */
+    .compare .yes { color: var(--green); }   /* 12.0:1 */
+    .compare .no { color: var(--red-muted); } /* 7.4:1 -AAA compliant */
+
+    /* === Metrics grid === */
+    .metrics {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 1.5rem; margin: 1rem 0;
+    }
+    .metric { text-align: center; }
+    .metric .num {
+      font-size: clamp(2rem, 4vw, 3.5rem); font-weight: 900;
+      color: var(--accent); line-height: 1;
+    }
+    .metric .lbl {
+      font-size: 0.85rem; color: var(--muted); margin-top: 0.3rem; /* 8.6:1 */
+    }
+
+    /* === Timeline === */
+    .timeline { display: flex; gap: 0; margin: 1.5rem 0; align-items: flex-start; }
+    .timeline .milestone { flex: 1; text-align: center; position: relative; }
+    .timeline .milestone::before {
+      content: ''; display: block; width: 14px; height: 14px;
+      background: var(--accent); border-radius: 50%; margin: 0 auto 0.8rem;
+    }
+    .timeline .milestone::after {
+      content: ''; position: absolute; top: 6px; left: calc(50% + 7px);
+      width: calc(100% - 14px); height: 2px; background: rgba(249,168,37,0.3);
+    }
+    .timeline .milestone:last-child::after { display: none; }
+    .timeline .milestone .t-label {
+      font-size: 0.85rem; color: var(--muted); font-weight: 600; /* 8.6:1 */
+    }
+    .timeline .milestone .t-desc {
+      font-size: clamp(0.75rem, 1.2vw, 0.9rem); color: var(--text-body);
+      margin-top: 0.3rem; font-weight: 500; /* 12.8:1 */
+    }
+    .timeline .milestone.done::before { background: var(--green); }
+    .timeline .milestone.current::before {
+      background: var(--accent);
+      box-shadow: 0 0 12px rgba(249,168,37,0.6);
+    }
+
+    /* === Team === */
+    .team { display: flex; gap: 2rem; margin: 1rem 0; flex-wrap: wrap; }
+    .member { display: flex; align-items: center; gap: 1rem; }
+    .avatar {
+      width: 56px; height: 56px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.5rem; font-weight: 800; flex-shrink: 0;
+    }
+    .member .name { font-weight: 700; font-size: 1.1rem; color: var(--text); }
+    .member .role { font-size: 0.9rem; color: var(--muted); } /* 8.6:1 */
+
+    /* === Links -AAA === */
+    a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+    a:hover { text-decoration-thickness: 2px; }
+
+    /* === Nav Controls -visible, keyboard-operable === */
+    .slide-nav {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      z-index: 100; display: flex; align-items: center; gap: 8px;
+      background: rgba(30,30,30,0.9); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px; padding: 6px 12px;
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    }
+    .slide-btn {
+      width: 36px; height: 36px; border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 50%; background: transparent; color: var(--text);
+      font-size: 16px; cursor: pointer; display: flex;
+      align-items: center; justify-content: center;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .slide-btn:hover { background: rgba(255,255,255,0.08); border-color: var(--accent); }
+    .slide-btn:disabled { opacity: 0.3; cursor: default; }
+    .slide-counter {
+      font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums;
+      min-width: 48px; text-align: center; font-weight: 600;
+    }
+
+    /* === Progress bar === */
+    .progress {
+      position: fixed; bottom: 0; left: 0; height: 3px;
+      background: var(--accent); transition: width 0.3s ease; z-index: 101;
+    }
+
+    /* === Live region for screen readers === */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0;
+      margin: -1px; overflow: hidden; clip: rect(0,0,0,0);
+      white-space: nowrap; border: 0;
+    }
+
+    /* === Responsive === */
+    @media (max-width: 768px) {
+      .slide { padding: 6vh 6vw; }
+      .slide h1 { font-size: clamp(1.8rem, 6vw, 3rem); }
+      .pipeline { gap: 0.3rem; }
+      .pipeline .arrow { display: none; }
+      .compare { font-size: 0.8rem; }
+      .team { flex-direction: column; gap: 1rem; }
+      .timeline { flex-direction: column; gap: 1rem; }
+      .timeline .milestone::after { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Skip link -WCAG 2.4.1 -->
+  <a href="#slide-content" class="skip-link">Skip to presentation</a>
+
+  <!-- Live region for slide announcements -WCAG 4.1.3 -->
+  <div id="slide-announce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+  <div class="deck" id="slide-content" role="region" aria-roledescription="presentation" aria-label="Claude Kanban pitch deck, 10 slides">
+
+    <!-- Slide 1: Title / Hook -->
+    <section class="slide active" id="s1" role="group" aria-roledescription="slide" aria-label="Slide 1 of 10: Title">
+      <h1><span class="accent">Claude Kanban</span></h1>
+      <p style="font-size:clamp(1.3rem,2.5vw,2rem); font-weight:500; color:var(--text); max-width:50ch;">
+        Drop an idea. Walk away.<br>Come back to committed code.
+      </p>
+      <p class="subtle">Autonomous AI build pipeline, by Divya Mohan and Claude</p>
+      <p class="subtle"><a href="https://github.com/divyamohan1993/claude-kanban">github.com/divyamohan1993/claude-kanban</a></p>
+    </section>
+
+    <!-- Slide 2: Problem / Tension -->
+    <section class="slide" id="s2" role="group" aria-roledescription="slide" aria-label="Slide 2 of 10: The Problem" aria-hidden="true">
+      <h2>AI coding tools still need a <span class="accent">babysitter</span></h2>
+      <p>You type a prompt. Wait. Read the output. Fix the mistakes. Re-prompt. Wait again. Close the tab after 3 rounds because the AI missed the point.</p>
+      <p style="margin-top:1rem;">Every developer using AI copilots today is doing <strong>manual quality control</strong> on every generation. The AI writes code. You review it. You are the CI/CD pipeline.</p>
+      <p class="subtle">What if you could queue up 10 features and close your laptop?</p>
+    </section>
+
+    <!-- Slide 3: Value Proposition -->
+    <section class="slide" id="s3" role="group" aria-roledescription="slide" aria-label="Slide 3 of 10: Value Proposition" aria-hidden="true">
+      <div class="stat">10x</div>
+      <h2>features queued, zero attention required</h2>
+      <p>Claude Kanban replaces the human review loop with an autonomous pipeline. A separate AI session reviews every build, scores it 1-10, auto-fixes what scores below 8, and only escalates what it cannot solve. You approve or reject the finished product.</p>
+      <p class="subtle">The developer becomes the product owner, not the line worker.</p>
+    </section>
+
+    <!-- Slide 4: The Pipeline -->
+    <section class="slide" id="s4" role="group" aria-roledescription="slide" aria-label="Slide 4 of 10: How It Works" aria-hidden="true">
+      <h2>The <span class="accent">Pipeline</span></h2>
+      <div class="pipeline" role="list" aria-label="Pipeline steps">
+        <div class="step" role="listitem">Idea</div><span class="arrow" aria-hidden="true">&#8594;</span>
+        <div class="step" role="listitem">Brainstorm</div><span class="arrow" aria-hidden="true">&#8594;</span>
+        <div class="step" role="listitem">Decompose</div><span class="arrow" aria-hidden="true">&#8594;</span>
+        <div class="step" role="listitem">Snapshot</div><span class="arrow" aria-hidden="true">&#8594;</span>
+        <div class="step highlight" role="listitem">Build</div><span class="arrow" aria-hidden="true">&#8594;</span>
+        <div class="step highlight" role="listitem">AI Review</div><span class="arrow" aria-hidden="true">&#8594;</span>
+        <div class="step" role="listitem">Auto-fix</div><span class="arrow" aria-hidden="true">&#8594;</span>
+        <div class="step" role="listitem">Commit</div>
+      </div>
+      <ul>
+        <li>Each step is a separate Claude Code session; the builder never reviews its own work</li>
+        <li>Multi-lens spec intelligence: 5 perspectives (functional, security, UX, performance, accessibility) before any code is written</li>
+        <li>File snapshots before every build; reject rolls back every file instantly</li>
+        <li>Self-healing scanner: errors auto-create fix cards, intelligence engine learns your patterns</li>
+      </ul>
+      <p class="subtle">Real-time SSE log streaming. Server-driven UI. Zero page refreshes.</p>
+    </section>
+
+    <!-- Slide 5: Business Model -->
+    <section class="slide" id="s5" role="group" aria-roledescription="slide" aria-label="Slide 5 of 10: Who Benefits" aria-hidden="true">
+      <h2>Who benefits, <span class="accent">how</span></h2>
+      <ul>
+        <li><strong>Solo developers</strong>: multiply output without multiplying attention. Queue work before bed, review in the morning.</li>
+        <li><strong>Small teams</strong>: junior devs describe features in plain English, AI handles implementation + review. Senior devs approve.</li>
+        <li><strong>Agencies</strong>: parallel pipelines across client projects. Single-project mode auto-discovers work through 10 strategic lenses.</li>
+      </ul>
+      <p style="margin-top:1.5rem;"><strong>Model:</strong> Open source (Apache 2.0). SSO (OIDC, SAML, LDAP), role-based access, and audit compliance already built in. Enterprise-ready from day one.</p>
+    </section>
+
+    <!-- Slide 6: Go-to-Market -->
+    <section class="slide" id="s6" role="group" aria-roledescription="slide" aria-label="Slide 6 of 10: Go-to-Market" aria-hidden="true">
+      <h2>First <span class="accent">100</span> users</h2>
+      <ul>
+        <li><strong>Claude Code community</strong>: the tool is built for Claude Code users. They are already on the CLI.</li>
+        <li><strong>GitHub</strong>: Apache 2.0 repo, comprehensive README, CI badges. Discoverable via search.</li>
+        <li><strong>Dev Twitter/X + Reddit</strong>: demo showing idea, walk away, committed code. That is the hook.</li>
+        <li><strong>Anthropic Discord</strong>: direct access to the Claude power-user community.</li>
+      </ul>
+      <p class="subtle">Zero marketing budget. The product is the marketing.</p>
+    </section>
+
+    <!-- Slide 7: Competitive Analysis -->
+    <section class="slide" id="s7" role="group" aria-roledescription="slide" aria-label="Slide 7 of 10: Competitive Landscape" aria-hidden="true">
+      <h2>Landscape</h2>
+      <div class="compare" role="table" aria-label="Feature comparison">
+        <div class="hdr" role="columnheader"></div><div class="hdr" role="columnheader">Claude Kanban</div><div class="hdr" role="columnheader">AI Copilots</div>
+        <div class="label" role="rowheader">Autonomous pipeline</div><div class="yes" role="cell">Fully queued, zero-touch</div><div class="no" role="cell">Interactive, human-in-loop</div>
+        <div class="label" role="rowheader">Self-reviewing</div><div class="yes" role="cell">Separate AI reviewer, 1-10 score</div><div class="no" role="cell">Human reviews required</div>
+        <div class="label" role="rowheader">Auto-fix loop</div><div class="yes" role="cell">3 review-fix cycles, 2 self-heal</div><div class="no" role="cell">Manual re-prompt</div>
+        <div class="label" role="rowheader">File rollback</div><div class="yes" role="cell">Full snapshot/restore per card</div><div class="no" role="cell">Git revert (manual)</div>
+        <div class="label" role="rowheader">Self-healing</div><div class="yes" role="cell">Error scanner + escalation cards</div><div class="no" role="cell">None</div>
+        <div class="label" role="rowheader">SSO + RBAC</div><div class="yes" role="cell">Built-in (OIDC, SAML, LDAP)</div><div class="no" role="cell">Varies</div>
+        <div class="label" role="rowheader">Dependencies</div><div class="yes" role="cell">4 total</div><div class="no" role="cell">50-200+</div>
+      </div>
+      <p class="subtle">Not competing with copilots; built on top of Claude Code. Orchestration layer, not another AI.</p>
+    </section>
+
+    <!-- Slide 8: Team -->
+    <section class="slide" id="s8" role="group" aria-roledescription="slide" aria-label="Slide 8 of 10: Team" aria-hidden="true">
+      <h2>Built by</h2>
+      <div class="team">
+        <div class="member">
+          <div class="avatar" style="background:rgba(249,168,37,0.2); color:var(--accent);" aria-hidden="true">DM</div>
+          <div>
+            <div class="name">Divya Mohan</div>
+            <div class="role">Vision, Architecture, Direction: <a href="https://dmj.one">dmj.one</a> · <a href="https://www.linkedin.com/in/divyamohan1993">LinkedIn</a></div>
+          </div>
+        </div>
+        <div class="member">
+          <div class="avatar" style="background:rgba(167,139,250,0.2); color:#C4B5FD;" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div>
+            <div class="name">Claude Opus 4.6</div>
+            <div class="role">AI Co-Architect and Build Partner: Anthropic</div>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top:2rem;">Full-stack: from SQLite schema to CSS animations, from Argon2id auth to real-time SSE. 20K lines of code, 59 commits, 11 service modules, zero external contributors needed to ship a production system.</p>
+    </section>
+
+    <!-- Slide 9: Metrics -->
+    <section class="slide" id="s9" role="group" aria-roledescription="slide" aria-label="Slide 9 of 10: Metrics" aria-hidden="true">
+      <h2>By the numbers</h2>
+      <div class="metrics" role="list" aria-label="Key metrics">
+        <div class="metric" role="listitem"><div class="num">20K</div><div class="lbl">lines of code</div></div>
+        <div class="metric" role="listitem"><div class="num">4</div><div class="lbl">dependencies</div></div>
+        <div class="metric" role="listitem"><div class="num">~100</div><div class="lbl">API endpoints</div></div>
+        <div class="metric" role="listitem"><div class="num">305</div><div class="lbl">automated tests</div></div>
+        <div class="metric" role="listitem"><div class="num">9</div><div class="lbl">DB tables</div></div>
+        <div class="metric" role="listitem"><div class="num">10</div><div class="lbl">discovery lenses</div></div>
+      </div>
+      <p>Argon2id password hashing. AES-256-GCM field encryption. CSP nonce-based. HSTS. CSRF origin check. Token bucket rate limiting. Path traversal prevention. No innerHTML anywhere. 305 tests across reliability, security, performance, data durability, and code quality.</p>
+    </section>
+
+    <!-- Slide 10: Roadmap -->
+    <section class="slide" id="s10" role="group" aria-roledescription="slide" aria-label="Slide 10 of 10: Roadmap" aria-hidden="true">
+      <h2>Status and <span class="accent">what is next</span></h2>
+      <div class="timeline" role="list" aria-label="Version timeline">
+        <div class="milestone done" role="listitem">
+          <div class="t-label">v1.0</div>
+          <div class="t-desc">Pipeline MVP</div>
+        </div>
+        <div class="milestone done" role="listitem">
+          <div class="t-label">v2.0</div>
+          <div class="t-desc">Auto-fix, Intelligence</div>
+        </div>
+        <div class="milestone done" role="listitem">
+          <div class="t-label">v3.0</div>
+          <div class="t-desc">SSO, Control Panel, RBAC</div>
+        </div>
+        <div class="milestone current" role="listitem">
+          <div class="t-label">v3.3</div>
+          <div class="t-desc">Product suite, CI/CD, Docker</div>
+        </div>
+        <div class="milestone" role="listitem">
+          <div class="t-label">Next</div>
+          <div class="t-desc">GitHub integration</div>
+        </div>
+      </div>
+      <p style="margin-top:2rem;">
+        <strong>Live now:</strong> <a href="https://github.com/divyamohan1993/claude-kanban">github.com/divyamohan1993/claude-kanban</a>
+      </p>
+      <p>Apache 2.0 licensed. Clone, install, start. Contributions welcome.</p>
+      <p class="subtle">Built by <a href="https://www.linkedin.com/in/divyamohan1993">Divya Mohan</a>. Open to opportunities. · <a href="/product/">Product page</a></p>
+    </section>
+
+  </div>
+
+  <!-- Visible slide navigation -WCAG 2.1.1 keyboard, 2.4.7 focus visible -->
+  <nav class="slide-nav" aria-label="Slide navigation">
+    <button class="slide-btn" id="btn-prev" aria-label="Previous slide" disabled>&#8592;</button>
+    <span class="slide-counter" id="slide-counter" aria-hidden="true">1 / 10</span>
+    <button class="slide-btn" id="btn-next" aria-label="Next slide">&#8594;</button>
+  </nav>
+
+  <div class="progress" role="progressbar" aria-valuenow="1" aria-valuemin="1" aria-valuemax="10" aria-label="Slide progress" style="width:10%"></div>
+
+  <script>
+    (function() {
+      var slides = document.querySelectorAll('.slide');
+      var progress = document.querySelector('.progress');
+      var counter = document.getElementById('slide-counter');
+      var btnPrev = document.getElementById('btn-prev');
+      var btnNext = document.getElementById('btn-next');
+      var announce = document.getElementById('slide-announce');
+      var total = slides.length;
+      var current = 0;
+
+      function go(n) {
+        if (n < 0 || n >= total || n === current) return;
+        // Hide old slide from assistive tech
+        slides[current].classList.remove('active');
+        slides[current].setAttribute('aria-hidden', 'true');
+        // Show new slide
+        current = n;
+        slides[current].classList.add('active');
+        slides[current].removeAttribute('aria-hidden');
+        // Update controls
+        progress.style.width = ((current + 1) / total * 100) + '%';
+        progress.setAttribute('aria-valuenow', current + 1);
+        counter.textContent = (current + 1) + ' / ' + total;
+        btnPrev.disabled = current === 0;
+        btnNext.disabled = current === total - 1;
+        // Announce to screen readers
+        var label = slides[current].getAttribute('aria-label') || ('Slide ' + (current + 1));
+        announce.textContent = label;
+        history.replaceState(null, '', '#s' + (current + 1));
+      }
+
+      btnPrev.addEventListener('click', function() { go(current - 1); });
+      btnNext.addEventListener('click', function() { go(current + 1); });
+
+      document.addEventListener('keydown', function(e) {
+        // Only handle nav keys when not focused on a link/button inside slides
+        if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); go(current + 1); }
+        if (e.key === 'ArrowLeft') { e.preventDefault(); go(current - 1); }
+        if (e.key === 'Home') { e.preventDefault(); go(0); }
+        if (e.key === 'End') { e.preventDefault(); go(total - 1); }
+        if (e.key === 'f' || e.key === 'F') {
+          if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+          if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+          else document.exitFullscreen();
+        }
+      });
+
+      document.addEventListener('click', function(e) {
+        if (e.target.closest('a, button, nav')) return;
+        if (e.clientX > window.innerWidth / 2) go(current + 1);
+        else go(current - 1);
+      });
+
+      var touchX = 0;
+      document.addEventListener('touchstart', function(e) { touchX = e.touches[0].clientX; }, { passive: true });
+      document.addEventListener('touchend', function(e) {
+        var dx = e.changedTouches[0].clientX - touchX;
+        if (Math.abs(dx) > 50) go(current + (dx < 0 ? 1 : -1));
+      });
+
+      // Hash-based deep linking
+      var hash = parseInt((location.hash || '').replace('#s', '')) - 1;
+      if (hash > 0 && hash < total) go(hash);
+    })();
+  </script>
+</body>
+</html>

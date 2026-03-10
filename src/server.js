@@ -82,6 +82,7 @@ function applyCommonMiddleware(target) {
 // PUBLIC APP — 0.0.0.0:PORT — board UI + board APIs
 // =============================================================================
 const app = express();
+app.set('trust proxy', 1); // Behind Nginx reverse proxy
 applyCommonMiddleware(app);
 
 // SSE connection limiter — before the SSE route handlers (events + log-stream)
@@ -214,6 +215,7 @@ app.use(errorHandler);
 // ADMIN APP — 127.0.0.1:ADMIN_PORT — kernel rejects non-loopback TCP
 // =============================================================================
 const adminApp = express();
+adminApp.set('trust proxy', 1); // Behind Nginx reverse proxy
 applyCommonMiddleware(adminApp);
 
 // User management page — superadmin only

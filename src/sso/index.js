@@ -147,16 +147,21 @@ router.post('/auth/setup', async function(req, res) {
     dbConfig.set('single_project_path', effectivePath);
     dbConfig.set('auto_promote_brainstorm', 'true');
 
-    // Copy demo idea.md if requested
+    // Copy demo idea.md if requested (best-effort — may lack write permission)
     if (body.useDemoIdea) {
-      const demoSrc = require('path').join(ROOT_DIR, 'demo', 'idea.md');
-      const demoFs = require('fs');
-      if (demoFs.existsSync(demoSrc)) {
-        demoFs.mkdirSync(effectivePath, { recursive: true });
-        const destPath = require('path').join(effectivePath, 'idea.md');
-        if (!demoFs.existsSync(destPath)) {
-          demoFs.copyFileSync(demoSrc, destPath);
+      try {
+        const demoSrc = require('path').join(ROOT_DIR, 'demo', 'idea.md');
+        const demoFs = require('fs');
+        if (demoFs.existsSync(demoSrc)) {
+          demoFs.mkdirSync(effectivePath, { recursive: true });
+          const destPath = require('path').join(effectivePath, 'idea.md');
+          if (!demoFs.existsSync(destPath)) {
+            demoFs.copyFileSync(demoSrc, destPath);
+          }
         }
+      } catch (e) {
+        const { log: setupLog } = require('../lib/logger');
+        setupLog.warn({ path: effectivePath, err: e.message }, 'Could not copy demo idea.md — permission denied or path not writable');
       }
     }
   } else {

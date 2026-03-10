@@ -1658,6 +1658,14 @@ function renderSystem(d) {
   infoCard.appendChild(infoBody);
   body.appendChild(infoCard);
 
+  // Claude CLI card
+  var cliCard = el('div', 'card');
+  cliCard.appendChild(el('div', 'card-head', [el('div', { class: 'card-dot', style: 'background:var(--purple)' }), el('div', 'card-title', 'Claude CLI')]));
+  var cliBody = el('div', { class: 'card-body', id: 'cli-content' });
+  cliCard.appendChild(cliBody);
+  body.appendChild(cliCard);
+  api('GET', '/api/claude-cli').then(function(st) { renderClaudeCli(st, document.getElementById('cli-content')); });
+
   // Housekeeping card
   var hkCard = el('div', 'card');
   hkCard.appendChild(el('div', 'card-head', [el('div', { class: 'card-dot', style: 'background:var(--success)' }), el('div', 'card-title', 'Data Housekeeping')]));
@@ -1699,6 +1707,98 @@ function renderSystem(d) {
     ]),
   ]);
   body.appendChild(dangerCard);
+}
+
+function renderClaudeCli(st, container) {
+  if (!container) return;
+  clear(container);
+
+  var grid = el('div', 'info-grid');
+  grid.appendChild(el('div', 'info-row', [el('span', 'info-key', 'Installed'), el('span', 'info-val', st.installed ? 'Yes' : 'No')]));
+  if (st.version) grid.appendChild(el('div', 'info-row', [el('span', 'info-key', 'Version'), el('span', 'info-val', st.version)]));
+
+  var statusVal = el('span', 'info-val');
+  if (st.authenticated) {
+    statusVal.textContent = 'Authenticated';
+    statusVal.style.color = 'var(--success-text)';
+    statusVal.style.fontWeight = '600';
+  } else if (st.installed) {
+    statusVal.textContent = 'Not authenticated';
+    statusVal.style.color = 'var(--error-text)';
+    statusVal.style.fontWeight = '600';
+  } else {
+    statusVal.textContent = 'CLI not found';
+    statusVal.style.color = 'var(--error-text)';
+  }
+  grid.appendChild(el('div', 'info-row', [el('span', 'info-key', 'Status'), statusVal]));
+  container.appendChild(grid);
+
+  if (!st.installed) {
+    container.appendChild(el('p', { style: 'font-size:13px;color:var(--text-tertiary);margin-top:12px' },
+      'Install Claude Code CLI: npm install -g @anthropic-ai/claude-code'));
+    return;
+  }
+
+  // Auth action area
+  var authArea = el('div', { id: 'cli-auth-area', style: 'margin-top:14px' });
+
+  if (!st.authenticated) {
+    authArea.appendChild(el('p', { style: 'font-size:13px;color:var(--text-tertiary);margin-bottom:10px' },
+      'The orchestrator needs Claude authenticated to brainstorm, build, and review code.'));
+  }
+
+  var authBtn = el('button', { class: 'btn ' + (st.authenticated ? '' : 'btn-primary'), onclick: function() {
+    authBtn.disabled = true;
+    authBtn.textContent = 'Starting auth...';
+    var outputBox = document.getElementById('cli-auth-output');
+    if (outputBox) outputBox.remove();
+
+    api('POST', '/api/claude-cli/auth').then(function(r) {
+      authBtn.disabled = false;
+      authBtn.textContent = st.authenticated ? 'Re-authenticate' : 'Authenticate Claude';
+
+      var box = el('div', { id: 'cli-auth-output', style: 'margin-top:12px;padding:14px;border-radius:var(--radius-sm);background:var(--surface-hover);border:1px solid var(--border)' });
+
+      if (r.ok && r.url) {
+        box.appendChild(el('p', { style: 'font-size:13px;font-weight:600;margin-bottom:8px' }, 'Open this URL in your browser:'));
+        var link = el('a', { href: r.url, target: '_blank', rel: 'noopener', style: 'word-break:break-all;color:var(--primary-text);font-size:13px' }, r.url);
+        box.appendChild(link);
+        if (r.output) box.appendChild(el('pre', { style: 'margin-top:10px;font-size:12px;color:var(--text-tertiary);white-space:pre-wrap;font-family:var(--mono)' }, r.output));
+        box.appendChild(el('p', { style: 'font-size:12px;color:var(--text-tertiary);margin-top:10px' }, 'After completing authentication in your browser, click Verify below.'));
+
+        var verifyBtn = el('button', { class: 'btn btn-primary', style: 'margin-top:8px', onclick: function() {
+          verifyBtn.textContent = 'Checking...';
+          verifyBtn.disabled = true;
+          api('GET', '/api/claude-cli/auth-status').then(function(s) {
+            if (s.authenticated) {
+              toast('Claude CLI authenticated successfully', 'success');
+              api('GET', '/api/claude-cli').then(function(fresh) { renderClaudeCli(fresh, container); });
+            } else if (s.inProgress) {
+              toast('Auth still in progress. Complete it in your browser, then try again.', 'info');
+              verifyBtn.textContent = 'Verify';
+              verifyBtn.disabled = false;
+            } else {
+              toast('Not authenticated yet. Complete the flow in your browser.', 'warning');
+              verifyBtn.textContent = 'Verify';
+              verifyBtn.disabled = false;
+            }
+          });
+        } }, 'Verify');
+        box.appendChild(verifyBtn);
+      } else {
+        box.appendChild(el('p', { style: 'font-size:13px;color:var(--error-text)' }, r.output || r.error || 'Failed to start auth flow'));
+      }
+
+      authArea.appendChild(box);
+    }).catch(function(err) {
+      authBtn.disabled = false;
+      authBtn.textContent = st.authenticated ? 'Re-authenticate' : 'Authenticate Claude';
+      toast('Auth failed: ' + (err.message || err), 'error');
+    });
+  } }, st.authenticated ? 'Re-authenticate' : 'Authenticate Claude');
+
+  authArea.appendChild(authBtn);
+  container.appendChild(authArea);
 }
 
 function renderHousekeeping(hk, container) {

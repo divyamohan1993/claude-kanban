@@ -219,6 +219,78 @@ router.post('/auth/setup', async function(req, res) {
   res.json({ ok: true });
 });
 
+// --- Claude CLI auth status (works during setup phase only) ---
+router.get('/auth/claude-status', function(req, res) {
+  const { execFileSync } = require('child_process');
+  var cliInstalled = false;
+  try { execFileSync('claude', ['--version'], { timeout: 5000, stdio: 'pipe' }); cliInstalled = true; } catch (_) {}
+  var authenticated = false;
+  if (cliInstalled) {
+    const os = require('os');
+    const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
+    authenticated = fs.existsSync(credPath);
+  }
+  res.json({ cliInstalled: cliInstalled, authenticated: authenticated });
+});
+
+// --- Claude CLI auth start (spawns device code flow, returns URL) ---
+var _claudeAuthProc = null;
+router.post('/auth/claude-auth', function(req, res) {
+  if (_claudeAuthProc) {
+    return res.status(409).json({ error: 'Auth already in progress' });
+  }
+  const { spawn: spawnProc } = require('child_process');
+  var output = '';
+  var responded = false;
+
+  _claudeAuthProc = spawnProc('claude', ['auth', 'login'], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    timeout: 120000,
+  });
+
+  function tryRespond() {
+    if (responded) return;
+    // Look for URL pattern in output
+    var urlMatch = output.match(/(https?:\/\/[^\s]+)/);
+    if (urlMatch) {
+      responded = true;
+      res.json({ ok: true, output: output.trim(), url: urlMatch[1] });
+    }
+  }
+
+  _claudeAuthProc.stdout.on('data', function(chunk) {
+    output += chunk.toString();
+    tryRespond();
+  });
+  _claudeAuthProc.stderr.on('data', function(chunk) {
+    output += chunk.toString();
+    tryRespond();
+  });
+
+  _claudeAuthProc.on('close', function() {
+    _claudeAuthProc = null;
+    if (!responded) {
+      responded = true;
+      res.json({ ok: false, output: output.trim() || 'Claude auth process exited without URL' });
+    }
+  });
+  _claudeAuthProc.on('error', function(err) {
+    _claudeAuthProc = null;
+    if (!responded) {
+      responded = true;
+      res.status(500).json({ error: 'Failed to start claude auth: ' + err.message });
+    }
+  });
+
+  // Timeout: if no URL found in 15s, return whatever we have
+  setTimeout(function() {
+    if (!responded) {
+      responded = true;
+      res.json({ ok: false, output: output.trim() || 'Timed out waiting for device code' });
+    }
+  }, 15000);
+});
+
 // --- Login page (served by SSO, not by the application) ---
 router.get('/auth/login', function(req, res) {
   const claims = resolveIdentity(req);

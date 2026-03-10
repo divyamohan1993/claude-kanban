@@ -140,6 +140,7 @@
       <div class="step-dot" id="dot2"></div>
       <div class="step-dot" id="dot3"></div>
       <div class="step-dot" id="dot4"></div>
+      <div class="step-dot" id="dot5"></div>
     </div>
 
     <!-- Step 1: Super Admin Account -->
@@ -379,6 +380,53 @@
         <button type="button" class="btn-primary" id="btn-step4-submit">Complete Setup</button>
       </div>
     </div>
+
+    <!-- Step 5: Claude CLI Authentication -->
+    <div class="step" id="step5">
+      <h2>Authenticate Claude Code</h2>
+      <p class="step-desc">
+        The orchestrator needs Claude Code CLI authenticated to build, review, and brainstorm code.
+        This connects your Claude Max subscription to the server.
+      </p>
+
+      <div id="claude-auth-checking" style="text-align:center; padding: 1rem 0;">
+        <div class="spinner"></div> Checking Claude CLI status...
+      </div>
+
+      <div id="claude-auth-not-installed" style="display:none;">
+        <div class="warning-box">
+          <strong>Claude CLI not found.</strong> Install it on the server first:
+          <br><code style="display:block; margin-top:0.5rem; padding:0.5rem; background:#0d0d0d; border-radius:4px;">npm install -g @anthropic-ai/claude-code</code>
+          Then refresh this page.
+        </div>
+      </div>
+
+      <div id="claude-auth-ready" style="display:none;">
+        <div id="claude-auth-start-box">
+          <p style="font-size:0.85rem; color:#aaa; margin-bottom:1rem;">Click below to start authentication. A URL and device code will appear. Open the URL in a new tab and enter the code.</p>
+          <button type="button" class="btn-primary" id="btn-claude-auth" style="width:100%;">Start Authentication</button>
+        </div>
+
+        <div id="claude-auth-pending" style="display:none;">
+          <div style="background:#0d0d0d; border:1px solid #333; border-radius:8px; padding:1rem; font-family:monospace; font-size:0.8rem; color:#4a9; white-space:pre-wrap; word-break:break-all; max-height:120px; overflow-y:auto;" id="claude-auth-output"></div>
+          <p style="font-size:0.78rem; color:#888; margin-top:0.75rem; text-align:center;"><span class="spinner"></span> Waiting for you to complete authorization in your browser...</p>
+        </div>
+
+        <div id="claude-auth-done" style="display:none;">
+          <div class="success-msg" style="font-size:1rem; padding:1rem 0;">Authenticated. The orchestrator is ready to build.</div>
+        </div>
+      </div>
+
+      <div id="claude-already-authed" style="display:none;">
+        <div class="success-msg" style="font-size:1rem; padding:1rem 0;">Claude CLI is already authenticated. Ready to build.</div>
+      </div>
+
+      <div class="error-msg" id="step5-error"></div>
+      <div class="btn-row">
+        <button type="button" class="btn-secondary" id="btn-skip-claude">Skip &amp; Login</button>
+        <button type="button" class="btn-primary" id="btn-goto-login" style="display:none;">Go to Login</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -387,16 +435,17 @@
   var currentStep = 1;
   var formData = {};
 
-  var steps = [null, document.getElementById('step1'), document.getElementById('step2'), document.getElementById('step3'), document.getElementById('step4')];
-  var dots = [null, document.getElementById('dot1'), document.getElementById('dot2'), document.getElementById('dot3'), document.getElementById('dot4')];
+  var steps = [null, document.getElementById('step1'), document.getElementById('step2'), document.getElementById('step3'), document.getElementById('step4'), document.getElementById('step5')];
+  var dots = [null, document.getElementById('dot1'), document.getElementById('dot2'), document.getElementById('dot3'), document.getElementById('dot4'), document.getElementById('dot5')];
 
   function showStep(n) {
-    for (var i = 1; i <= 4; i++) {
+    for (var i = 1; i <= 5; i++) {
       steps[i].classList.toggle('active', i === n);
       dots[i].classList.toggle('active', i === n);
       dots[i].classList.toggle('done', i < n);
     }
     currentStep = n;
+    if (n === 5) initClaudeAuth();
   }
 
   // Password strength meter
@@ -574,10 +623,10 @@
       try {
         var data = JSON.parse(xhr.responseText);
         if (data.ok) {
-          successEl.textContent = 'Setup complete. Redirecting...';
+          successEl.textContent = 'Setup complete. Configuring Claude CLI...';
           btn.disabled = true;
           document.getElementById('btn-step4-back').disabled = true;
-          setTimeout(function() { window.location.href = bp + '/auth/login'; }, 1500);
+          setTimeout(function() { showStep(5); }, 800);
         } else {
           errEl.textContent = data.error || 'Setup failed';
         }
@@ -604,6 +653,146 @@
       projectsRoot: formData.projectsRoot || '',
       useDemoIdea: formData.useDemoIdea || false,
     }));
+  });
+
+  // --- Step 5: Claude CLI Authentication ---
+  var claudePollTimer = null;
+  var bp = window.__BASE_PATH__ || '';
+
+  function initClaudeAuth() {
+    var checking = document.getElementById('claude-auth-checking');
+    var notInstalled = document.getElementById('claude-auth-not-installed');
+    var ready = document.getElementById('claude-auth-ready');
+    var alreadyAuthed = document.getElementById('claude-already-authed');
+    var errEl = document.getElementById('step5-error');
+    var btnSkip = document.getElementById('btn-skip-claude');
+    var btnLogin = document.getElementById('btn-goto-login');
+
+    checking.style.display = 'block';
+    notInstalled.style.display = 'none';
+    ready.style.display = 'none';
+    alreadyAuthed.style.display = 'none';
+    errEl.textContent = '';
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', bp + '/auth/claude-status');
+    xhr.timeout = 10000;
+    xhr.onload = function() {
+      checking.style.display = 'none';
+      try {
+        var data = JSON.parse(xhr.responseText);
+        if (!data.cliInstalled) {
+          notInstalled.style.display = 'block';
+          btnSkip.textContent = 'Skip & Login';
+          btnSkip.style.display = '';
+        } else if (data.authenticated) {
+          alreadyAuthed.style.display = 'block';
+          btnSkip.style.display = 'none';
+          btnLogin.style.display = '';
+        } else {
+          ready.style.display = 'block';
+          btnSkip.textContent = 'Skip & Login';
+          btnSkip.style.display = '';
+        }
+      } catch (_) {
+        errEl.textContent = 'Could not check Claude CLI status.';
+        btnSkip.style.display = '';
+      }
+    };
+    xhr.onerror = function() {
+      checking.style.display = 'none';
+      errEl.textContent = 'Connection failed while checking Claude CLI.';
+    };
+    xhr.ontimeout = function() {
+      checking.style.display = 'none';
+      errEl.textContent = 'Status check timed out.';
+    };
+    xhr.send();
+  }
+
+  function pollClaudeStatus() {
+    if (claudePollTimer) clearInterval(claudePollTimer);
+    claudePollTimer = setInterval(function() {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', bp + '/auth/claude-status');
+      xhr.timeout = 5000;
+      xhr.onload = function() {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          if (data.authenticated) {
+            clearInterval(claudePollTimer);
+            claudePollTimer = null;
+            document.getElementById('claude-auth-pending').style.display = 'none';
+            document.getElementById('claude-auth-start-box').style.display = 'none';
+            document.getElementById('claude-auth-done').style.display = 'block';
+            document.getElementById('btn-skip-claude').style.display = 'none';
+            document.getElementById('btn-goto-login').style.display = '';
+          }
+        } catch (_) {}
+      };
+      xhr.onerror = function() {};
+      xhr.send();
+    }, 3000);
+  }
+
+  document.getElementById('btn-claude-auth').addEventListener('click', function() {
+    var btn = document.getElementById('btn-claude-auth');
+    var startBox = document.getElementById('claude-auth-start-box');
+    var pending = document.getElementById('claude-auth-pending');
+    var output = document.getElementById('claude-auth-output');
+    var errEl = document.getElementById('step5-error');
+    errEl.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', bp + '/auth/claude-auth');
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.timeout = 20000;
+    xhr.onload = function() {
+      try {
+        var data = JSON.parse(xhr.responseText);
+        if (data.ok) {
+          startBox.style.display = 'none';
+          pending.style.display = 'block';
+          output.textContent = data.output || 'Waiting for device code...';
+          if (data.url) {
+            output.textContent += '\n\nOpen this URL in your browser:\n' + data.url;
+          }
+          pollClaudeStatus();
+        } else {
+          btn.disabled = false;
+          btn.textContent = 'Start Authentication';
+          errEl.textContent = data.error || 'Failed to start authentication.';
+        }
+      } catch (_) {
+        btn.disabled = false;
+        btn.textContent = 'Start Authentication';
+        errEl.textContent = 'Unexpected server response.';
+      }
+    };
+    xhr.onerror = function() {
+      btn.disabled = false;
+      btn.textContent = 'Start Authentication';
+      errEl.textContent = 'Connection failed.';
+    };
+    xhr.ontimeout = function() {
+      btn.disabled = false;
+      btn.textContent = 'Start Authentication';
+      errEl.textContent = 'Request timed out. Try again.';
+    };
+    xhr.send('{}');
+  });
+
+  document.getElementById('btn-skip-claude').addEventListener('click', function() {
+    if (claudePollTimer) { clearInterval(claudePollTimer); claudePollTimer = null; }
+    window.location.href = bp + '/auth/login';
+  });
+
+  document.getElementById('btn-goto-login').addEventListener('click', function() {
+    if (claudePollTimer) { clearInterval(claudePollTimer); claudePollTimer = null; }
+    window.location.href = bp + '/auth/login';
   });
 })();
 </script>

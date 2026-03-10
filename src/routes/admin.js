@@ -811,8 +811,30 @@ router.post('/api/claude-cli/auth', requireAdmin, function(req, res) {
   }, 15000);
 });
 
+router.post('/api/claude-cli/auth-code', requireAdmin, function(req, res) {
+  var code = (req.body.code || '').trim();
+  if (!code) return res.status(400).json({ error: 'Auth code is required' });
+  if (!_claudeAuthProc) return res.status(409).json({ error: 'No auth session in progress. Click Authenticate first.' });
+  try {
+    _claudeAuthProc.stdin.write(code + '\n');
+    // Give process a moment to consume the code
+    setTimeout(function() {
+      var credPath = path.join(os.homedir(), '.claude', '.credentials.json');
+      var authed = fs.existsSync(credPath);
+      if (authed) {
+        res.json({ ok: true, authenticated: true });
+      } else if (_claudeAuthProc) {
+        res.json({ ok: true, authenticated: false, pending: true });
+      } else {
+        res.json({ ok: true, authenticated: false });
+      }
+    }, 3000);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to send code: ' + err.message });
+  }
+});
+
 router.get('/api/claude-cli/auth-status', requireAdmin, function(_req, res) {
-  // Check if auth process is still running (user opened URL, waiting for completion)
   if (_claudeAuthProc) {
     return res.json({ inProgress: true });
   }

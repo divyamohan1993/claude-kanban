@@ -1760,31 +1760,50 @@ function renderClaudeCli(st, container) {
       var box = el('div', { id: 'cli-auth-output', style: 'margin-top:12px;padding:14px;border-radius:var(--radius-sm);background:var(--surface-hover);border:1px solid var(--border)' });
 
       if (r.ok && r.url) {
-        box.appendChild(el('p', { style: 'font-size:13px;font-weight:600;margin-bottom:8px' }, 'Open this URL in your browser:'));
+        box.appendChild(el('p', { style: 'font-size:13px;font-weight:600;margin-bottom:8px' }, 'Step 1: Open this URL in your browser:'));
         var link = el('a', { href: r.url, target: '_blank', rel: 'noopener', style: 'word-break:break-all;color:var(--primary-text);font-size:13px' }, r.url);
         box.appendChild(link);
         if (r.output) box.appendChild(el('pre', { style: 'margin-top:10px;font-size:12px;color:var(--text-tertiary);white-space:pre-wrap;font-family:var(--mono)' }, r.output));
-        box.appendChild(el('p', { style: 'font-size:12px;color:var(--text-tertiary);margin-top:10px' }, 'After completing authentication in your browser, click Verify below.'));
 
-        var verifyBtn = el('button', { class: 'btn btn-primary', style: 'margin-top:8px', onclick: function() {
-          verifyBtn.textContent = 'Checking...';
-          verifyBtn.disabled = true;
-          api('GET', '/api/claude-cli/auth-status').then(function(s) {
+        box.appendChild(el('p', { style: 'font-size:13px;font-weight:600;margin-top:14px;margin-bottom:6px' }, 'Step 2: Paste the authentication code from the browser here:'));
+        var codeInput = el('input', { type: 'text', placeholder: 'Paste auth code here...', style: 'width:100%;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13px;box-sizing:border-box' });
+        box.appendChild(codeInput);
+
+        var submitBtn = el('button', { class: 'btn btn-primary', style: 'margin-top:8px', onclick: function() {
+          var code = codeInput.value.trim();
+          if (!code) { toast('Paste the auth code from the browser first.', 'warning'); return; }
+          submitBtn.textContent = 'Submitting...';
+          submitBtn.disabled = true;
+          api('POST', '/api/claude-cli/auth-code', { code: code }).then(function(s) {
             if (s.authenticated) {
-              toast('Claude CLI authenticated successfully', 'success');
+              toast('Claude CLI authenticated successfully!', 'success');
               api('GET', '/api/claude-cli').then(function(fresh) { renderClaudeCli(fresh, container); });
-            } else if (s.inProgress) {
-              toast('Auth still in progress. Complete it in your browser, then try again.', 'info');
-              verifyBtn.textContent = 'Verify';
-              verifyBtn.disabled = false;
+            } else if (s.pending) {
+              toast('Code submitted. Verifying...', 'info');
+              setTimeout(function() {
+                api('GET', '/api/claude-cli/auth-status').then(function(st) {
+                  if (st.authenticated) {
+                    toast('Claude CLI authenticated successfully!', 'success');
+                    api('GET', '/api/claude-cli').then(function(fresh) { renderClaudeCli(fresh, container); });
+                  } else {
+                    submitBtn.textContent = 'Submit Code';
+                    submitBtn.disabled = false;
+                    toast('Still processing. Try clicking Submit again in a moment.', 'info');
+                  }
+                });
+              }, 3000);
             } else {
-              toast('Not authenticated yet. Complete the flow in your browser.', 'warning');
-              verifyBtn.textContent = 'Verify';
-              verifyBtn.disabled = false;
+              submitBtn.textContent = 'Submit Code';
+              submitBtn.disabled = false;
+              toast(s.error || 'Code not accepted. Try again.', 'warning');
             }
+          }).catch(function(err) {
+            submitBtn.textContent = 'Submit Code';
+            submitBtn.disabled = false;
+            toast('Error: ' + (err.message || err), 'error');
           });
-        } }, 'Verify');
-        box.appendChild(verifyBtn);
+        } }, 'Submit Code');
+        box.appendChild(submitBtn);
       } else {
         box.appendChild(el('p', { style: 'font-size:13px;color:var(--error-text)' }, r.output || r.error || 'Failed to start auth flow'));
       }

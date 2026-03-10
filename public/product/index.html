@@ -397,7 +397,7 @@ footer a:hover{text-decoration:underline}
       <li><a href="#start">Get Started</a></li>
     </ul>
     <div style="display:flex;align-items:center;gap:8px">
-      <button class="nav-theme" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle theme">&#9789;</button>
+      <button class="nav-theme" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle theme"><svg id="theme-icon-light" width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg><svg id="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
       <a href="/" class="nav-cta">Open Board</a>
     </div>
   </div>
@@ -914,24 +914,22 @@ footer a:hover{text-decoration:underline}
 <script>
 (function() {
   // Theme toggle
-  var toggle = document.getElementById('theme-toggle');
   var html = document.documentElement;
-  var stored = localStorage.getItem('ck-theme');
+  var stored = localStorage.getItem('claude-kanban-theme');
+  function updateIcons() {
+    var isDark = html.getAttribute('data-theme') === 'dark';
+    document.getElementById('theme-icon-light').style.display = isDark ? 'none' : '';
+    document.getElementById('theme-icon-dark').style.display = isDark ? '' : 'none';
+  }
   if (stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme:dark)').matches)) {
     html.setAttribute('data-theme', 'dark');
-    toggle.textContent = '\u2600';
   }
-  toggle.addEventListener('click', function() {
+  updateIcons();
+  document.getElementById('theme-toggle').addEventListener('click', function() {
     var isDark = html.getAttribute('data-theme') === 'dark';
-    if (isDark) {
-      html.removeAttribute('data-theme');
-      toggle.textContent = '\u263D';
-      localStorage.setItem('ck-theme', 'light');
-    } else {
-      html.setAttribute('data-theme', 'dark');
-      toggle.textContent = '\u2600';
-      localStorage.setItem('ck-theme', 'dark');
-    }
+    if (isDark) { html.removeAttribute('data-theme'); localStorage.setItem('claude-kanban-theme', 'light'); }
+    else { html.setAttribute('data-theme', 'dark'); localStorage.setItem('claude-kanban-theme', 'dark'); }
+    updateIcons();
   });
 
   // Scroll reveal

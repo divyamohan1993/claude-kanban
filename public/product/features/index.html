@@ -192,14 +192,14 @@ footer a{color:var(--text-secondary)}
 
 <nav role="navigation" aria-label="Main navigation">
   <div class="nav-inner">
-    <a href="/" class="nav-brand" aria-label="Claude Kanban home">
+    <a href="/product/" class="nav-brand" aria-label="Claude Kanban home">
       <span class="nav-diamond" aria-hidden="true">&#9670;</span>
       Claude Kanban
     </a>
     <div class="nav-links">
-      <a href="/pitch/" class="hide-m">Pitch</a>
-      <a href="/features/" aria-current="page" style="color:var(--accent)">Features</a>
-      <button id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode"></button>
+      <a href="/product/pitch/" class="hide-m">Pitch</a>
+      <a href="/product/features/" aria-current="page" style="color:var(--accent)">Features</a>
+      <button id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode"><svg id="theme-icon-light" width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg><svg id="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
       <a href="/" class="nav-cta">Open Board</a>
     </div>
   </div>
@@ -927,19 +927,21 @@ footer a{color:var(--text-secondary)}
 (function(){
   // Theme
   var root = document.documentElement;
-  var btn = document.getElementById('theme-toggle');
-  var stored = localStorage.getItem('theme');
+  var stored = localStorage.getItem('claude-kanban-theme');
   var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   var theme = stored || (prefersDark ? 'dark' : 'light');
   root.setAttribute('data-theme', theme);
-  btn.textContent = theme === 'dark' ? '\u2600' : '\u263D';
-  btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
-  btn.addEventListener('click', function(){
+  function updateIcons() {
+    var isDark = root.getAttribute('data-theme') === 'dark';
+    document.getElementById('theme-icon-light').style.display = isDark ? 'none' : '';
+    document.getElementById('theme-icon-dark').style.display = isDark ? '' : 'none';
+  }
+  updateIcons();
+  document.getElementById('theme-toggle').addEventListener('click', function(){
     theme = theme === 'dark' ? 'light' : 'dark';
     root.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-    btn.textContent = theme === 'dark' ? '\u2600' : '\u263D';
-    btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+    localStorage.setItem('claude-kanban-theme', theme);
+    updateIcons();
   });
 
   // TOC active state

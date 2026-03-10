@@ -1434,6 +1434,29 @@ input:focus, textarea:focus {
 .toast-info { border-left: 3px solid var(--primary); }
 
 /* ----------------------------------------------------------------
+   Demo Timer Bar
+   ---------------------------------------------------------------- */
+.demo-timer-bar {
+  display: none;
+  text-align: center;
+  padding: 8px 16px;
+  background: var(--primary-soft, #fef3e6);
+  border-bottom: 1px solid var(--primary, #c97d2e);
+  font-size: 13px;
+  color: var(--text);
+  gap: 12px;
+}
+.demo-timer-text {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-right: 12px;
+}
+.demo-timer-note {
+  color: var(--text-muted, #888);
+  font-size: 12px;
+}
+
+/* ----------------------------------------------------------------
    Shortcuts Bar (persistent bottom bar)
    ---------------------------------------------------------------- */
 .shortcuts-bar {

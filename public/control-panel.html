@@ -1015,6 +1015,13 @@ function renderConfig(cfg, modeState) {
   ]));
   body.appendChild(modeCard);
 
+  // ─── Demo Mode ───
+  body.appendChild(cfgCard('var(--primary)', 'Demo Mode', 'Pace builds with random delays to conserve the host account\'s Claude usage quota', 'cfg-demo', [
+    cfgToggle('demoMode', 'Enable Demo Mode', r.demoMode, 'Add random cooldown between card executions'),
+    cfgNumber('demoDelayMinMins', 'Min Delay (min)', r.demoDelayMinMins, 'Minimum wait before next card starts'),
+    cfgNumber('demoDelayMaxMins', 'Max Delay (min)', r.demoDelayMaxMins, 'Maximum wait before next card starts'),
+  ], 'Save Demo Mode'));
+
   // ─── Build & Timeouts ───
   body.appendChild(cfgCard('var(--warning)', 'Build & Timeouts', 'Claude CLI parameters, concurrency, polling, and phase timeouts', 'cfg-build', [
     cfgNumber('maxConcurrentBuilds', 'Max Concurrent Builds', r.maxConcurrentBuilds, 'Parallel Claude sessions'),

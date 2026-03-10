@@ -23,6 +23,11 @@ let pipelinePaused = false;
 let pauseReason = null;            // null | 'user' | 'usage-limit' | 'rate-limit-detected'
 let recoveryPoller = null;         // setInterval handle for usage recovery polling
 const activeFixes = new Set();     // sourceCardId set (self-heal)
+
+// --- Demo Mode Delay ---
+let _demoTimer = null;             // setTimeout handle
+let _demoNextRunAt = 0;            // epoch ms when next card will execute
+let _demoCountdownInterval = null; // interval for broadcasting countdown
 const fixAttempts = new Map();     // sourceCardId -> {count, lastAttempt}
 const reviewFixCount = new Map();  // cardId -> fix attempt count
 const cardActivity = new Map();    // cardId -> {detail, step, timestamp}
@@ -38,6 +43,7 @@ function getPipelineState() {
     queueLength: workQueue.length,
     fixCount: activeFixes.size,
     pollerCount: activePollers.size,
+    demoTimer: _demoNextRunAt ? { active: true, nextRunAt: _demoNextRunAt, remaining: Math.max(0, _demoNextRunAt - Date.now()) } : null,
     activeBrainstorms: brainstormSvcState.getActiveBrainstorms(),
     brainstormQueueLength: brainstormSvcState.getBrainstormQueue().length,
     pause: function(reason) {
@@ -97,6 +103,7 @@ function setPaused(paused, reason) {
   pipelinePaused = !!paused;
   if (pipelinePaused) {
     pauseReason = reason || 'user';
+    clearDemoTimer();
     if (reason === 'usage-limit' || reason === 'rate-limit-detected') {
       startRecoveryPoller();
     }
@@ -664,7 +671,57 @@ function handleRateLimitDetected(cardId, phase, logFile) {
 
 // --- Process Queue ---
 
+function clearDemoTimer() {
+  if (_demoTimer) { clearTimeout(_demoTimer); _demoTimer = null; }
+  if (_demoCountdownInterval) { clearInterval(_demoCountdownInterval); _demoCountdownInterval = null; }
+  if (_demoNextRunAt) {
+    _demoNextRunAt = 0;
+    broadcast('demo-timer', { active: false, nextRunAt: 0, remaining: 0 });
+  }
+}
+
+function startDemoTimer(delayMs) {
+  clearDemoTimer();
+  _demoNextRunAt = Date.now() + delayMs;
+  var minMins = runtime.demoDelayMinMins;
+  var maxMins = runtime.demoDelayMaxMins;
+  broadcast('demo-timer', { active: true, nextRunAt: _demoNextRunAt, remaining: delayMs, minMins: minMins, maxMins: maxMins });
+  log.info({ delayMs: delayMs, minMins: minMins, maxMins: maxMins }, 'demo-mode: delaying next card');
+
+  // Broadcast countdown every 10 seconds
+  _demoCountdownInterval = setInterval(function() {
+    var remaining = Math.max(0, _demoNextRunAt - Date.now());
+    broadcast('demo-timer', { active: true, nextRunAt: _demoNextRunAt, remaining: remaining, minMins: minMins, maxMins: maxMins });
+    if (remaining <= 0) clearInterval(_demoCountdownInterval);
+  }, 10000);
+
+  _demoTimer = setTimeout(function() {
+    clearDemoTimer();
+    processQueueImmediate();
+  }, delayMs);
+}
+
 function processQueue() {
+  if (pipelinePaused) return;
+  if (workQueue.length === 0) return;
+  if (activeBuilds.size >= runtime.maxConcurrentBuilds) return;
+
+  // Demo mode: random delay before executing next card
+  if (runtime.demoMode && !_demoTimer && activeBuilds.size === 0) {
+    var minMs = runtime.demoDelayMinMins * 60000;
+    var maxMs = runtime.demoDelayMaxMins * 60000;
+    var delayMs = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+    startDemoTimer(delayMs);
+    return;
+  }
+
+  // If demo timer is active, wait for it
+  if (_demoTimer) return;
+
+  processQueueImmediate();
+}
+
+function processQueueImmediate() {
   if (pipelinePaused) return;
   const limits = usageSvc.checkUsageLimits(getPipelineState());
   if (!limits.allowed) return;

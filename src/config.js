@@ -115,6 +115,11 @@ const runtime = {
   // --- Error Handling ---
   maxUncaughtBeforeExit: Number(process.env.MAX_UNCAUGHT_BEFORE_EXIT) || 10,
 
+  // --- Demo Mode ---
+  demoMode: (process.env.DEMO_MODE || 'false') === 'true',
+  demoDelayMinMins: Number(process.env.DEMO_DELAY_MIN_MINS) || 5,
+  demoDelayMaxMins: Number(process.env.DEMO_DELAY_MAX_MINS) || 30,
+
   // --- Usage Recovery ---
   usageCacheTtlMins: Number(process.env.USAGE_CACHE_TTL_MINS) || 55,
   maxRecoveryWaitHours: Number(process.env.MAX_RECOVERY_WAIT_HOURS) || 6,

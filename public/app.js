@@ -17,6 +17,7 @@ var cardActivities = {};
 var selectedCardId = null;
 var pipelinePaused = false;
 var boardMode = { mode: 'global', autoPromoteBrainstorm: true, discoveryRunning: false };
+var _demoTimerInterval = null;
 
 // Debounced render — coalesces rapid SSE updates into a single DOM repaint
 var _renderTimer = null;
@@ -259,6 +260,11 @@ function connectSSE() {
     debouncedRender();
   });
 
+  es.addEventListener('demo-timer', function(e) {
+    var data = JSON.parse(e.data);
+    updateDemoTimer(data);
+  });
+
   es.addEventListener('config-updated', function(e) {
     state.config = JSON.parse(e.data);
     debouncedRender();
@@ -394,6 +400,41 @@ function makeSparkline(values) {
 }
 
 // --- Stats ---
+function updateDemoTimer(data) {
+  var bar = document.getElementById('demo-timer-bar');
+  if (!data || !data.active) {
+    if (bar) bar.style.display = 'none';
+    if (_demoTimerInterval) { clearInterval(_demoTimerInterval); _demoTimerInterval = null; }
+    return;
+  }
+  if (!bar) {
+    bar = el('div', { id: 'demo-timer-bar', className: 'demo-timer-bar' });
+    var header = document.querySelector('header');
+    if (header) header.parentNode.insertBefore(bar, header.nextSibling);
+    else document.body.prepend(bar);
+  }
+  bar.style.display = '';
+  var targetTime = data.nextRunAt;
+
+  function tick() {
+    var remaining = Math.max(0, targetTime - Date.now());
+    if (remaining <= 0) {
+      bar.style.display = 'none';
+      if (_demoTimerInterval) { clearInterval(_demoTimerInterval); _demoTimerInterval = null; }
+      return;
+    }
+    var mins = Math.floor(remaining / 60000);
+    var secs = Math.floor((remaining % 60000) / 1000);
+    var timeStr = mins > 0 ? mins + 'm ' + secs + 's' : secs + 's';
+    bar.textContent = '';
+    bar.appendChild(el('span', { className: 'demo-timer-text' }, 'Next card in ' + timeStr));
+    bar.appendChild(el('span', { className: 'demo-timer-note' }, 'Demo mode: pacing builds to conserve the host account\'s Claude usage quota'));
+  }
+  tick();
+  if (_demoTimerInterval) clearInterval(_demoTimerInterval);
+  _demoTimerInterval = setInterval(tick, 1000);
+}
+
 function renderStats() {
   var container = document.getElementById('header-stats');
   if (!container) return;

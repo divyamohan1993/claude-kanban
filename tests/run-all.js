@@ -93,6 +93,9 @@ for (var i = 0; i < suites.length; i++) {
     });
     var status = report.failed === 0 ? 'PASS' : 'FAIL';
     process.stdout.write('[' + status + '] ' + suite.name + ': ' + report.passed + '/' + report.total + ' (' + report.score + '%) in ' + report.duration + '\n');
+    if (report.failed > 0 && report.failures && report.failures.length > 0) {
+      report.failures.forEach(function(f) { process.stdout.write('        -> ' + f + '\n'); });
+    }
   } else {
     results.push({
       name: suite.name,

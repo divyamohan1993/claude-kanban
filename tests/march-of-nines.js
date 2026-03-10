@@ -18,7 +18,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const BASE = 'http://localhost:51777';
+const BASE = 'http://127.0.0.1:51777';
 let SESSION_COOKIE = '';
 let ADMIN_PATH = '';
 let AUTH_USER = '';

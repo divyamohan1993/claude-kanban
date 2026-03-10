@@ -16,7 +16,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const BASE = 'http://localhost:51777';
+const BASE = 'http://127.0.0.1:51777';
 let SESSION_COOKIE = '';
 var IS_CI = !!(process.env.CI || process.env.GITHUB_ACTIONS);
 
@@ -79,6 +79,7 @@ function request(method, urlPath, body) {
 }
 
 function percentile(arr, p) {
+  if (arr.length === 0) return Infinity;
   var sorted = arr.slice().sort(function(a, b) { return a - b; });
   var idx = Math.ceil(sorted.length * p / 100) - 1;
   return sorted[Math.max(0, idx)];

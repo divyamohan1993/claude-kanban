@@ -136,6 +136,9 @@ if [ -f "$APP_DIR/demo/idea.md" ]; then
   cp "$APP_DIR/demo/idea.md" "$DEMO_DIR/idea.md"
 fi
 chown -R "$APP_USER:$APP_USER" "$DEMO_DIR"
+# Nginx (www-data) needs to traverse into the home dir and read demo files
+chmod 711 "/home/$APP_USER"
+chmod -R o+rX "$DEMO_DIR"
 info "Demo project directory ready at $DEMO_DIR"
 
 # --- Systemd service ---

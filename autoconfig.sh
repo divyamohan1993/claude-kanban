@@ -414,7 +414,8 @@ server {
     # --- / → demo project static files (falls back to /dashboard) ---
     location / {
         root /home/$APP_USER/demo-project/;
-        try_files \$uri \$uri/ @dashboard;
+        index index.html;
+        try_files \$uri \$uri/index.html \$uri/ @dashboard;
     }
     location @dashboard {
         return 302 /dashboard/;

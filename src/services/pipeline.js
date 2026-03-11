@@ -862,6 +862,15 @@ function executeWork(cardId, projectPath) {
     claudeParts.push('- Any operation outside this directory is FORBIDDEN. If you need something from outside, note it in .task-complete under "pending_actions" and continue.');
     claudeParts.push('- ALL destructive operations (rm -rf, mass delete, dropping tables, removing security) MUST be flagged in .task-complete under "destructive_flags".');
     claudeParts.push('- Do NOT create, modify, or delete files in parent directories, sibling directories, or system paths.');
+    claudeParts.push('');
+    claudeParts.push('## Deployment Context');
+    claudeParts.push('- This project directory is served at the ROOT URL (`/`) via Nginx as static files.');
+    claudeParts.push('- Nginx config: `cat /etc/nginx/sites-enabled/*` — read it to understand the full routing.');
+    claudeParts.push('- **First priority: a working MVP.** The user must see a functional `index.html` at `/` immediately.');
+    claudeParts.push('- Build a complete, self-contained static site (HTML/CSS/JS) that works without a build step.');
+    claudeParts.push('- If the project needs a backend/API server, build the frontend first so `/` shows something real, then add the server.');
+    claudeParts.push('- Do NOT assume any build tools, bundlers, or frameworks are installed. If you need them, install them and build.');
+    claudeParts.push('- The output must include an `index.html` in the project root that Nginx can serve directly.');
   }
   claudeParts.push('');
   claudeParts.push('## Code Quality Standards');

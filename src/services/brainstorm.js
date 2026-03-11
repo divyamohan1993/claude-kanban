@@ -353,18 +353,20 @@ function executeBrainstorm(cardId) {
 
             activeBrainstorms = Math.max(0, activeBrainstorms - 1);
 
-            // Single-project mode: decompose spec into child tasks or hold for manual approval
+            // Single-project mode: move to todo and auto-queue (AI decides decomposition during build)
             if (runtime.mode === 'single-project') {
               if (runtime.autoPromoteBrainstorm) {
-                // Fully autonomous: decompose and auto-queue
-                pipeline.setActivity(cardId, 'decompose', 'Decomposing spec into tasks...');
-                decomposeSpec(cardId).then(function() {
-                  processBrainstormQueue();
-                }).catch(function(err) {
-                  log.error({ cardId, err: err.message }, 'decomposeSpec failed');
+                // Fully autonomous: move spec to todo and start building directly
+                // AI can self-decompose during build if needed — no forced decomposition step
+                pipeline.setActivity(cardId, 'queue', 'Spec complete — auto-starting build...');
+                try {
+                  pipeline.enqueue(cardId, 0);
+                  broadcast('toast', { message: 'Auto-starting build for: ' + cards.get(cardId).title, type: 'info' });
+                } catch (autoErr) {
+                  log.error({ cardId, err: autoErr.message }, 'Auto-start work failed');
                   pipeline.clearActivity(cardId);
-                  processBrainstormQueue();
-                });
+                }
+                processBrainstormQueue();
               } else {
                 // Manual approval: brainstorm stays, user promotes to todo
                 pipeline.setActivity(cardId, 'spec', 'Spec ready — awaiting manual approval to promote');
@@ -597,10 +599,11 @@ function promoteToTodo(cardId) {
   if (card.column_name !== 'brainstorm') throw new Error('Card is not in brainstorm column');
 
   if (runtime.mode === 'single-project') {
-    // Decompose and auto-queue
-    pipeline.setActivity(cardId, 'decompose', 'Approved — decomposing spec into tasks...');
+    // Move to todo and start building — no forced decomposition
+    cards.move(cardId, 'todo');
+    pipeline.setActivity(cardId, 'queue', 'Approved — starting build...');
     broadcast('card-updated', cards.get(cardId));
-    return decomposeSpec(cardId);
+    return Promise.resolve(pipeline.enqueue(cardId, 1));
   } else {
     // Global mode: just move to todo and enqueue
     cards.move(cardId, 'todo');

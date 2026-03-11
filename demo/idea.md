@@ -32,6 +32,7 @@ New engineers are overwhelmed. Everyone says "learn AI" but nobody says what spe
 
 ## Deploy
 
+- Start by creating an index.html with the main content and structure in the project root. This is your first task. Then keep adding the things you want to add
 - Output all built files into the project root directly
 - Nginx is already configured to serve project root as the website root at `/`
 - Just create the files in project root and they are live immediately

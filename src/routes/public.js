@@ -558,6 +558,22 @@ router.get('/api/config', optionalAuth, function(_req, res) { res.json(usageSvc.
 // Mode info — public can see mode state (needed for UI toggles like hiding "new card" button)
 router.get('/api/mode', optionalAuth, function(_req, res) { res.json(autoDiscover.getState()); });
 
+// Idea file — serves raw idea.md from the single-project directory
+router.get('/api/idea', optionalAuth, function(_req, res) {
+  var projectPath = autoDiscover.getProjectPath();
+  if (!projectPath) return res.status(404).json({ error: 'No project path' });
+  var fs = require('fs');
+  var path = require('path');
+  var ideaFiles = ['idea.md', 'IDEAS.md', 'ROADMAP.md'];
+  for (var i = 0; i < ideaFiles.length; i++) {
+    var fp = path.join(projectPath, ideaFiles[i]);
+    if (fs.existsSync(fp)) {
+      return res.type('text/plain').send(fs.readFileSync(fp, 'utf-8'));
+    }
+  }
+  res.status(404).json({ error: 'No idea file found' });
+});
+
 // =============================================================================
 // WRITE ENDPOINTS — ALL require authentication
 // =============================================================================

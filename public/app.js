@@ -1785,6 +1785,62 @@ function applyModeUI() {
   } else {
     modeIndicator.style.display = 'none';
   }
+
+  // AI-Built banner — visible in single-project mode
+  var aiBanner = document.getElementById('ai-built-banner');
+  if (aiBanner) {
+    if (boardMode.mode === 'single-project') {
+      aiBanner.style.display = '';
+      // Live site link — root of the domain (nginx serves project at /)
+      var liveLink = document.getElementById('ai-built-live-link');
+      if (liveLink) {
+        var origin = window.location.origin;
+        // Strip /dashboard path prefix to get root
+        var rootUrl = origin + '/';
+        liveLink.href = rootUrl;
+      }
+      // Idea viewer button
+      var ideaBtn = document.getElementById('ai-built-idea-link');
+      if (ideaBtn && !ideaBtn._bound) {
+        ideaBtn._bound = true;
+        ideaBtn.addEventListener('click', function() {
+          fetch(BP + '/api/idea').then(function(r) {
+            if (!r.ok) throw new Error('No idea file');
+            return r.text();
+          }).then(function(text) {
+            showIdeaViewer(text);
+          }).catch(function() {
+            toast('No idea file found in project', 'warning');
+          });
+        });
+      }
+    } else {
+      aiBanner.style.display = 'none';
+    }
+  }
+}
+
+function showIdeaViewer(content) {
+  // Remove existing
+  var existing = document.querySelector('.idea-viewer-overlay');
+  if (existing) existing.remove();
+
+  var overlay = el('div', { className: 'idea-viewer-overlay' });
+  var viewer = el('div', { className: 'idea-viewer' }, [
+    el('button', { className: 'idea-viewer-close', 'aria-label': 'Close' }, ['\u00d7']),
+    el('div', { className: 'idea-viewer-title' }, ['Original Idea']),
+    el('div', { className: 'idea-viewer-subtitle' }, ['This is the raw input given to the AI. Everything you see was built from this.']),
+    el('pre', {}, [content])
+  ]);
+  overlay.appendChild(viewer);
+  document.body.appendChild(overlay);
+
+  function close() { overlay.remove(); }
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+  viewer.querySelector('.idea-viewer-close').addEventListener('click', close);
+  document.addEventListener('keydown', function handler(e) {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', handler); }
+  });
 }
 
 // --- Idea Modal — natural language input for ideas and feedback ---

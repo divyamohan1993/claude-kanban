@@ -16,17 +16,15 @@
 
 <br>
 
-```
-  ◆ Idea  ──>  ◆ Brainstorm  ──>  ◆ Build  ──>  ◆ AI Review (1-10)
-                                                        │
-                                         ◆ Score ≥ 8 ──┤── ◆ Score 5-7 ──── ◆ Score < 5
-                                              │         │         │                │
-                                        Auto-commit     │    Auto-fix ×3      Human review
-                                         + push         │    then re-review
-                                                        │
-                                                  ◆ Self-healing
-                                               (errors → auto-fix
-                                                → escalate if stuck)
+```mermaid
+flowchart LR
+    A[Idea] --> B[Brainstorm] --> C[Build] --> D{AI Review\n1-10}
+    D -- "Score ≥ 8" --> E[Auto-commit\n+ push]
+    D -- "Score 5-7" --> F[Auto-fix ×3\nthen re-review]
+    D -- "Score < 5" --> G[Human review]
+    F --> D
+    C -. "errors" .-> H[Self-healing\nauto-fix or escalate]
+    H .-> C
 ```
 
 </div>

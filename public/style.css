@@ -1477,6 +1477,10 @@ input:focus, textarea:focus {
   transition: background 0.2s;
 }
 .demo-skip-btn:hover { background: var(--primary-dark, #7C4A08); }
+body.dark .demo-timer-bar {
+  background: linear-gradient(135deg, rgba(245, 183, 59, 0.10) 0%, rgba(201, 125, 46, 0.08) 100%);
+  border-bottom-color: var(--primary, #F5B73B);
+}
 
 /* ----------------------------------------------------------------
    Shortcuts Bar (persistent bottom bar)

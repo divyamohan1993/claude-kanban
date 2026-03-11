@@ -411,6 +411,16 @@ function releaseProjectLock(cardId) {
     activeBuilds.delete(projectPath);
     processQueue();
   }
+
+  // Single-project mode: trigger discovery after build completes
+  // so the next idea.md / roadmap item is picked up automatically
+  if (runtime.mode === 'single-project' && card.column_name === 'done') {
+    try {
+      const autoDiscover = require('./auto-discover');
+      log.info({ cardId }, 'Build complete — triggering auto-discovery scan');
+      setTimeout(function() { autoDiscover.runDiscovery(); }, 5000);
+    } catch (_) {}
+  }
 }
 
 // --- Cascade Revert ---

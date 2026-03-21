@@ -145,7 +145,6 @@ function applyRoleUI() {
   var adminBtn = document.getElementById('admin-btn');
   var archiveBtn = document.getElementById('archive-btn');
   var addBtn = document.getElementById('add-btn');
-  var simBtn = document.getElementById('sim-btn');
   var signInBtn = document.getElementById('sign-in-btn');
   var signOutBtn = document.getElementById('sign-out-btn');
 
@@ -155,7 +154,6 @@ function applyRoleUI() {
   if (adminBtn) adminBtn.style.display = isAdmin ? '' : 'none';
   if (archiveBtn) archiveBtn.style.display = isPublic ? 'none' : '';
   if (addBtn) addBtn.style.display = isPublic ? 'none' : '';
-  if (simBtn) simBtn.style.display = isPublic ? 'none' : '';
   if (signInBtn) signInBtn.style.display = isPublic ? '' : 'none';
   if (signOutBtn) signOutBtn.style.display = isPublic ? 'none' : '';
 
@@ -291,14 +289,7 @@ function connectSSE() {
   });
 
   es.addEventListener('simulation-state', function(e) {
-    try {
-      var d = JSON.parse(e.data);
-      simRunning = d.active;
-      if (simBtnEl) {
-        simBtnEl.textContent = d.active ? 'Stop Sim' : 'Simulate';
-        simBtnEl.style.color = d.active ? '#ef4444' : '';
-      }
-    } catch (_) {}
+    try { simRunning = JSON.parse(e.data).active; } catch (_) {}
   });
 
   es.addEventListener('board-reload', function() {
@@ -1517,34 +1508,8 @@ document.getElementById('archive-close').addEventListener('click', function() { 
 archiveModal.addEventListener('click', function(e) { if (e.target === archiveModal) archiveModal.classList.remove('active'); });
 document.getElementById('archive-btn').addEventListener('click', showArchive);
 
-// --- Simulation Mode ---
+// --- Simulation Mode (controlled from admin panel) ---
 var simRunning = false;
-var simBtnEl = document.getElementById('sim-btn');
-if (simBtnEl) {
-  simBtnEl.addEventListener('click', function() {
-    if (simRunning) {
-      fetch(BP + '/api/simulation/stop', { method: 'POST' }).then(function(r) { return r.json(); }).then(function() {
-        simRunning = false;
-        simBtnEl.textContent = 'Simulate';
-        simBtnEl.style.color = '';
-      }).catch(function() { toast('Failed to stop simulation', 'error'); });
-    } else {
-      fetch(BP + '/api/simulation/start', { method: 'POST' }).then(function(r) { return r.json(); }).then(function(data) {
-        if (data.error) { toast(data.error, 'error'); return; }
-        simRunning = true;
-        simBtnEl.textContent = 'Stop Sim';
-        simBtnEl.style.color = '#ef4444';
-      }).catch(function() { toast('Failed to start simulation', 'error'); });
-    }
-  });
-}
-// Check initial sim state
-fetch(BP + '/api/simulation').then(function(r) { return r.json(); }).then(function(data) {
-  if (data.active) {
-    simRunning = true;
-    if (simBtnEl) { simBtnEl.textContent = 'Stop Sim'; simBtnEl.style.color = '#ef4444'; }
-  }
-}).catch(function() {});
 
 async function showArchive() {
   var body = document.getElementById('archive-body');

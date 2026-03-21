@@ -1015,6 +1015,34 @@ function renderConfig(cfg, modeState) {
   ]));
   body.appendChild(modeCard);
 
+  // ─── Simulation Mode ───
+  (function() {
+    var simCard = cfgCard('#7C3AED', 'Simulation Mode', 'Showcase the pipeline with fake cards moving through all stages — zero API tokens used', 'cfg-sim', [], null);
+    var simBody = simCard.querySelector('.cfg-body') || simCard;
+    var simStatus = el('div', { style: 'margin-bottom:12px;font-size:13px;color:var(--text-secondary)' }, 'Loading...');
+    simBody.appendChild(simStatus);
+    var simStartBtn = el('button', { class: 'btn', style: 'margin-right:8px' }, 'Start Simulation');
+    var simStopBtn = el('button', { class: 'btn btn-danger', style: 'margin-right:8px' }, 'Stop Simulation');
+    var simCleanBtn = el('button', { class: 'btn', style: 'font-size:12px' }, 'Cleanup Sim Cards');
+    simBody.appendChild(simStartBtn);
+    simBody.appendChild(simStopBtn);
+    simBody.appendChild(simCleanBtn);
+
+    function refreshSim() {
+      api('GET', '/api/simulation').then(function(d) {
+        simStatus.textContent = d.active ? 'Simulation is RUNNING — fake cards are flowing through the pipeline' : 'Simulation is OFF';
+        simStatus.style.color = d.active ? 'var(--success, #16a34a)' : 'var(--text-secondary)';
+        simStartBtn.style.display = d.active ? 'none' : '';
+        simStopBtn.style.display = d.active ? '' : 'none';
+      }).catch(function() { simStatus.textContent = 'Error loading state'; });
+    }
+    refreshSim();
+    simStartBtn.onclick = function() { api('POST', '/api/simulation/start').then(function() { toast('Simulation started', 'success'); refreshSim(); }); };
+    simStopBtn.onclick = function() { api('POST', '/api/simulation/stop').then(function() { toast('Simulation stopped', 'info'); refreshSim(); }); };
+    simCleanBtn.onclick = function() { if (confirm('Remove all [SIM] cards?')) api('POST', '/api/simulation/cleanup').then(function() { toast('Sim cards cleaned up', 'success'); }); };
+    body.appendChild(simCard);
+  })();
+
   // ─── Demo Mode ───
   body.appendChild(cfgCard('var(--primary)', 'Demo Mode', 'Pace builds with random delays to conserve the host account\'s Claude usage quota', 'cfg-demo', [
     cfgToggle('demoMode', 'Enable Demo Mode', r.demoMode, 'Add random cooldown between card executions'),

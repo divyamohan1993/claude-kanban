@@ -574,25 +574,6 @@ router.get('/api/idea', optionalAuth, function(_req, res) {
   res.status(404).json({ error: 'No idea file found' });
 });
 
-// --- Simulation Mode ---
-var simulation = require('../services/simulation');
-
-router.get('/api/simulation', optionalAuth, function(_req, res) {
-  res.json({ active: simulation.isSimActive() });
-});
-
-router.post('/api/simulation/start', requireAuth, function(_req, res) {
-  res.json(simulation.startSimulation());
-});
-
-router.post('/api/simulation/stop', requireAuth, function(_req, res) {
-  res.json(simulation.stopSimulation());
-});
-
-router.post('/api/simulation/cleanup', requireAuth, function(_req, res) {
-  res.json(simulation.cleanupSimCards());
-});
-
 // --- Strategic Lenses & Autonomous Mode ---
 
 // List all available strategic lenses (categories for brainstorming)

@@ -136,6 +136,21 @@ router.post('/api/cards/:id/stop', requireAdmin, function(req, res) {
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// --- Simulation Mode (admin-only) ---
+var simulation = require('../services/simulation');
+router.get('/api/simulation', requireAdmin, function(_req, res) {
+  res.json({ active: simulation.isSimActive() });
+});
+router.post('/api/simulation/start', requireAdmin, function(_req, res) {
+  res.json(simulation.startSimulation());
+});
+router.post('/api/simulation/stop', requireAdmin, function(_req, res) {
+  res.json(simulation.stopSimulation());
+});
+router.post('/api/simulation/cleanup', requireAdmin, function(_req, res) {
+  res.json(simulation.cleanupSimCards());
+});
+
 // --- Bulk Import (protected) ---
 router.post('/api/bulk-create', requireAdmin, function(req, res) {
   const items = req.body.items;

@@ -288,7 +288,7 @@ function connectSSE() {
   });
 
   es.addEventListener('mode-updated', function(e) {
-    try { boardMode = JSON.parse(e.data); applyModeUI(); debouncedRender(); } catch (_) {}
+    try { var d = JSON.parse(e.data); var savedStats = boardMode.stats; boardMode = d; if (!boardMode.stats && savedStats) boardMode.stats = savedStats; applyModeUI(); debouncedRender(); } catch (_) {}
   });
 
   es.addEventListener('discovery-state', function(e) {
@@ -304,7 +304,10 @@ function connectSSE() {
       var d = JSON.parse(e.data);
       toast(d.message, d.type || 'info');
       if (d.message && (d.message.indexOf('Completed') === 0 || d.message.indexOf('Rejected') === 0)) {
-        updateShowcaseStats();
+        // Refresh stats from server (includes archived)
+        fetch(BP + '/api/mode').then(function(r) { return r.json(); }).then(function(m) {
+          if (m && m.stats) { boardMode.stats = m.stats; updateShowcaseStats(); }
+        }).catch(function() {});
       }
     } catch (_) {}
   });

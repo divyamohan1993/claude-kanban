@@ -44,6 +44,8 @@
         <svg id="theme-icon-light" width="22" height="22" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
         <svg id="theme-icon-dark" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" style="display:none" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
+      <button class="btn btn-ghost" id="usp-btn" style="font-size:12px" title="How Claude Kanban works and what makes it different">How It Works</button>
+      <button class="btn btn-ghost" id="sim-btn" style="font-size:12px; display:none" title="Start simulation mode to preview the pipeline">Simulate</button>
       <button class="btn btn-ghost" id="archive-btn" style="font-size:12px; display:none" title="View archived/completed cards">Archive</button>
       <button class="btn btn-primary" id="add-btn" style="display:none" title="Create a new idea (keyboard: N)">+ New Idea</button>
       <button class="btn btn-ghost" id="sign-in-btn" style="font-size:12px" title="Sign in">Sign In</button>
@@ -58,6 +60,28 @@
       <span class="ai-built-text">Zero manual code. Just an idea.</span>
       <a id="ai-built-live-link" href="/" target="_blank" rel="noopener" class="ai-built-link">View Live Site</a>
       <button id="ai-built-idea-link" class="ai-built-link ai-built-idea-btn">View Original Idea</button>
+      <button id="ai-built-categories-btn" class="ai-built-link ai-built-idea-btn">Select Categories</button>
+      <button id="ai-built-autonomous-toggle" class="ai-built-link ai-built-idea-btn autonomous-off">Start Autonomous</button>
+    </div>
+  </div>
+
+  <!-- Category Selection Modal (single-project autonomous mode) -->
+  <div class="modal-overlay" id="category-modal" role="dialog" aria-modal="true" aria-labelledby="category-modal-title" style="display:none">
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header">
+        <h2 id="category-modal-title">Select Improvement Categories</h2>
+        <button class="modal-close" id="category-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="category-hint">Choose which categories the AI should brainstorm on. The system will autonomously iterate through selected categories, implementing improvements and deploying them live.</p>
+      <div class="category-actions-top">
+        <button id="category-select-all" class="btn btn-sm">Select All</button>
+        <button id="category-select-none" class="btn btn-sm">Select None</button>
+      </div>
+      <div id="category-list" class="category-list"></div>
+      <div class="modal-footer">
+        <span id="category-count" class="category-count">0 selected</span>
+        <button id="category-save" class="btn btn-primary">Save & Start Autonomous Mode</button>
+      </div>
     </div>
   </div>
 
@@ -97,6 +121,69 @@
 
   <!-- Search Results Dropdown -->
   <div class="search-results" id="search-results" role="listbox" aria-label="Search results"></div>
+
+  <!-- How It Works / USP Panel -->
+  <div class="modal-overlay" id="usp-modal" role="dialog" aria-modal="true" aria-labelledby="usp-modal-title" style="display:none">
+    <div class="modal" style="max-width:680px">
+      <div class="modal-header">
+        <h2 id="usp-modal-title">How Claude Kanban Works</h2>
+        <button class="modal-close" id="usp-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="usp-content">
+        <div class="usp-section">
+          <h3>Not Another Chat Bot</h3>
+          <p>Chat bots (Clawbot, Claude Bot, etc.) respond to messages one at a time. Claude Kanban is a <strong>fully autonomous build pipeline</strong> — it discovers what to improve, writes the code, reviews its own work, fixes issues, and deploys. No human in the loop.</p>
+        </div>
+        <div class="usp-grid">
+          <div class="usp-card">
+            <div class="usp-icon">&#9670;</div>
+            <h4>9-Step Pipeline</h4>
+            <p>Every improvement flows through: Discover &rarr; Spec &rarr; Snapshot &rarr; Build &rarr; Review &rarr; Fix &rarr; Approve &rarr; Commit &rarr; Deploy. Fully visible.</p>
+          </div>
+          <div class="usp-card">
+            <div class="usp-icon">&#128270;</div>
+            <h4>10 Strategic Lenses</h4>
+            <p>Rotates through Security, Performance, UX, Architecture, Testing, Accessibility, Error Handling, Data Integrity, DevEx, and Ops. No random guessing.</p>
+          </div>
+          <div class="usp-card">
+            <div class="usp-icon">&#128736;</div>
+            <h4>Self-Healing</h4>
+            <p>If a build fails, auto-creates a fix card with the error context. Max 3 fix attempts before escalating. Learns from rejections to avoid repeating mistakes.</p>
+          </div>
+          <div class="usp-card">
+            <div class="usp-icon">&#128247;</div>
+            <h4>File Snapshots</h4>
+            <p>Full project snapshot before every build. If anything goes wrong, one-click rollback to exact pre-build state. No other bot does this.</p>
+          </div>
+          <div class="usp-card">
+            <div class="usp-icon">&#9878;</div>
+            <h4>AI Reviews AI</h4>
+            <p>Separate AI session reviews the build output. Score 9-10 auto-deploys, 5-7 auto-fixes, &lt;5 escalates to human. The builder never reviews its own work.</p>
+          </div>
+          <div class="usp-card">
+            <div class="usp-icon">&#9881;</div>
+            <h4>Zero-Touch Deploy</h4>
+            <p>Auto-commits, auto-pushes, auto-deploys. Drop an idea.md, walk away, come back to a live site. No CI/CD config needed.</p>
+          </div>
+        </div>
+        <div class="usp-section usp-comparison">
+          <h3>Chat Bots vs Claude Kanban</h3>
+          <table class="usp-table">
+            <thead><tr><th></th><th>Chat Bots</th><th>Claude Kanban</th></tr></thead>
+            <tbody>
+              <tr><td>Autonomy</td><td>Responds when asked</td><td>Runs 24/7 without input</td></tr>
+              <tr><td>Scope</td><td>Single prompt = single task</td><td>Full project lifecycle</td></tr>
+              <tr><td>Quality Gate</td><td>Hope it works</td><td>AI review + scoring + auto-fix</td></tr>
+              <tr><td>Rollback</td><td>Manual git revert</td><td>Automatic file snapshots</td></tr>
+              <tr><td>Learning</td><td>No memory between chats</td><td>Learns from rejections, tunes itself</td></tr>
+              <tr><td>Visibility</td><td>Chat history</td><td>Real-time pipeline with SSE</td></tr>
+              <tr><td>Strategy</td><td>User decides what to do</td><td>10 strategic lenses rotate automatically</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <main class="board" id="board" role="main" aria-label="Kanban board"></main>
 

@@ -1,10 +1,12 @@
-var COLUMNS = [
+var ALL_COLUMNS = [
   { id: 'brainstorm', label: 'Brainstorm' },
   { id: 'todo', label: 'To Do' },
   { id: 'working', label: 'Working' },
   { id: 'review', label: 'Review' },
   { id: 'done', label: 'Done' },
 ];
+// In single-project mode, brainstorm is handled by AI behind the scenes
+var COLUMNS = ALL_COLUMNS;
 
 var BP = window.__BASE_PATH__ || ''; // base path prefix (e.g. '/dashboard' when behind Nginx)
 var userRole = 'public'; // 'public' | 'user' | 'admin'
@@ -143,6 +145,7 @@ function applyRoleUI() {
   var adminBtn = document.getElementById('admin-btn');
   var archiveBtn = document.getElementById('archive-btn');
   var addBtn = document.getElementById('add-btn');
+  var simBtn = document.getElementById('sim-btn');
   var signInBtn = document.getElementById('sign-in-btn');
   var signOutBtn = document.getElementById('sign-out-btn');
 
@@ -152,6 +155,7 @@ function applyRoleUI() {
   if (adminBtn) adminBtn.style.display = isAdmin ? '' : 'none';
   if (archiveBtn) archiveBtn.style.display = isPublic ? 'none' : '';
   if (addBtn) addBtn.style.display = isPublic ? 'none' : '';
+  if (simBtn) simBtn.style.display = isPublic ? 'none' : '';
   if (signInBtn) signInBtn.style.display = isPublic ? '' : 'none';
   if (signOutBtn) signOutBtn.style.display = isPublic ? 'none' : '';
 
@@ -284,6 +288,22 @@ function connectSSE() {
 
   es.addEventListener('toast', function(e) {
     try { var d = JSON.parse(e.data); toast(d.message, d.type || 'info'); } catch (_) {}
+  });
+
+  es.addEventListener('simulation-state', function(e) {
+    try {
+      var d = JSON.parse(e.data);
+      simRunning = d.active;
+      if (simBtnEl) {
+        simBtnEl.textContent = d.active ? 'Stop Sim' : 'Simulate';
+        simBtnEl.style.color = d.active ? '#ef4444' : '';
+      }
+    } catch (_) {}
+  });
+
+  es.addEventListener('board-reload', function() {
+    // Full board reload — re-fetch all cards
+    api('/cards').then(function(newCards) { state.cards = newCards; render(); }).catch(function() {});
   });
 
   es.addEventListener('error', function(e) {
@@ -1097,16 +1117,43 @@ function showDetail(card) {
 }
 
 // --- Toast (with ARIA live region announcement) ---
+var _activeToast = null;
+var _toastDismissTimer = null;
 function toast(msg, type) {
+  var container = document.getElementById('toasts');
+  type = type || 'info';
+
+  // If there's already an active toast, append to it instead of creating a new one
+  if (_activeToast && _activeToast.parentNode) {
+    clearTimeout(_toastDismissTimer);
+    var existing = _activeToast.textContent;
+    // Don't duplicate the same message
+    if (existing.indexOf(msg) === -1) {
+      _activeToast.textContent = msg;
+    }
+    // Reset the dismiss timer
+    _activeToast.className = 'toast toast-' + type;
+    _toastDismissTimer = setTimeout(function() {
+      if (_activeToast) { _activeToast.style.opacity = '0'; setTimeout(function() { if (_activeToast) { _activeToast.remove(); _activeToast = null; } }, 300); }
+    }, 5000);
+    return;
+  }
+
+  // Remove any stale toasts
+  while (container.firstChild) container.removeChild(container.firstChild);
+
   var toastEl = el('div', {
-    className: 'toast toast-' + (type || 'info'),
+    className: 'toast toast-' + type,
     textContent: msg,
     role: 'status',
     'aria-live': 'polite',
   });
-  document.getElementById('toasts').appendChild(toastEl);
-  // AAA: longer display time for readability (6s instead of 4s)
-  setTimeout(function() { toastEl.style.opacity = '0'; setTimeout(function() { toastEl.remove(); }, 300); }, 6000);
+  container.appendChild(toastEl);
+  _activeToast = toastEl;
+  _toastDismissTimer = setTimeout(function() {
+    toastEl.style.opacity = '0';
+    setTimeout(function() { toastEl.remove(); if (_activeToast === toastEl) _activeToast = null; }, 300);
+  }, 5000);
 }
 
 // --- Modal Focus Trap (WCAG 2.4.3 focus order) ---
@@ -1456,11 +1503,48 @@ document.getElementById('admin-btn').addEventListener('click', function() {
   window.open(adminPath, '_blank');
 });
 
+// --- How It Works / USP Modal ---
+var uspModal = document.getElementById('usp-modal');
+var uspBtn = document.getElementById('usp-btn');
+var uspClose = document.getElementById('usp-close');
+if (uspBtn) uspBtn.addEventListener('click', function() { if (uspModal) uspModal.style.display = 'flex'; });
+if (uspClose) uspClose.addEventListener('click', function() { if (uspModal) uspModal.style.display = 'none'; });
+if (uspModal) uspModal.addEventListener('click', function(e) { if (e.target === uspModal) uspModal.style.display = 'none'; });
+
 // --- Archive ---
 var archiveModal = document.getElementById('archive-modal');
 document.getElementById('archive-close').addEventListener('click', function() { archiveModal.classList.remove('active'); });
 archiveModal.addEventListener('click', function(e) { if (e.target === archiveModal) archiveModal.classList.remove('active'); });
 document.getElementById('archive-btn').addEventListener('click', showArchive);
+
+// --- Simulation Mode ---
+var simRunning = false;
+var simBtnEl = document.getElementById('sim-btn');
+if (simBtnEl) {
+  simBtnEl.addEventListener('click', function() {
+    if (simRunning) {
+      fetch(BP + '/api/simulation/stop', { method: 'POST' }).then(function(r) { return r.json(); }).then(function() {
+        simRunning = false;
+        simBtnEl.textContent = 'Simulate';
+        simBtnEl.style.color = '';
+      }).catch(function() { toast('Failed to stop simulation', 'error'); });
+    } else {
+      fetch(BP + '/api/simulation/start', { method: 'POST' }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.error) { toast(data.error, 'error'); return; }
+        simRunning = true;
+        simBtnEl.textContent = 'Stop Sim';
+        simBtnEl.style.color = '#ef4444';
+      }).catch(function() { toast('Failed to start simulation', 'error'); });
+    }
+  });
+}
+// Check initial sim state
+fetch(BP + '/api/simulation').then(function(r) { return r.json(); }).then(function(data) {
+  if (data.active) {
+    simRunning = true;
+    if (simBtnEl) { simBtnEl.textContent = 'Stop Sim'; simBtnEl.style.color = '#ef4444'; }
+  }
+}).catch(function() {});
 
 async function showArchive() {
   var body = document.getElementById('archive-body');
@@ -1779,11 +1863,16 @@ function applyModeUI() {
 
   if (boardMode.mode === 'single-project') {
     var text = '/ Single Project';
-    if (boardMode.discoveryRunning) text += ' (scanning)';
+    if (boardMode.autonomousMode) text += ' (autonomous)';
+    else if (boardMode.discoveryRunning) text += ' (scanning)';
     modeIndicator.textContent = text;
     modeIndicator.style.display = '';
+    updateAutonomousToggle(!!boardMode.autonomousMode);
+    // Hide brainstorm column in single-project mode — AI handles it behind the scenes
+    COLUMNS = ALL_COLUMNS.filter(function(c) { return c.id !== 'brainstorm'; });
   } else {
     modeIndicator.style.display = 'none';
+    COLUMNS = ALL_COLUMNS;
   }
 
   // AI-Built banner — visible in single-project mode
@@ -1840,6 +1929,152 @@ function showIdeaViewer(content) {
   viewer.querySelector('.idea-viewer-close').addEventListener('click', close);
   document.addEventListener('keydown', function handler(e) {
     if (e.key === 'Escape') { close(); document.removeEventListener('keydown', handler); }
+  });
+}
+
+// --- Category Selection Modal (Autonomous Mode) ---
+var categoryModal = document.getElementById('category-modal');
+var categoryList = document.getElementById('category-list');
+var categorySave = document.getElementById('category-save');
+var categoryClose = document.getElementById('category-close');
+var categoryCount = document.getElementById('category-count');
+var categorySelectAll = document.getElementById('category-select-all');
+var categorySelectNone = document.getElementById('category-select-none');
+var cachedLenses = null;
+var categorySelections = {};
+
+function openCategoryModal() {
+  if (!categoryModal) return;
+  categoryModal.style.display = '';
+  if (cachedLenses) {
+    renderCategoryList(cachedLenses);
+  } else {
+    fetch(BP + '/api/lenses').then(function(r) { return r.json(); }).then(function(data) {
+      cachedLenses = data.lenses || [];
+      // Pre-select any previously selected categories
+      if (data.selectedCategories && data.selectedCategories.length > 0) {
+        categorySelections = {};
+        for (var i = 0; i < data.selectedCategories.length; i++) {
+          categorySelections[data.selectedCategories[i]] = true;
+        }
+      }
+      renderCategoryList(cachedLenses);
+    }).catch(function() { toast('Failed to load categories', 'error'); });
+  }
+}
+
+function closeCategoryModal() {
+  if (categoryModal) categoryModal.style.display = 'none';
+}
+
+function renderCategoryList(lenses) {
+  if (!categoryList) return;
+  categoryList.textContent = '';
+  for (var i = 0; i < lenses.length; i++) {
+    var lens = lenses[i];
+    var isSelected = !!categorySelections[lens.id];
+    var item = el('label', { className: 'category-item' + (isSelected ? ' selected' : ''), 'data-lens-id': lens.id }, [
+      el('input', { type: 'checkbox', checked: isSelected, 'data-lens-id': lens.id }),
+      el('div', { className: 'category-item-info' }, [
+        el('div', { className: 'category-item-name', textContent: lens.name }),
+        el('div', { className: 'category-item-desc', textContent: lens.directive.slice(0, 120) + (lens.directive.length > 120 ? '...' : '') }),
+      ]),
+    ]);
+    categoryList.appendChild(item);
+  }
+  updateCategoryCount();
+
+  // Bind checkbox events
+  var checkboxes = categoryList.querySelectorAll('input[type="checkbox"]');
+  for (var ci = 0; ci < checkboxes.length; ci++) {
+    checkboxes[ci].addEventListener('change', function() {
+      var lensId = this.getAttribute('data-lens-id');
+      categorySelections[lensId] = this.checked;
+      var parentItem = this.closest('.category-item');
+      if (parentItem) {
+        if (this.checked) parentItem.classList.add('selected');
+        else parentItem.classList.remove('selected');
+      }
+      updateCategoryCount();
+    });
+  }
+}
+
+function updateCategoryCount() {
+  var count = Object.keys(categorySelections).filter(function(k) { return categorySelections[k]; }).length;
+  if (categoryCount) categoryCount.textContent = count + ' selected';
+  if (categorySave) categorySave.disabled = count === 0;
+}
+
+if (categoryClose) categoryClose.addEventListener('click', closeCategoryModal);
+if (categoryModal) categoryModal.addEventListener('click', function(e) { if (e.target === categoryModal) closeCategoryModal(); });
+
+if (categorySelectAll) {
+  categorySelectAll.addEventListener('click', function() {
+    if (!cachedLenses) return;
+    for (var i = 0; i < cachedLenses.length; i++) categorySelections[cachedLenses[i].id] = true;
+    renderCategoryList(cachedLenses);
+  });
+}
+if (categorySelectNone) {
+  categorySelectNone.addEventListener('click', function() {
+    categorySelections = {};
+    if (cachedLenses) renderCategoryList(cachedLenses);
+  });
+}
+
+if (categorySave) {
+  categorySave.addEventListener('click', function() {
+    var selected = Object.keys(categorySelections).filter(function(k) { return categorySelections[k]; });
+    if (selected.length === 0) { toast('Select at least one category', 'warning'); return; }
+    categorySave.disabled = true;
+    categorySave.textContent = 'Starting...';
+    fetch(BP + '/api/autonomous/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories: selected }),
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.error) { toast(data.error, 'error'); return; }
+      toast('Autonomous mode started with ' + selected.length + ' categories', 'success');
+      closeCategoryModal();
+      updateAutonomousToggle(true);
+    }).catch(function() {
+      toast('Failed to start autonomous mode', 'error');
+    }).finally(function() {
+      categorySave.disabled = false;
+      categorySave.textContent = 'Save & Start Autonomous Mode';
+    });
+  });
+}
+
+function updateAutonomousToggle(isAutonomous) {
+  var btn = document.getElementById('ai-built-autonomous-toggle');
+  if (!btn) return;
+  if (isAutonomous) {
+    btn.textContent = 'Stop Autonomous';
+    btn.className = 'ai-built-link ai-built-idea-btn autonomous-on';
+  } else {
+    btn.textContent = 'Start Autonomous';
+    btn.className = 'ai-built-link ai-built-idea-btn autonomous-off';
+  }
+}
+
+// Bind category button and autonomous toggle
+var categoriesBtn = document.getElementById('ai-built-categories-btn');
+if (categoriesBtn) categoriesBtn.addEventListener('click', openCategoryModal);
+
+var autonomousToggle = document.getElementById('ai-built-autonomous-toggle');
+if (autonomousToggle) {
+  autonomousToggle.addEventListener('click', function() {
+    if (boardMode.autonomousMode) {
+      fetch(BP + '/api/autonomous/stop', { method: 'POST' }).then(function(r) { return r.json(); }).then(function() {
+        toast('Autonomous mode stopped', 'info');
+        updateAutonomousToggle(false);
+        boardMode.autonomousMode = false;
+      }).catch(function() { toast('Failed to stop autonomous mode', 'error'); });
+    } else {
+      openCategoryModal();
+    }
   });
 }
 

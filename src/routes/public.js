@@ -574,6 +574,61 @@ router.get('/api/idea', optionalAuth, function(_req, res) {
   res.status(404).json({ error: 'No idea file found' });
 });
 
+// --- Simulation Mode ---
+var simulation = require('../services/simulation');
+
+router.get('/api/simulation', optionalAuth, function(_req, res) {
+  res.json({ active: simulation.isSimActive() });
+});
+
+router.post('/api/simulation/start', requireAuth, function(_req, res) {
+  res.json(simulation.startSimulation());
+});
+
+router.post('/api/simulation/stop', requireAuth, function(_req, res) {
+  res.json(simulation.stopSimulation());
+});
+
+router.post('/api/simulation/cleanup', requireAuth, function(_req, res) {
+  res.json(simulation.cleanupSimCards());
+});
+
+// --- Strategic Lenses & Autonomous Mode ---
+
+// List all available strategic lenses (categories for brainstorming)
+router.get('/api/lenses', optionalAuth, function(_req, res) {
+  res.json({
+    lenses: autoDiscover.getStrategicLenses(),
+    selectedCategories: autoDiscover.getSelectedCategories(),
+    autonomousMode: autoDiscover.getState().autonomousMode,
+  });
+});
+
+// Set selected categories for brainstorming
+router.post('/api/lenses/select', requireAuth, function(req, res) {
+  var categoryIds = req.body.categories;
+  if (!Array.isArray(categoryIds)) return res.status(400).json({ error: 'categories must be an array of lens IDs' });
+  var selected = autoDiscover.setSelectedCategories(categoryIds);
+  res.json({ selectedCategories: selected });
+});
+
+// Start autonomous mode with selected categories
+router.post('/api/autonomous/start', requireAuth, function(req, res) {
+  var categoryIds = req.body.categories;
+  if (!Array.isArray(categoryIds) || categoryIds.length === 0) {
+    return res.status(400).json({ error: 'Select at least one category' });
+  }
+  var result = autoDiscover.startAutonomousMode(categoryIds);
+  if (result.error) return res.status(400).json(result);
+  res.json(result);
+});
+
+// Stop autonomous mode
+router.post('/api/autonomous/stop', requireAuth, function(_req, res) {
+  var result = autoDiscover.stopAutonomousMode();
+  res.json(result);
+});
+
 // =============================================================================
 // WRITE ENDPOINTS — ALL require authentication
 // =============================================================================

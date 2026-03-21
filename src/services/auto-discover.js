@@ -30,14 +30,19 @@ function selectStrategicLens() {
   let used = [];
   try { used = JSON.parse(usedRaw || '[]'); } catch (_) {}
 
-  let available = STRATEGIC_LENSES.filter(function(lens) {
+  // Filter to only user-selected categories if set
+  const pool = selectedCategories && selectedCategories.length > 0
+    ? STRATEGIC_LENSES.filter(function(lens) { return selectedCategories.indexOf(lens.id) !== -1; })
+    : STRATEGIC_LENSES.slice();
+
+  let available = pool.filter(function(lens) {
     return used.indexOf(lens.id) === -1;
   });
 
   // All used — reset and start fresh rotation
   if (available.length === 0) {
     used = [];
-    available = STRATEGIC_LENSES.slice();
+    available = pool.slice();
   }
 
   // Random pick from available pool (variance within the rotation)
@@ -55,6 +60,9 @@ let discoveryRunning = false;
 let lastDiscoveryAt = 0;
 const pendingUserActions = []; // [{id, action, detail, blocking, createdAt}]
 let pendingActionId = 0;
+let autonomousMode = false;       // true = fully autonomous, no user input needed
+let autonomousInterval = null;    // keepalive interval to prevent stalling
+let selectedCategories = null;    // null = all, or array of lens IDs user selected
 
 // --- Pending User Actions Queue ---
 // When Claude needs something outside the project folder or a destructive action is flagged.
@@ -158,6 +166,9 @@ function runDiscovery() {
 
   // Don't discover if there's an active initiative with incomplete children
   if (hasActiveInitiativeWork()) return;
+
+  // If no selected categories in autonomous mode, wait for user to select
+  if (autonomousMode && (!selectedCategories || selectedCategories.length === 0)) return;
 
   discoveryRunning = true;
   lastDiscoveryAt = Date.now();
@@ -442,6 +453,9 @@ function init() {
     log.info({ projectPath, interval: runtime.discoveryIntervalMins, autoPromote: runtime.autoPromoteBrainstorm }, 'Auto-discover: single-project mode');
   }
 
+  // Restore autonomous mode state from previous session
+  restoreAutonomousState();
+
   // Initial discovery after a short delay (let server fully start)
   setTimeout(function() {
     runDiscovery();
@@ -479,7 +493,119 @@ function getState() {
     pendingActions: getPendingActions().length,
     activeBrainstorms: countActiveBrainstorms(),
     hasActiveInitiative: hasActiveInitiativeWork(),
+    autonomousMode: autonomousMode,
+    selectedCategories: selectedCategories,
+    strategicLenses: STRATEGIC_LENSES.map(function(l) { return { id: l.id, name: l.name, directive: l.directive }; }),
   };
+}
+
+// --- Strategic Lens Listing ---
+function getStrategicLenses() {
+  return STRATEGIC_LENSES.map(function(l) {
+    return { id: l.id, name: l.name, directive: l.directive };
+  });
+}
+
+// --- Category Selection & Autonomous Mode ---
+
+function setSelectedCategories(categoryIds) {
+  if (!Array.isArray(categoryIds)) categoryIds = [];
+  // Validate IDs
+  const validIds = STRATEGIC_LENSES.map(function(l) { return l.id; });
+  selectedCategories = categoryIds.filter(function(id) { return validIds.indexOf(id) !== -1; });
+  // Reset used lenses so rotation starts fresh with new selection
+  dbConfig.set('used-discovery-lenses', '[]');
+  dbConfig.set('selected-categories', JSON.stringify(selectedCategories));
+  broadcast('mode-updated', getState());
+  log.info({ categories: selectedCategories }, 'Category selection updated');
+  return selectedCategories;
+}
+
+function getSelectedCategories() {
+  return selectedCategories;
+}
+
+function startAutonomousMode(categoryIds) {
+  if (!isSingleProjectMode()) return { error: 'Not in single-project mode' };
+
+  selectedCategories = setSelectedCategories(categoryIds);
+  autonomousMode = true;
+  dbConfig.set('autonomous-mode', 'true');
+  broadcast('mode-updated', getState());
+  broadcast('toast', { message: 'Autonomous mode activated — system will iterate continuously', type: 'success' });
+  log.info({ categories: selectedCategories }, 'Autonomous mode started');
+
+  // Ensure pipeline is unpaused
+  const pipeline = require('./pipeline');
+  if (pipeline.isPaused()) {
+    pipeline.setPaused(false);
+  }
+
+  // Start keepalive that prevents system from stalling
+  startKeepalive();
+
+  // Immediately trigger discovery
+  setTimeout(function() { runDiscovery(); }, 2000);
+
+  return { autonomousMode: true, selectedCategories: selectedCategories };
+}
+
+function stopAutonomousMode() {
+  autonomousMode = false;
+  dbConfig.set('autonomous-mode', 'false');
+  stopKeepalive();
+  broadcast('mode-updated', getState());
+  broadcast('toast', { message: 'Autonomous mode deactivated', type: 'info' });
+  log.info('Autonomous mode stopped');
+  return { autonomousMode: false };
+}
+
+// --- Keepalive / Anti-Freeze ---
+// Periodically checks pipeline state and triggers discovery if system is idle.
+// Prevents the system from stalling when there's no user interaction.
+
+function startKeepalive() {
+  stopKeepalive();
+  // Check every 60 seconds if system is idle and needs a nudge
+  autonomousInterval = setInterval(function() {
+    if (!autonomousMode) return;
+    if (!isSingleProjectMode()) return;
+    if (discoveryRunning) return;
+
+    const pipeline = require('./pipeline');
+    if (pipeline.isPaused()) return;
+
+    // If nothing is happening (no active brainstorms, no active work, no initiatives),
+    // trigger discovery to keep the autonomous loop going
+    if (countActiveBrainstorms() === 0 && countActiveWork() === 0 && !hasActiveInitiativeWork()) {
+      log.info('Keepalive: system idle in autonomous mode — triggering discovery');
+      broadcast('toast', { message: 'Auto-iterating: starting next improvement cycle', type: 'info' });
+      runDiscovery();
+    }
+  }, 60 * 1000); // Every 60 seconds
+}
+
+function stopKeepalive() {
+  if (autonomousInterval) {
+    clearInterval(autonomousInterval);
+    autonomousInterval = null;
+  }
+}
+
+// --- Restore Autonomous State on Init ---
+function restoreAutonomousState() {
+  try {
+    const savedCategories = dbConfig.get('selected-categories');
+    if (savedCategories) {
+      selectedCategories = JSON.parse(savedCategories);
+    }
+    const savedAutonomous = dbConfig.get('autonomous-mode');
+    if (savedAutonomous === 'true') {
+      autonomousMode = true;
+      startKeepalive();
+      log.info({ categories: selectedCategories }, 'Restored autonomous mode from previous session');
+    }
+  } catch (_) {}
 }
 
 module.exports = {
@@ -495,4 +621,10 @@ module.exports = {
   getPendingActions: getPendingActions,
   hasActiveInitiativeWork: hasActiveInitiativeWork,
   countActiveBrainstorms: countActiveBrainstorms,
+  getStrategicLenses: getStrategicLenses,
+  setSelectedCategories: setSelectedCategories,
+  getSelectedCategories: getSelectedCategories,
+  startAutonomousMode: startAutonomousMode,
+  stopAutonomousMode: stopAutonomousMode,
+  restoreAutonomousState: restoreAutonomousState,
 };

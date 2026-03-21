@@ -417,8 +417,14 @@ function releaseProjectLock(cardId) {
   if (runtime.mode === 'single-project' && card.column_name === 'done') {
     try {
       const autoDiscover = require('./auto-discover');
-      log.info({ cardId }, 'Build complete — triggering auto-discovery scan');
-      setTimeout(function() { autoDiscover.runDiscovery(); }, 5000);
+      const isAutonomous = autoDiscover.getState().autonomousMode;
+      const delay = isAutonomous ? 2000 : 5000; // Faster in autonomous mode
+      log.info({ cardId, autonomous: isAutonomous }, 'Build complete — triggering auto-discovery scan');
+      setTimeout(function() { autoDiscover.runDiscovery(); }, delay);
+      // Autonomous: fallback re-trigger in case discovery was blocked by transient state
+      if (isAutonomous) {
+        setTimeout(function() { autoDiscover.runDiscovery(); }, 30000);
+      }
     } catch (_) {}
   }
 }

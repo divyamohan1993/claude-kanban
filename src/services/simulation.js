@@ -129,28 +129,18 @@ function seedInitialCards() {
   var shuffled = SIM_IDEAS.slice().sort(function() { return Math.random() - 0.5; });
   var idx = 0;
 
-  // 2 cards in todo (queued)
+  // 2 cards in todo (queued, waiting)
   for (var t = 0; t < 2 && idx < shuffled.length; t++, idx++) {
     var todoCard = createSimCard(shuffled[idx], 'todo', 'queued');
     simulateActivity(todoCard.id, 'queue', 'Waiting in build queue...');
   }
 
-  // 1 card in working (building)
+  // 1 card in working (building) — only one at a time, like prod
   if (idx < shuffled.length) {
     var workCard = createSimCard(shuffled[idx], 'working', 'building');
     idx++;
     simulateActivity(workCard.id, 'build', 'Claude is coding...');
-    // Animate this card through build
-    animateCard(workCard.id, 'build', 8000);
-  }
-
-  // 1 card in review
-  if (idx < shuffled.length) {
-    var revCard = createSimCard(shuffled[idx], 'review', 'reviewing');
-    idx++;
-    cards.setReviewData(revCard.id, shuffled[idx - 1].score || 8, '{}');
-    simulateActivity(revCard.id, 'review', 'Analyzing code quality...');
-    animateCard(revCard.id, 'review', 12000);
+    animateCard(workCard.id, 'full', 0);
   }
 
   // 3 cards in done
@@ -252,56 +242,87 @@ function animateCard(cardId, startPhase, delayMs) {
   }
 }
 
+// --- Realistic Pipeline ---
+// Only one card can be in working/review at a time, just like prod.
+
+function isSimPipelineBusy() {
+  var allCards = cards.getAll();
+  for (var i = 0; i < allCards.length; i++) {
+    var c = allCards[i];
+    if (c.title && c.title.indexOf('[SIM]') === 0) {
+      if (c.column_name === 'working' || c.column_name === 'review') return true;
+    }
+  }
+  return false;
+}
+
 // --- Autonomous Loop ---
-// Continuously creates new cards and animates them through the pipeline
+// Picks next queued card and moves it through the pipeline one at a time.
 
 function scheduleNextSimCard() {
   if (!simActive) return;
 
-  // Random delay 15-40 seconds between new cards
-  var delay = 15000 + Math.floor(Math.random() * 25000);
+  // Check every 5-10 seconds if pipeline is free
+  var delay = 5000 + Math.floor(Math.random() * 5000);
 
   var t = setTimeout(function() {
     if (!simActive) return;
 
-    // Pick a random idea that isn't already on the board
-    var existing = cards.getAll().map(function(c) { return c.title; });
-    var available = SIM_IDEAS.filter(function(idea) {
-      return existing.indexOf('[SIM] ' + idea.title) === -1;
-    });
-
-    if (available.length === 0) {
-      // All ideas used — recycle by removing oldest done card
-      var doneCards = cards.getAll().filter(function(c) {
-        return c.column_name === 'done' && c.title.indexOf('[SIM]') === 0;
-      });
-      if (doneCards.length > 2) {
-        var oldest = doneCards[doneCards.length - 1];
-        cards.delete(oldest.id);
-        broadcast('card-deleted', { id: oldest.id });
-      }
-      available = SIM_IDEAS.slice();
+    // Only proceed if no card is currently building/reviewing
+    if (isSimPipelineBusy()) {
+      scheduleNextSimCard(); // check again later
+      return;
     }
 
-    var idea = available[Math.floor(Math.random() * available.length)];
+    // Find a queued todo card to start building
+    var allCards = cards.getAll();
+    var nextTodo = null;
+    for (var i = 0; i < allCards.length; i++) {
+      var c = allCards[i];
+      if (c.title && c.title.indexOf('[SIM]') === 0 && c.column_name === 'todo') {
+        nextTodo = c;
+        break;
+      }
+    }
 
-    // Create in todo, then animate through full pipeline
-    var card = createSimCard(idea, 'todo', 'queued');
-    simulateActivity(card.id, 'queue', 'Waiting in build queue...');
+    // If no queued card, create a new one
+    if (!nextTodo) {
+      var existing = allCards.map(function(c) { return c.title; });
+      var available = SIM_IDEAS.filter(function(idea) {
+        return existing.indexOf('[SIM] ' + idea.title) === -1;
+      });
 
-    // After a brief queue wait, start building
-    var buildDelay = 3000 + Math.floor(Math.random() * 5000);
+      if (available.length === 0) {
+        // Recycle: remove oldest done card
+        var doneCards = allCards.filter(function(c) {
+          return c.column_name === 'done' && c.title.indexOf('[SIM]') === 0;
+        });
+        if (doneCards.length > 3) {
+          var oldest = doneCards[doneCards.length - 1];
+          cards.delete(oldest.id);
+          broadcast('card-deleted', { id: oldest.id });
+        }
+        available = SIM_IDEAS.slice();
+      }
+
+      var idea = available[Math.floor(Math.random() * available.length)];
+      nextTodo = createSimCard(idea, 'todo', 'queued');
+      simulateActivity(nextTodo.id, 'queue', 'Waiting in build queue...');
+    }
+
+    // Move to working after a short queue wait
+    var cardId = nextTodo.id;
+    var buildDelay = 2000 + Math.floor(Math.random() * 3000);
     var t2 = setTimeout(function() {
       if (!simActive) return;
-      cards.move(card.id, 'working');
-      cards.setStatus(card.id, 'building');
-      broadcast('card-updated', cards.get(card.id));
-      animateCard(card.id, 'full', 0);
+      var card = cards.get(cardId);
+      if (!card) { scheduleNextSimCard(); return; }
+      cards.move(cardId, 'working');
+      cards.setStatus(cardId, 'building');
+      broadcast('card-updated', cards.get(cardId));
+      animateCard(cardId, 'full', 0);
     }, buildDelay);
     simTimers.push(t2);
-
-    // Schedule the next one
-    scheduleNextSimCard();
   }, delay);
   simTimers.push(t);
 }
@@ -315,38 +336,35 @@ function init() {
       log.info('Simulation: restoring active state from previous session');
       simActive = true;
 
-      // Rebuild simCardIds from existing [SIM] cards in DB
+      // Rebuild simCardIds and reset stalled cards back to todo
       var allCards = cards.getAll();
+      var foundActive = false;
       for (var i = 0; i < allCards.length; i++) {
         if (allCards[i].title && allCards[i].title.indexOf('[SIM]') === 0) {
           simCardIds.push(allCards[i].id);
 
-          // Re-animate cards that were mid-pipeline
           var c = allCards[i];
-          if (c.column_name === 'working') {
-            animateCard(c.id, 'build', 3000);
-          } else if (c.column_name === 'review') {
-            animateCard(c.id, 'review', 2000);
-          } else if (c.column_name === 'todo' && c.status === 'queued') {
-            var buildDelay = 2000 + Math.floor(Math.random() * 4000);
-            (function(cardId, delay) {
-              var t = setTimeout(function() {
-                if (!simActive) return;
-                var card = cards.get(cardId);
-                if (!card) return;
-                cards.move(cardId, 'working');
-                cards.setStatus(cardId, 'building');
-                broadcast('card-updated', cards.get(cardId));
-                animateCard(cardId, 'full', 0);
-              }, delay);
-              simTimers.push(t);
-            })(c.id, buildDelay);
+          if (c.column_name === 'working' || c.column_name === 'review') {
+            if (!foundActive) {
+              // Re-animate only the first active card
+              foundActive = true;
+              if (c.column_name === 'working') {
+                animateCard(c.id, 'build', 3000);
+              } else {
+                animateCard(c.id, 'review', 2000);
+              }
+            } else {
+              // Move extra active cards back to todo (realistic: one at a time)
+              cards.move(c.id, 'todo');
+              cards.setStatus(c.id, 'queued');
+              broadcast('card-updated', cards.get(c.id));
+            }
           }
         }
       }
 
       broadcast('simulation-state', { active: true });
-      // Start creating new cards
+      // Start the loop — it will pick up the next card when pipeline is free
       scheduleNextSimCard();
       log.info({ cardCount: simCardIds.length }, 'Simulation restored');
     }

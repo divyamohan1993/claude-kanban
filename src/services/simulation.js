@@ -33,6 +33,7 @@ const SIM_IDEAS = [
 var simActive = false;
 var simTimer = null; // single loop timer
 var simCardIds = [];
+var rejectCount = {}; // cardId -> number of rejections
 
 function isSimActive() { return simActive; }
 
@@ -101,6 +102,7 @@ function stopSimulation() {
     }
   }
   simCardIds = [];
+  rejectCount = {};
 
   broadcast('board-reload', {});
   broadcast('simulation-state', { active: false });
@@ -231,21 +233,43 @@ async function runLoop() {
       await wait(2000);
       if (!simActive) break;
 
-      // Score — use idea's preset score (some are low = rejection)
-      var score = ideaData.score;
+      // Score — realistic variance around base score (±2), clamped 1-10
+      var baseScore = ideaData.score;
+      var variance = Math.floor(Math.random() * 5) - 2; // -2 to +2
+      var score = Math.max(1, Math.min(10, baseScore + variance));
+      // Retry attempts improve score (simulates fix iterations)
+      var retries = rejectCount[cardId] || 0;
+      if (retries > 0) score = Math.min(10, score + retries * 2);
       cards.setReviewData(cardId, score, '{}');
       broadcast('card-updated', cards.get(cardId));
 
       if (score < 5) {
-        // === REJECTED — move back to todo like prod ===
-        activity(cardId, 'review', 'Score ' + score + '/10 — rejected, needs rework');
-        await wait(2000);
-        if (!simActive) break;
-        cards.move(cardId, 'todo');
-        cards.setStatus(cardId, 'interrupted');
-        activity(cardId, null, null);
-        broadcast('card-updated', cards.get(cardId));
-        broadcast('toast', { message: 'Rejected (' + score + '/10): ' + nextCard.title.replace('[SIM] ', ''), type: 'error' });
+        // === REJECTED ===
+        rejectCount[cardId] = (rejectCount[cardId] || 0) + 1;
+
+        if (rejectCount[cardId] >= 3) {
+          // 3 strikes — permanently rejected, move to done as failed
+          activity(cardId, 'review', 'Score ' + score + '/10 — rejected 3 times, discarding');
+          await wait(2000);
+          if (!simActive) break;
+          cards.move(cardId, 'done');
+          cards.setStatus(cardId, 'complete');
+          cards.setApprovedBy(cardId, 'rejected');
+          activity(cardId, null, null);
+          broadcast('card-updated', cards.get(cardId));
+          broadcast('toast', { message: 'Rejected (3 failures): ' + nextCard.title.replace('[SIM] ', ''), type: 'error' });
+          delete rejectCount[cardId];
+        } else {
+          // Move back to todo for retry
+          activity(cardId, 'review', 'Score ' + score + '/10 — rejected (attempt ' + rejectCount[cardId] + '/3), needs rework');
+          await wait(2000);
+          if (!simActive) break;
+          cards.move(cardId, 'todo');
+          cards.setStatus(cardId, 'interrupted');
+          activity(cardId, null, null);
+          broadcast('card-updated', cards.get(cardId));
+          broadcast('toast', { message: 'Rejected (' + score + '/10, attempt ' + rejectCount[cardId] + '/3): ' + nextCard.title.replace('[SIM] ', ''), type: 'error' });
+        }
       } else if (score < 8) {
         // === AUTO-FIX then approve ===
         activity(cardId, 'fix', 'Score ' + score + '/10 — auto-fixing...');
@@ -257,7 +281,7 @@ async function runLoop() {
         await wait(3000);
         if (!simActive) break;
 
-        var fixedScore = Math.min(10, score + 2);
+        var fixedScore = Math.min(10, score + 1 + Math.floor(Math.random() * 2));
         cards.setReviewData(cardId, fixedScore, '{}');
         activity(cardId, 'approve', 'Score ' + fixedScore + '/10 — auto-approving...');
         await wait(2000);
@@ -274,6 +298,7 @@ async function runLoop() {
         activity(cardId, null, null);
         broadcast('card-updated', cards.get(cardId));
         broadcast('toast', { message: 'Completed (fixed ' + score + '→' + fixedScore + '): ' + nextCard.title.replace('[SIM] ', ''), type: 'success' });
+        delete rejectCount[cardId];
       } else {
         // === AUTO-APPROVE ===
         activity(cardId, 'approve', 'Score ' + score + '/10 — auto-approving...');
@@ -293,6 +318,7 @@ async function runLoop() {
         activity(cardId, null, null);
         broadcast('card-updated', cards.get(cardId));
         broadcast('toast', { message: 'Completed (' + score + '/10): ' + nextCard.title.replace('[SIM] ', ''), type: 'success' });
+        delete rejectCount[cardId];
       }
 
       // Brief pause before next card (like prod pipeline)

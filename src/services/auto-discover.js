@@ -23,6 +23,7 @@ const STRATEGIC_LENSES = [
   { id: 'data-integrity', name: 'Data Integrity Audit', directive: 'Find the most dangerous data integrity risk. Focus on: race conditions, missing transactions, inconsistent state, missing validations, schema drift, backup gaps, data that can\'t be recovered after corruption. Suggest the safeguard that protects the most valuable data.' },
   { id: 'developer-experience', name: 'Developer Experience', directive: 'Find what would confuse a new developer the most. Focus on: missing documentation, unclear naming, undocumented environment setup, magic values, hidden configuration, inconsistent patterns. Suggest the improvement that saves the most onboarding time.' },
   { id: 'operational-readiness', name: 'Operational Readiness', directive: 'Find the biggest operational risk. Focus on: missing health checks, no monitoring, manual deployment steps, missing rollback path, no alerting, log gaps, missing resource limits. Suggest the operational improvement that would prevent the worst 3 AM incident.' },
+  { id: 'new-features', name: 'New Features', directive: 'Identify the most impactful feature the project is missing. Focus on: capabilities users would expect but don\'t exist yet, features that competitors offer, workflow gaps that force users to leave the app, integrations that would unlock new use cases, quality-of-life additions that would delight users. Suggest one concrete, self-contained feature that adds the most user value with minimal complexity.' },
 ];
 
 function selectStrategicLens() {

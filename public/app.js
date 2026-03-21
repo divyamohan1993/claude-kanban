@@ -1937,8 +1937,10 @@ function renderCategoryList(lenses) {
   for (var i = 0; i < lenses.length; i++) {
     var lens = lenses[i];
     var isSelected = !!categorySelections[lens.id];
+    var cb = el('input', { type: 'checkbox', 'data-lens-id': lens.id });
+    cb.checked = isSelected;
     var item = el('label', { className: 'category-item' + (isSelected ? ' selected' : ''), 'data-lens-id': lens.id }, [
-      el('input', { type: 'checkbox', checked: isSelected, 'data-lens-id': lens.id }),
+      cb,
       el('div', { className: 'category-item-info' }, [
         el('div', { className: 'category-item-name', textContent: lens.name }),
         el('div', { className: 'category-item-desc', textContent: lens.directive.slice(0, 120) + (lens.directive.length > 120 ? '...' : '') }),

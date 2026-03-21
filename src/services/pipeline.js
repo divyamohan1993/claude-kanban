@@ -731,7 +731,10 @@ function processQueue() {
   if (activeBuilds.size >= runtime.maxConcurrentBuilds) return;
 
   // Demo mode: random delay before executing next card
-  if (runtime.demoMode && !_demoTimer && activeBuilds.size === 0) {
+  // Skip timer if simulation is active (no real Claude calls being made)
+  var simActive = false;
+  try { simActive = require('./simulation').isSimActive(); } catch (_) {}
+  if (runtime.demoMode && !simActive && !_demoTimer && activeBuilds.size === 0) {
     var minMs = runtime.demoDelayMinMins * 60000;
     var maxMs = runtime.demoDelayMaxMins * 60000;
     var delayMs = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;

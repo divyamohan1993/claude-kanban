@@ -438,13 +438,12 @@ function updateDemoTimer(data) {
     var secs = Math.floor((remaining % 60000) / 1000);
     var timeStr = mins > 0 ? mins + 'm ' + secs + 's' : secs + 's';
     bar.textContent = '';
-    bar.appendChild(el('span', { className: 'demo-timer-text' }, 'Next build starts in ' + timeStr));
-    bar.appendChild(el('span', { className: 'demo-timer-note' }, 'This is a live demo. Intentional delays between builds prevent draining the Claude usage quota.'));
+    bar.appendChild(el('span', { className: 'demo-timer-text' }, 'Next build in ' + timeStr));
+    bar.appendChild(el('span', { className: 'demo-timer-note' }, '(demo delay — conserves quota)'));
     if (userRole === 'admin' || userRole === 'superadmin') {
       var skipBtn = el('button', {
         className: 'btn-sm demo-skip-btn',
         onclick: function() {
-          if (!confirm('Skip the demo delay and start building now?')) return;
           api('/pipeline/skip-demo-timer', { method: 'POST' }).then(function(r) {
             if (r.skipped) toast('Timer skipped, building now', 'success');
             else toast('No active timer to skip', 'info');

@@ -1445,47 +1445,38 @@ input:focus, textarea:focus {
    ---------------------------------------------------------------- */
 .demo-timer-bar {
   display: none;
-  text-align: center;
-  padding: 10px 16px;
-  background: linear-gradient(135deg, var(--primary-soft, #fef3e6) 0%, #fff8f0 100%);
-  border-bottom: 2px solid var(--primary, #c97d2e);
-  font-size: 13px;
+  justify-content: center;
+  align-items: center;
+  padding: 4px 12px;
+  background: var(--primary-soft, #fef3e6);
+  border-bottom: 1px solid var(--primary, #c97d2e);
+  font-size: 12px;
   color: var(--text);
   gap: 8px;
-  flex-direction: column;
-  align-items: center;
-  animation: demo-pulse 3s ease-in-out infinite;
-}
-@keyframes demo-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.85; }
+  flex-direction: row;
 }
 .demo-timer-text {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  font-size: 15px;
-  letter-spacing: 0.02em;
+  font-size: 12px;
 }
 .demo-timer-note {
   color: var(--text-muted, #888);
-  font-size: 12px;
-  margin-top: 2px;
+  font-size: 11px;
 }
 .demo-skip-btn {
-  margin-top: 4px;
-  padding: 4px 14px;
-  font-size: 12px;
+  padding: 2px 10px;
+  font-size: 11px;
   font-weight: 600;
   background: var(--primary, #9A5B0A);
   color: #fff;
   border: none;
-  border-radius: 6px;
+  border-radius: 4px;
   cursor: pointer;
-  transition: background 0.2s;
 }
 .demo-skip-btn:hover { background: var(--primary-dark, #7C4A08); }
 body.dark .demo-timer-bar {
-  background: linear-gradient(135deg, rgba(245, 183, 59, 0.10) 0%, rgba(201, 125, 46, 0.08) 100%);
+  background: rgba(245, 183, 59, 0.08);
   border-bottom-color: var(--primary, #F5B73B);
 }
 

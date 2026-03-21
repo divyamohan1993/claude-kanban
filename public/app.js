@@ -167,6 +167,20 @@ function applyRoleUI() {
   }
 }
 
+// Simulation indicator — inline in the AI-Built banner, no extra space
+function updateSimBanner() {
+  var existing = document.getElementById('sim-indicator');
+  if (!simRunning) { if (existing) existing.remove(); return; }
+  if (existing) return;
+  var inner = document.querySelector('.ai-built-inner');
+  if (!inner) return;
+  var indicator = el('span', { id: 'sim-indicator', style: 'background:#7C3AED;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;letter-spacing:0.3px;' }, 'SIMULATING — no real changes');
+  // Insert after the badge
+  var badge = inner.querySelector('.ai-built-badge');
+  if (badge && badge.nextSibling) inner.insertBefore(indicator, badge.nextSibling);
+  else inner.appendChild(indicator);
+}
+
 // Sign In button redirects to SSO login page
 (function() {
   var signInBtn = document.getElementById('sign-in-btn');
@@ -289,7 +303,7 @@ function connectSSE() {
   });
 
   es.addEventListener('simulation-state', function(e) {
-    try { simRunning = JSON.parse(e.data).active; } catch (_) {}
+    try { simRunning = JSON.parse(e.data).active; updateSimBanner(); } catch (_) {}
   });
 
   es.addEventListener('board-reload', function() {
@@ -2306,6 +2320,9 @@ async function init() {
   initPipelineControls();
   render();
   connectSSE();
+  // Check simulation state on load (included in mode response)
+  if (boardMode && boardMode.simulationActive) { simRunning = true; }
+  updateSimBanner();
   loadTrends();
 
   if (lastVisitTime > 0) {

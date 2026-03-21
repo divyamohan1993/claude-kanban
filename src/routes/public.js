@@ -561,7 +561,11 @@ router.get('/api/cards/:id/log-stream', optionalAuth, function(req, res) {
 router.get('/api/config', optionalAuth, function(_req, res) { res.json(usageSvc.getConfig(pipeline.getPipelineState())); });
 
 // Mode info — public can see mode state (needed for UI toggles like hiding "new card" button)
-router.get('/api/mode', optionalAuth, function(_req, res) { res.json(autoDiscover.getState()); });
+router.get('/api/mode', optionalAuth, function(_req, res) {
+  var state = autoDiscover.getState();
+  try { state.simulationActive = require('../services/simulation').isSimActive(); } catch (_) { state.simulationActive = false; }
+  res.json(state);
+});
 
 // Idea file — serves raw idea.md from the single-project directory
 router.get('/api/idea', optionalAuth, function(_req, res) {

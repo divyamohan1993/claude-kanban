@@ -118,6 +118,69 @@
     </div>
   </div>
 
+  <!-- Showcase Strip — always visible to visitors, no click needed -->
+  <div id="showcase-strip" class="showcase-strip" style="display:none">
+    <!-- Live Stats -->
+    <div class="showcase-stats" id="showcase-stats">
+      <div class="showcase-stat">
+        <span class="showcase-stat-value" id="showcase-total">0</span>
+        <span class="showcase-stat-label">Autonomous Builds</span>
+      </div>
+      <div class="showcase-stat">
+        <span class="showcase-stat-value" id="showcase-pass">0%</span>
+        <span class="showcase-stat-label">Pass Rate</span>
+      </div>
+      <div class="showcase-stat">
+        <span class="showcase-stat-value" id="showcase-human">0</span>
+        <span class="showcase-stat-label">Human Interventions</span>
+      </div>
+      <div class="showcase-stat">
+        <span class="showcase-stat-value" id="showcase-uptime">24/7</span>
+        <span class="showcase-stat-label">Runs While You Sleep</span>
+      </div>
+    </div>
+    <!-- Pipeline Flow Visualization -->
+    <div class="showcase-pipeline">
+      <span class="showcase-pipe-step">Discover</span>
+      <span class="showcase-pipe-arrow">&rarr;</span>
+      <span class="showcase-pipe-step">Spec</span>
+      <span class="showcase-pipe-arrow">&rarr;</span>
+      <span class="showcase-pipe-step active">Build</span>
+      <span class="showcase-pipe-arrow">&rarr;</span>
+      <span class="showcase-pipe-step">Review</span>
+      <span class="showcase-pipe-arrow">&rarr;</span>
+      <span class="showcase-pipe-step">Fix</span>
+      <span class="showcase-pipe-arrow">&rarr;</span>
+      <span class="showcase-pipe-step">Deploy</span>
+    </div>
+    <!-- What Chat Bots Can't Do -->
+    <div class="showcase-comparison">
+      <div class="showcase-vs">
+        <div class="showcase-vs-col bad">
+          <div class="showcase-vs-title">Chat Bots (Clawbot, etc.)</div>
+          <div class="showcase-vs-item">&times; Waits for your message</div>
+          <div class="showcase-vs-item">&times; One prompt = one response</div>
+          <div class="showcase-vs-item">&times; Can't review its own code</div>
+          <div class="showcase-vs-item">&times; No rollback if it breaks things</div>
+          <div class="showcase-vs-item">&times; Forgets everything next chat</div>
+        </div>
+        <div class="showcase-vs-col good">
+          <div class="showcase-vs-title">Claude Kanban</div>
+          <div class="showcase-vs-item">&check; Runs 24/7 autonomously</div>
+          <div class="showcase-vs-item">&check; Full project lifecycle</div>
+          <div class="showcase-vs-item">&check; AI reviews AI, auto-fixes</div>
+          <div class="showcase-vs-item">&check; File snapshots + one-click rollback</div>
+          <div class="showcase-vs-item">&check; Learns from rejections forever</div>
+        </div>
+      </div>
+    </div>
+    <!-- Live Activity Ticker -->
+    <div class="showcase-ticker" id="showcase-ticker">
+      <span class="showcase-ticker-label">LIVE</span>
+      <div class="showcase-ticker-track" id="showcase-ticker-track"></div>
+    </div>
+  </div>
+
   <!-- Search Results Dropdown -->
   <div class="search-results" id="search-results" role="listbox" aria-label="Search results"></div>
 

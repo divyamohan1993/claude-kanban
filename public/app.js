@@ -262,6 +262,7 @@ function connectSSE() {
     if (data.step === null) delete cardActivities[data.cardId];
     else cardActivities[data.cardId] = data;
     updateCardActivity(data.cardId);
+    updateShowcasePipeline();
   });
 
   es.addEventListener('queue-update', function(e) {
@@ -299,7 +300,16 @@ function connectSSE() {
   });
 
   es.addEventListener('toast', function(e) {
-    try { var d = JSON.parse(e.data); toast(d.message, d.type || 'info'); } catch (_) {}
+    try {
+      var d = JSON.parse(e.data);
+      toast(d.message, d.type || 'info');
+      // Feed showcase ticker with pipeline events
+      if (d.message && (d.message.indexOf('Completed') === 0 || d.message.indexOf('Rejected') === 0 || d.message.indexOf('Fixed') === 0)) {
+        addTickerMessage(d.message);
+        renderTicker();
+        updateShowcaseStats();
+      }
+    } catch (_) {}
   });
 
   es.addEventListener('simulation-state', function(e) {
@@ -2299,6 +2309,75 @@ if (speechRecognition && ideaMic) {
   });
 }
 
+// --- Showcase Strip (visible for all visitors in single-project mode) ---
+var _tickerMessages = [];
+
+function initShowcaseStrip() {
+  var strip = document.getElementById('showcase-strip');
+  if (!strip) return;
+  if (boardMode.mode !== 'single-project') { strip.style.display = 'none'; return; }
+  strip.style.display = '';
+
+  // Populate stats from current card data
+  updateShowcaseStats();
+
+  // Animate pipeline active step based on current activity
+  updateShowcasePipeline();
+
+  // Seed ticker with recent completed cards
+  var done = state.cards.filter(function(c) { return c.column_name === 'done' && c.review_score; });
+  done.sort(function(a, b) { return (b.updated_at || '').localeCompare(a.updated_at || ''); });
+  for (var i = 0; i < Math.min(5, done.length); i++) {
+    var c = done[i];
+    addTickerMessage((c.review_score >= 8 ? 'Completed' : 'Fixed') + ' (' + c.review_score + '/10): ' + c.title.replace('[SIM] ', ''));
+  }
+  renderTicker();
+}
+
+function updateShowcaseStats() {
+  var total = state.cards.filter(function(c) { return c.column_name === 'done' || c.column_name === 'archive'; }).length;
+  var withScore = state.cards.filter(function(c) { return c.review_score > 0; });
+  var passCount = withScore.filter(function(c) { return c.review_score >= 7; }).length;
+  var passRate = withScore.length > 0 ? Math.round(passCount / withScore.length * 100) : 0;
+
+  var elTotal = document.getElementById('showcase-total');
+  var elPass = document.getElementById('showcase-pass');
+  var elHuman = document.getElementById('showcase-human');
+  if (elTotal) elTotal.textContent = String(total);
+  if (elPass) elPass.textContent = passRate + '%';
+  if (elHuman) elHuman.textContent = '0';
+}
+
+function updateShowcasePipeline() {
+  var steps = document.querySelectorAll('.showcase-pipe-step');
+  if (!steps.length) return;
+  var activeStep = null;
+  for (var cid in cardActivities) {
+    var act = cardActivities[cid];
+    if (act && act.step) { activeStep = act.step; break; }
+  }
+  var stepMap = { snapshot: 1, build: 2, review: 3, fix: 4, approve: 5 };
+  var activeIdx = stepMap[activeStep] || -1;
+  for (var i = 0; i < steps.length; i++) {
+    steps[i].classList.toggle('active', i === activeIdx);
+  }
+}
+
+function addTickerMessage(msg) {
+  _tickerMessages.unshift({ text: msg, time: Date.now() });
+  if (_tickerMessages.length > 20) _tickerMessages.pop();
+}
+
+function renderTicker() {
+  var track = document.getElementById('showcase-ticker-track');
+  if (!track || _tickerMessages.length === 0) return;
+  var text = _tickerMessages.map(function(m) { return m.text; }).join('  \u2022  ');
+  track.textContent = '';
+  var span = document.createElement('span');
+  span.textContent = text;
+  track.appendChild(span);
+}
+
 // --- Init ---
 async function init() {
   initTheme();
@@ -2323,6 +2402,7 @@ async function init() {
   // Check simulation state on load (included in mode response)
   if (boardMode && boardMode.simulationActive) { simRunning = true; }
   updateSimBanner();
+  initShowcaseStrip();
   loadTrends();
 
   if (lastVisitTime > 0) {

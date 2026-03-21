@@ -303,10 +303,7 @@ function connectSSE() {
     try {
       var d = JSON.parse(e.data);
       toast(d.message, d.type || 'info');
-      // Feed showcase ticker with pipeline events
-      if (d.message && (d.message.indexOf('Completed') === 0 || d.message.indexOf('Rejected') === 0 || d.message.indexOf('Fixed') === 0)) {
-        addTickerMessage(d.message);
-        renderTicker();
+      if (d.message && (d.message.indexOf('Completed') === 0 || d.message.indexOf('Rejected') === 0)) {
         updateShowcaseStats();
       }
     } catch (_) {}
@@ -2310,7 +2307,6 @@ if (speechRecognition && ideaMic) {
 }
 
 // --- Showcase Strip (visible for all visitors in single-project mode) ---
-var _tickerMessages = [];
 
 function initShowcaseStrip() {
   var strip = document.getElementById('showcase-strip');
@@ -2324,28 +2320,20 @@ function initShowcaseStrip() {
   // Animate pipeline active step based on current activity
   updateShowcasePipeline();
 
-  // Seed ticker with recent completed cards
-  var done = state.cards.filter(function(c) { return c.column_name === 'done' && c.review_score; });
-  done.sort(function(a, b) { return (b.updated_at || '').localeCompare(a.updated_at || ''); });
-  for (var i = 0; i < Math.min(5, done.length); i++) {
-    var c = done[i];
-    addTickerMessage((c.review_score >= 8 ? 'Completed' : 'Fixed') + ' (' + c.review_score + '/10): ' + c.title.replace('[SIM] ', ''));
-  }
-  renderTicker();
 }
 
 function updateShowcaseStats() {
-  var total = state.cards.filter(function(c) { return c.column_name === 'done' || c.column_name === 'archive'; }).length;
-  var withScore = state.cards.filter(function(c) { return c.review_score > 0; });
-  var passCount = withScore.filter(function(c) { return c.review_score >= 7; }).length;
-  var passRate = withScore.length > 0 ? Math.round(passCount / withScore.length * 100) : 0;
+  // Use trendData.successRate if available (server-computed from all cards including archived)
+  var passRate = trendData && trendData.successRate !== undefined ? trendData.successRate : 0;
+  var doneCount = state.cards.filter(function(c) { return c.column_name === 'done'; }).length;
+  var activeCount = state.cards.filter(function(c) { return c.column_name === 'working' || c.column_name === 'review'; }).length;
 
   var elTotal = document.getElementById('showcase-total');
   var elPass = document.getElementById('showcase-pass');
   var elHuman = document.getElementById('showcase-human');
-  if (elTotal) elTotal.textContent = String(total);
+  if (elTotal) elTotal.textContent = String(doneCount);
   if (elPass) elPass.textContent = passRate + '%';
-  if (elHuman) elHuman.textContent = '0';
+  if (elHuman) elHuman.textContent = String(activeCount);
 }
 
 function updateShowcasePipeline() {
@@ -2363,20 +2351,6 @@ function updateShowcasePipeline() {
   }
 }
 
-function addTickerMessage(msg) {
-  _tickerMessages.unshift({ text: msg, time: Date.now() });
-  if (_tickerMessages.length > 20) _tickerMessages.pop();
-}
-
-function renderTicker() {
-  var track = document.getElementById('showcase-ticker-track');
-  if (!track || _tickerMessages.length === 0) return;
-  var text = _tickerMessages.map(function(m) { return m.text; }).join('  \u2022  ');
-  track.textContent = '';
-  var span = document.createElement('span');
-  span.textContent = text;
-  track.appendChild(span);
-}
 
 // --- Init ---
 async function init() {

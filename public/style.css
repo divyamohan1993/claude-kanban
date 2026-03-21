@@ -2471,42 +2471,6 @@ body.dark .trust-proven { color: #C4B5FD; }
   animation: pipPulse 2s ease-in-out infinite;
 }
 .showcase-pipe-arrow { color: var(--text-tertiary); font-size: 8px; }
-.showcase-ticker {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-.showcase-ticker-label {
-  flex-shrink: 0;
-  font-size: 8px;
-  font-weight: 800;
-  color: #dc2626;
-  padding: 0px 4px;
-  border: 1px solid #dc2626;
-  border-radius: 2px;
-  letter-spacing: 0.4px;
-  animation: pulse 2s ease-in-out infinite;
-}
-.showcase-ticker-track {
-  flex: 1;
-  overflow: hidden;
-  white-space: nowrap;
-  color: var(--text-secondary);
-  font-size: 10px;
-  mask-image: linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%);
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%);
-}
-.showcase-ticker-track span {
-  display: inline-block;
-  animation: tickerScroll 25s linear infinite;
-}
-@keyframes tickerScroll {
-  0% { transform: translateX(100%); }
-  100% { transform: translateX(-100%); }
-}
 @media (max-width: 640px) {
   .showcase-row { flex-wrap: wrap; }
   .showcase-pipeline { display: none; }

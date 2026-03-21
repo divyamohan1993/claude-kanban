@@ -118,66 +118,26 @@
     </div>
   </div>
 
-  <!-- Showcase Strip — always visible to visitors, no click needed -->
+  <!-- Showcase Strip — compact single bar for visitors -->
   <div id="showcase-strip" class="showcase-strip" style="display:none">
-    <!-- Live Stats -->
-    <div class="showcase-stats" id="showcase-stats">
-      <div class="showcase-stat">
-        <span class="showcase-stat-value" id="showcase-total">0</span>
-        <span class="showcase-stat-label">Autonomous Builds</span>
+    <div class="showcase-row">
+      <div class="showcase-stats" id="showcase-stats">
+        <div class="showcase-stat"><span class="showcase-stat-value" id="showcase-total">0</span><span class="showcase-stat-label">builds</span></div>
+        <div class="showcase-stat"><span class="showcase-stat-value" id="showcase-pass">0%</span><span class="showcase-stat-label">pass</span></div>
+        <div class="showcase-stat"><span class="showcase-stat-value" id="showcase-human">0</span><span class="showcase-stat-label">human input</span></div>
       </div>
-      <div class="showcase-stat">
-        <span class="showcase-stat-value" id="showcase-pass">0%</span>
-        <span class="showcase-stat-label">Pass Rate</span>
+      <div class="showcase-pipeline">
+        <span class="showcase-pipe-step">Discover</span><span class="showcase-pipe-arrow">&rarr;</span>
+        <span class="showcase-pipe-step">Spec</span><span class="showcase-pipe-arrow">&rarr;</span>
+        <span class="showcase-pipe-step active">Build</span><span class="showcase-pipe-arrow">&rarr;</span>
+        <span class="showcase-pipe-step">Review</span><span class="showcase-pipe-arrow">&rarr;</span>
+        <span class="showcase-pipe-step">Fix</span><span class="showcase-pipe-arrow">&rarr;</span>
+        <span class="showcase-pipe-step">Deploy</span>
       </div>
-      <div class="showcase-stat">
-        <span class="showcase-stat-value" id="showcase-human">0</span>
-        <span class="showcase-stat-label">Human Interventions</span>
+      <div class="showcase-ticker" id="showcase-ticker">
+        <span class="showcase-ticker-label">LIVE</span>
+        <div class="showcase-ticker-track" id="showcase-ticker-track"></div>
       </div>
-      <div class="showcase-stat">
-        <span class="showcase-stat-value" id="showcase-uptime">24/7</span>
-        <span class="showcase-stat-label">Runs While You Sleep</span>
-      </div>
-    </div>
-    <!-- Pipeline Flow Visualization -->
-    <div class="showcase-pipeline">
-      <span class="showcase-pipe-step">Discover</span>
-      <span class="showcase-pipe-arrow">&rarr;</span>
-      <span class="showcase-pipe-step">Spec</span>
-      <span class="showcase-pipe-arrow">&rarr;</span>
-      <span class="showcase-pipe-step active">Build</span>
-      <span class="showcase-pipe-arrow">&rarr;</span>
-      <span class="showcase-pipe-step">Review</span>
-      <span class="showcase-pipe-arrow">&rarr;</span>
-      <span class="showcase-pipe-step">Fix</span>
-      <span class="showcase-pipe-arrow">&rarr;</span>
-      <span class="showcase-pipe-step">Deploy</span>
-    </div>
-    <!-- What Chat Bots Can't Do -->
-    <div class="showcase-comparison">
-      <div class="showcase-vs">
-        <div class="showcase-vs-col bad">
-          <div class="showcase-vs-title">Chat Bots (Clawbot, etc.)</div>
-          <div class="showcase-vs-item">&times; Waits for your message</div>
-          <div class="showcase-vs-item">&times; One prompt = one response</div>
-          <div class="showcase-vs-item">&times; Can't review its own code</div>
-          <div class="showcase-vs-item">&times; No rollback if it breaks things</div>
-          <div class="showcase-vs-item">&times; Forgets everything next chat</div>
-        </div>
-        <div class="showcase-vs-col good">
-          <div class="showcase-vs-title">Claude Kanban</div>
-          <div class="showcase-vs-item">&check; Runs 24/7 autonomously</div>
-          <div class="showcase-vs-item">&check; Full project lifecycle</div>
-          <div class="showcase-vs-item">&check; AI reviews AI, auto-fixes</div>
-          <div class="showcase-vs-item">&check; File snapshots + one-click rollback</div>
-          <div class="showcase-vs-item">&check; Learns from rejections forever</div>
-        </div>
-      </div>
-    </div>
-    <!-- Live Activity Ticker -->
-    <div class="showcase-ticker" id="showcase-ticker">
-      <span class="showcase-ticker-label">LIVE</span>
-      <div class="showcase-ticker-track" id="showcase-ticker-track"></div>
     </div>
   </div>
 
@@ -193,8 +153,8 @@
       </div>
       <div class="usp-content">
         <div class="usp-section">
-          <h3>Not Another Chat Bot</h3>
-          <p>Chat bots (Clawbot, Claude Bot, etc.) respond to messages one at a time. Claude Kanban is a <strong>fully autonomous build pipeline</strong> — it discovers what to improve, writes the code, reviews its own work, fixes issues, and deploys. No human in the loop.</p>
+          <h3>Beyond Chat &mdash; A Build Pipeline</h3>
+          <p>AI assistants like Clawbot are great at responding to messages, running commands, and managing tasks across platforms. Claude Kanban does something different: it's a <strong>fully autonomous build-review-ship pipeline</strong> that discovers improvements, writes code, has a separate AI review it, auto-fixes issues, and deploys &mdash; all without a single human message.</p>
         </div>
         <div class="usp-grid">
           <div class="usp-card">
@@ -215,7 +175,7 @@
           <div class="usp-card">
             <div class="usp-icon">&#128247;</div>
             <h4>File Snapshots</h4>
-            <p>Full project snapshot before every build. If anything goes wrong, one-click rollback to exact pre-build state. No other bot does this.</p>
+            <p>Full project snapshot before every build. If anything goes wrong, one-click rollback to exact pre-build state.</p>
           </div>
           <div class="usp-card">
             <div class="usp-icon">&#9878;</div>
@@ -229,17 +189,16 @@
           </div>
         </div>
         <div class="usp-section usp-comparison">
-          <h3>Chat Bots vs Claude Kanban</h3>
+          <h3>Different Tools, Different Jobs</h3>
           <table class="usp-table">
-            <thead><tr><th></th><th>Chat Bots</th><th>Claude Kanban</th></tr></thead>
+            <thead><tr><th></th><th>AI Assistants</th><th>Claude Kanban</th></tr></thead>
             <tbody>
-              <tr><td>Autonomy</td><td>Responds when asked</td><td>Runs 24/7 without input</td></tr>
-              <tr><td>Scope</td><td>Single prompt = single task</td><td>Full project lifecycle</td></tr>
-              <tr><td>Quality Gate</td><td>Hope it works</td><td>AI review + scoring + auto-fix</td></tr>
-              <tr><td>Rollback</td><td>Manual git revert</td><td>Automatic file snapshots</td></tr>
-              <tr><td>Learning</td><td>No memory between chats</td><td>Learns from rejections, tunes itself</td></tr>
-              <tr><td>Visibility</td><td>Chat history</td><td>Real-time pipeline with SSE</td></tr>
-              <tr><td>Strategy</td><td>User decides what to do</td><td>10 strategic lenses rotate automatically</td></tr>
+              <tr><td>Purpose</td><td>Chat, tasks, integrations</td><td>Autonomous code pipeline</td></tr>
+              <tr><td>Trigger</td><td>You send a message</td><td>Runs on its own, 24/7</td></tr>
+              <tr><td>Quality</td><td>Single-pass output</td><td>Build &rarr; Review &rarr; Score &rarr; Auto-fix</td></tr>
+              <tr><td>Safety</td><td>Git revert if needed</td><td>Pre-build snapshots + one-click rollback</td></tr>
+              <tr><td>Strategy</td><td>You decide what to do</td><td>11 strategic lenses rotate automatically</td></tr>
+              <tr><td>Scope</td><td>One task at a time</td><td>Discovers, builds, reviews, deploys end-to-end</td></tr>
             </tbody>
           </table>
         </div>

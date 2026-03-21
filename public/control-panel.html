@@ -1016,40 +1016,31 @@ function renderConfig(cfg, modeState) {
   body.appendChild(modeCard);
 
   // ─── Demo & Simulation Mode ───
-  var demoCard = cfgCard('var(--primary)', 'Demo & Simulation', 'Pace builds with random delays and/or showcase the pipeline with simulated cards (zero API tokens)', 'cfg-demo', [
-    cfgToggle('demoMode', 'Enable Demo Mode', r.demoMode, 'Add random cooldown between card executions'),
+  // Build simulation toggle manually so we can wire it to the API directly
+  var simSwitch = el('input', { type: 'checkbox', class: 'cfg-switch', id: 'cfg-simMode', role: 'switch', 'aria-checked': 'false', 'aria-describedby': 'cfg-simMode-help' });
+  simSwitch.addEventListener('change', function() {
+    simSwitch.setAttribute('aria-checked', String(simSwitch.checked));
+    if (simSwitch.checked) {
+      api('POST', '/api/simulation/start').then(function() { toast('Simulation started', 'success'); }).catch(function() { simSwitch.checked = false; });
+    } else {
+      api('POST', '/api/simulation/stop').then(function() { toast('Simulation stopped — cards removed', 'info'); }).catch(function() { simSwitch.checked = true; });
+    }
+  });
+  var simToggleItem = el('div', 'cfg-item', [
+    el('label', { class: 'cfg-toggle', for: 'cfg-simMode' }, [simSwitch, el('span', 'cfg-switch-label', 'Enable Simulation')]),
+    el('div', { class: 'cfg-help', id: 'cfg-simMode-help' }, 'Fake cards, zero API tokens, auto-removed on stop')
+  ]);
+  api('GET', '/api/simulation').then(function(d) {
+    simSwitch.checked = d.active;
+    simSwitch.setAttribute('aria-checked', String(d.active));
+  }).catch(function() {});
+
+  body.appendChild(cfgCard('var(--primary)', 'Demo & Simulation', 'Pace builds with random delays and/or showcase the pipeline with simulated cards', 'cfg-demo', [
+    cfgToggle('demoMode', 'Enable Demo Mode', r.demoMode, 'Random cooldown between card executions'),
+    simToggleItem,
     cfgNumber('demoDelayMinMins', 'Min Delay (min)', r.demoDelayMinMins, 'Minimum wait before next card starts'),
     cfgNumber('demoDelayMaxMins', 'Max Delay (min)', r.demoDelayMaxMins, 'Maximum wait before next card starts'),
-  ], 'Save Demo Mode');
-  // Inject simulation toggle into the same card using cfgToggle style
-  (function() {
-    var demoBody = demoCard.querySelector('.cfg-body') || demoCard;
-    var simSection = el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid var(--border)' });
-
-    // Build a toggle that matches cfgToggle style
-    var simSwitch = el('input', { type: 'checkbox', class: 'cfg-switch', id: 'cfg-simMode', role: 'switch', 'aria-checked': 'false', 'aria-describedby': 'cfg-simMode-help' });
-    simSwitch.addEventListener('change', function() {
-      simSwitch.setAttribute('aria-checked', String(simSwitch.checked));
-      if (simSwitch.checked) {
-        api('POST', '/api/simulation/start').then(function() { toast('Simulation started', 'success'); }).catch(function() { simSwitch.checked = false; });
-      } else {
-        api('POST', '/api/simulation/stop').then(function() { toast('Simulation stopped — cards removed', 'info'); }).catch(function() { simSwitch.checked = true; });
-      }
-    });
-    var simToggle = el('div', 'cfg-item', [
-      el('label', { class: 'cfg-toggle', for: 'cfg-simMode' }, [simSwitch, el('span', 'cfg-switch-label', 'Enable Simulation')]),
-      el('div', { class: 'cfg-help', id: 'cfg-simMode-help' }, 'Fake cards flow through the pipeline — zero API tokens used. Cards auto-removed on stop.')
-    ]);
-    simSection.appendChild(simToggle);
-    demoBody.appendChild(simSection);
-
-    // Set initial state
-    api('GET', '/api/simulation').then(function(d) {
-      simSwitch.checked = d.active;
-      simSwitch.setAttribute('aria-checked', String(d.active));
-    }).catch(function() {});
-  })();
-  body.appendChild(demoCard);
+  ], 'Save Demo Mode'));
 
   // ─── Build & Timeouts ───
   body.appendChild(cfgCard('var(--warning)', 'Build & Timeouts', 'Claude CLI parameters, concurrency, polling, and phase timeouts', 'cfg-build', [

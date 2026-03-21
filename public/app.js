@@ -1909,7 +1909,7 @@ var categorySelections = {};
 
 function openCategoryModal() {
   if (!categoryModal) return;
-  categoryModal.style.display = '';
+  categoryModal.style.display = 'flex';
   if (cachedLenses) {
     renderCategoryList(cachedLenses);
   } else {

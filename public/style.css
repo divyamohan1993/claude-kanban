@@ -761,6 +761,8 @@ body.dark .label-default { color: var(--primary); }
 .badge-subtask { background: rgba(124, 58, 237, 0.1); color: var(--brainstorm); border: 1px solid rgba(124, 58, 237, 0.25); }
 .badge-initiative-progress { background: var(--success-soft); color: var(--done); font-variant-numeric: tabular-nums; }
 
+.badge-simulated { background: rgba(124, 58, 237, 0.12); color: #7C3AED; border: 1px dashed rgba(124, 58, 237, 0.4); }
+
 .badge-new {
   background: var(--primary);
   color: #fff;

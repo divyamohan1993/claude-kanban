@@ -160,6 +160,11 @@ function computeDisplay(card, cardMap) {
   const display = { badges: [], pipelineStep: null };
   const st = card.status;
 
+  // Simulated card badge
+  if (card.title && card.title.indexOf('[SIM]') === 0) {
+    display.badges.push({ text: 'Simulated', type: 'simulated' });
+  }
+
   // Status badges — server decides what badge to show
   if (st === 'frozen') display.badges.push({ text: 'Frozen', type: 'blocked' });
   else if (st === 'spec-ready') display.badges.push({ text: 'Spec Ready', type: 'has-spec' });

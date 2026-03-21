@@ -1015,40 +1015,47 @@ function renderConfig(cfg, modeState) {
   ]));
   body.appendChild(modeCard);
 
-  // ─── Simulation Mode ───
+  // ─── Demo & Simulation Mode ───
+  var demoCard = cfgCard('var(--primary)', 'Demo & Simulation', 'Pace builds with random delays and/or showcase the pipeline with simulated cards (zero API tokens)', 'cfg-demo', [
+    cfgToggle('demoMode', 'Enable Demo Mode', r.demoMode, 'Add random cooldown between card executions'),
+    cfgNumber('demoDelayMinMins', 'Min Delay (min)', r.demoDelayMinMins, 'Minimum wait before next card starts'),
+    cfgNumber('demoDelayMaxMins', 'Max Delay (min)', r.demoDelayMaxMins, 'Maximum wait before next card starts'),
+  ], 'Save Demo Mode');
+  // Inject simulation controls into the same card
   (function() {
-    var simCard = cfgCard('#7C3AED', 'Simulation Mode', 'Showcase the pipeline with fake cards moving through all stages — zero API tokens used', 'cfg-sim', [], null);
-    var simBody = simCard.querySelector('.cfg-body') || simCard;
-    var simStatus = el('div', { style: 'margin-bottom:12px;font-size:13px;color:var(--text-secondary)' }, 'Loading...');
-    simBody.appendChild(simStatus);
-    var simStartBtn = el('button', { class: 'btn', style: 'margin-right:8px' }, 'Start Simulation');
-    var simStopBtn = el('button', { class: 'btn btn-danger', style: 'margin-right:8px' }, 'Stop Simulation');
-    var simCleanBtn = el('button', { class: 'btn', style: 'font-size:12px' }, 'Cleanup Sim Cards');
-    simBody.appendChild(simStartBtn);
-    simBody.appendChild(simStopBtn);
-    simBody.appendChild(simCleanBtn);
+    var demoBody = demoCard.querySelector('.cfg-body') || demoCard;
+    var simSection = el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid var(--border)' });
+    var simLabel = el('div', { style: 'font-weight:700;font-size:13px;margin-bottom:6px;color:var(--text)' }, 'Simulation Mode');
+    var simHint = el('div', { style: 'font-size:11px;color:var(--text-secondary);margin-bottom:8px' }, 'Fake cards flow through the pipeline to showcase how it works — no Claude API calls');
+    var simStatus = el('span', { style: 'font-size:12px;margin-right:8px' }, '...');
+    var simStartBtn = el('button', { class: 'btn', style: 'font-size:12px;padding:3px 12px;margin-right:6px' }, 'Start');
+    var simStopBtn = el('button', { class: 'btn btn-danger', style: 'font-size:12px;padding:3px 12px;margin-right:6px' }, 'Stop');
+    var simCleanBtn = el('button', { class: 'btn', style: 'font-size:11px;padding:2px 10px' }, 'Cleanup Cards');
+    var simRow = el('div', { style: 'display:flex;align-items:center;gap:4px' });
+    simRow.appendChild(simStatus);
+    simRow.appendChild(simStartBtn);
+    simRow.appendChild(simStopBtn);
+    simRow.appendChild(simCleanBtn);
+    simSection.appendChild(simLabel);
+    simSection.appendChild(simHint);
+    simSection.appendChild(simRow);
+    demoBody.appendChild(simSection);
 
     function refreshSim() {
       api('GET', '/api/simulation').then(function(d) {
-        simStatus.textContent = d.active ? 'Simulation is RUNNING — fake cards are flowing through the pipeline' : 'Simulation is OFF';
+        simStatus.textContent = d.active ? 'Running' : 'Off';
         simStatus.style.color = d.active ? 'var(--success, #16a34a)' : 'var(--text-secondary)';
+        simStatus.style.fontWeight = '600';
         simStartBtn.style.display = d.active ? 'none' : '';
         simStopBtn.style.display = d.active ? '' : 'none';
-      }).catch(function() { simStatus.textContent = 'Error loading state'; });
+      }).catch(function() { simStatus.textContent = 'Error'; });
     }
     refreshSim();
     simStartBtn.onclick = function() { api('POST', '/api/simulation/start').then(function() { toast('Simulation started', 'success'); refreshSim(); }); };
     simStopBtn.onclick = function() { api('POST', '/api/simulation/stop').then(function() { toast('Simulation stopped', 'info'); refreshSim(); }); };
     simCleanBtn.onclick = function() { if (confirm('Remove all [SIM] cards?')) api('POST', '/api/simulation/cleanup').then(function() { toast('Sim cards cleaned up', 'success'); }); };
-    body.appendChild(simCard);
   })();
-
-  // ─── Demo Mode ───
-  body.appendChild(cfgCard('var(--primary)', 'Demo Mode', 'Pace builds with random delays to conserve the host account\'s Claude usage quota', 'cfg-demo', [
-    cfgToggle('demoMode', 'Enable Demo Mode', r.demoMode, 'Add random cooldown between card executions'),
-    cfgNumber('demoDelayMinMins', 'Min Delay (min)', r.demoDelayMinMins, 'Minimum wait before next card starts'),
-    cfgNumber('demoDelayMaxMins', 'Max Delay (min)', r.demoDelayMaxMins, 'Maximum wait before next card starts'),
-  ], 'Save Demo Mode'));
+  body.appendChild(demoCard);
 
   // ─── Build & Timeouts ───
   body.appendChild(cfgCard('var(--warning)', 'Build & Timeouts', 'Claude CLI parameters, concurrency, polling, and phase timeouts', 'cfg-build', [

@@ -2323,8 +2323,14 @@ function initShowcaseStrip() {
 }
 
 function updateShowcaseStats() {
-  // Use trendData.successRate if available (server-computed from all cards including archived)
-  var passRate = trendData && trendData.successRate !== undefined ? trendData.successRate : 0;
+  var passRate = 0;
+  if (trendData && trendData.successRate !== undefined) {
+    passRate = trendData.successRate;
+  } else {
+    var withScore = state.cards.filter(function(c) { return c.review_score > 0; });
+    var passCount = withScore.filter(function(c) { return c.review_score >= 7; }).length;
+    passRate = withScore.length > 0 ? Math.round(passCount / withScore.length * 100) : 0;
+  }
   var doneCount = state.cards.filter(function(c) { return c.column_name === 'done'; }).length;
   var activeCount = state.cards.filter(function(c) { return c.column_name === 'working' || c.column_name === 'review'; }).length;
 

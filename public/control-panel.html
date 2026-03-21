@@ -1021,39 +1021,33 @@ function renderConfig(cfg, modeState) {
     cfgNumber('demoDelayMinMins', 'Min Delay (min)', r.demoDelayMinMins, 'Minimum wait before next card starts'),
     cfgNumber('demoDelayMaxMins', 'Max Delay (min)', r.demoDelayMaxMins, 'Maximum wait before next card starts'),
   ], 'Save Demo Mode');
-  // Inject simulation controls into the same card
+  // Inject simulation toggle into the same card using cfgToggle style
   (function() {
     var demoBody = demoCard.querySelector('.cfg-body') || demoCard;
     var simSection = el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid var(--border)' });
-    var simLabel = el('div', { style: 'font-weight:700;font-size:13px;margin-bottom:6px;color:var(--text)' }, 'Simulation Mode');
-    var simHint = el('div', { style: 'font-size:11px;color:var(--text-secondary);margin-bottom:8px' }, 'Fake cards flow through the pipeline to showcase how it works — no Claude API calls');
-    var simStatus = el('span', { style: 'font-size:12px;margin-right:8px' }, '...');
-    var simStartBtn = el('button', { class: 'btn', style: 'font-size:12px;padding:3px 12px;margin-right:6px' }, 'Start');
-    var simStopBtn = el('button', { class: 'btn btn-danger', style: 'font-size:12px;padding:3px 12px;margin-right:6px' }, 'Stop');
-    var simCleanBtn = el('button', { class: 'btn', style: 'font-size:11px;padding:2px 10px' }, 'Cleanup Cards');
-    var simRow = el('div', { style: 'display:flex;align-items:center;gap:4px' });
-    simRow.appendChild(simStatus);
-    simRow.appendChild(simStartBtn);
-    simRow.appendChild(simStopBtn);
-    simRow.appendChild(simCleanBtn);
-    simSection.appendChild(simLabel);
-    simSection.appendChild(simHint);
-    simSection.appendChild(simRow);
+
+    // Build a toggle that matches cfgToggle style
+    var simSwitch = el('input', { type: 'checkbox', class: 'cfg-switch', id: 'cfg-simMode', role: 'switch', 'aria-checked': 'false', 'aria-describedby': 'cfg-simMode-help' });
+    simSwitch.addEventListener('change', function() {
+      simSwitch.setAttribute('aria-checked', String(simSwitch.checked));
+      if (simSwitch.checked) {
+        api('POST', '/api/simulation/start').then(function() { toast('Simulation started', 'success'); }).catch(function() { simSwitch.checked = false; });
+      } else {
+        api('POST', '/api/simulation/stop').then(function() { toast('Simulation stopped — cards removed', 'info'); }).catch(function() { simSwitch.checked = true; });
+      }
+    });
+    var simToggle = el('div', 'cfg-item', [
+      el('label', { class: 'cfg-toggle', for: 'cfg-simMode' }, [simSwitch, el('span', 'cfg-switch-label', 'Enable Simulation')]),
+      el('div', { class: 'cfg-help', id: 'cfg-simMode-help' }, 'Fake cards flow through the pipeline — zero API tokens used. Cards auto-removed on stop.')
+    ]);
+    simSection.appendChild(simToggle);
     demoBody.appendChild(simSection);
 
-    function refreshSim() {
-      api('GET', '/api/simulation').then(function(d) {
-        simStatus.textContent = d.active ? 'Running' : 'Off';
-        simStatus.style.color = d.active ? 'var(--success, #16a34a)' : 'var(--text-secondary)';
-        simStatus.style.fontWeight = '600';
-        simStartBtn.style.display = d.active ? 'none' : '';
-        simStopBtn.style.display = d.active ? '' : 'none';
-      }).catch(function() { simStatus.textContent = 'Error'; });
-    }
-    refreshSim();
-    simStartBtn.onclick = function() { api('POST', '/api/simulation/start').then(function() { toast('Simulation started', 'success'); refreshSim(); }); };
-    simStopBtn.onclick = function() { api('POST', '/api/simulation/stop').then(function() { toast('Simulation stopped', 'info'); refreshSim(); }); };
-    simCleanBtn.onclick = function() { if (confirm('Remove all [SIM] cards?')) api('POST', '/api/simulation/cleanup').then(function() { toast('Sim cards cleaned up', 'success'); }); };
+    // Set initial state
+    api('GET', '/api/simulation').then(function(d) {
+      simSwitch.checked = d.active;
+      simSwitch.setAttribute('aria-checked', String(d.active));
+    }).catch(function() {});
   })();
   body.appendChild(demoCard);
 

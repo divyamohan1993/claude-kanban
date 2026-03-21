@@ -2323,23 +2323,14 @@ function initShowcaseStrip() {
 }
 
 function updateShowcaseStats() {
-  var passRate = 0;
-  if (trendData && trendData.successRate !== undefined) {
-    passRate = trendData.successRate;
-  } else {
-    var withScore = state.cards.filter(function(c) { return c.review_score > 0; });
-    var passCount = withScore.filter(function(c) { return c.review_score >= 7; }).length;
-    passRate = withScore.length > 0 ? Math.round(passCount / withScore.length * 100) : 0;
-  }
-  var doneCount = state.cards.filter(function(c) { return c.column_name === 'done'; }).length;
-  var activeCount = state.cards.filter(function(c) { return c.column_name === 'working' || c.column_name === 'review'; }).length;
-
+  // Use server-computed stats from boardMode (includes archived cards)
+  var stats = boardMode.stats || {};
   var elTotal = document.getElementById('showcase-total');
   var elPass = document.getElementById('showcase-pass');
   var elHuman = document.getElementById('showcase-human');
-  if (elTotal) elTotal.textContent = String(doneCount);
-  if (elPass) elPass.textContent = passRate + '%';
-  if (elHuman) elHuman.textContent = String(activeCount);
+  if (elTotal) elTotal.textContent = String(stats.done || 0);
+  if (elPass) elPass.textContent = (stats.passRate || 0) + '%';
+  if (elHuman) elHuman.textContent = String(stats.active || 0);
 }
 
 function updateShowcasePipeline() {

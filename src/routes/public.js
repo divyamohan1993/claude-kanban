@@ -564,6 +564,16 @@ router.get('/api/config', optionalAuth, function(_req, res) { res.json(usageSvc.
 router.get('/api/mode', optionalAuth, function(_req, res) {
   var state = autoDiscover.getState();
   try { state.simulationActive = require('../services/simulation').isSimActive(); } catch (_) { state.simulationActive = false; }
+  // Include cumulative stats for showcase strip
+  var allCards = cards.getAll().concat(cards.getArchived());
+  var done = 0, scored = 0, passed = 0, active = 0;
+  for (var i = 0; i < allCards.length; i++) {
+    var c = allCards[i];
+    if (c.column_name === 'done' || c.column_name === 'archive') done++;
+    else if (c.column_name === 'working' || c.column_name === 'review') active++;
+    if (c.review_score > 0) { scored++; if (c.review_score >= 7) passed++; }
+  }
+  state.stats = { done: done, active: active, passRate: scored > 0 ? Math.round(passed / scored * 100) : 0 };
   res.json(state);
 });
 

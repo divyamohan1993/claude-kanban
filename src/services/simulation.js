@@ -70,7 +70,15 @@ function startSimulation() {
   simTimers = [];
   simCardIds = [];
   dbConfig.set('simulation-mode', 'true');
+
+  // Skip any active demo timer so simulation cards appear instantly
+  try {
+    var pipeline = require('./pipeline');
+    pipeline.skipDemoTimer();
+  } catch (_) {}
+
   broadcast('simulation-state', { active: true });
+  broadcast('demo-timer', { active: false, nextRunAt: 0, remaining: 0 });
   broadcast('toast', { message: 'Simulation started — watch the pipeline in action', type: 'success' });
   log.info('Simulation mode started');
 
@@ -93,8 +101,11 @@ function stopSimulation() {
   }
   simTimers = [];
 
+  // Auto-destroy all simulation cards on stop
+  cleanupSimCards();
+
   broadcast('simulation-state', { active: false });
-  broadcast('toast', { message: 'Simulation stopped', type: 'info' });
+  broadcast('toast', { message: 'Simulation stopped — all sim cards removed', type: 'info' });
   log.info('Simulation mode stopped');
 
   return { active: false };

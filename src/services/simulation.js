@@ -114,9 +114,7 @@ function stopSimulation() {
 function cleanupSimCards() {
   // Delete all simulation cards
   for (var i = 0; i < simCardIds.length; i++) {
-    try { cards.hardDelete(simCardIds[i]); } catch (_) {
-      try { cards.softDelete(simCardIds[i]); } catch (__) {}
-    }
+    try { cards.delete(simCardIds[i]); } catch (_) {}
   }
   simCardIds = [];
   broadcast('board-reload', {});
@@ -279,7 +277,7 @@ function scheduleNextSimCard() {
       });
       if (doneCards.length > 2) {
         var oldest = doneCards[doneCards.length - 1];
-        cards.softDelete(oldest.id);
+        cards.delete(oldest.id);
         broadcast('card-deleted', { id: oldest.id });
       }
       available = SIM_IDEAS.slice();

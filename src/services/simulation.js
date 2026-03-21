@@ -54,7 +54,19 @@ function activity(cardId, step, detail) {
   broadcast('card-activity', { cardId: cardId, step: step, detail: detail, timestamp: Date.now() });
 }
 
-function wait(ms) { return new Promise(function(r) { simTimer = setTimeout(r, ms); }); }
+var _waitTimers = [];
+function wait(ms) {
+  return new Promise(function(r) {
+    var t = setTimeout(r, ms);
+    _waitTimers.push(t);
+  });
+}
+
+function clearAllTimers() {
+  for (var i = 0; i < _waitTimers.length; i++) clearTimeout(_waitTimers[i]);
+  _waitTimers = [];
+  if (simTimer) { clearTimeout(simTimer); simTimer = null; }
+}
 
 // --- Start / Stop ---
 
@@ -79,7 +91,7 @@ function startSimulation() {
 function stopSimulation() {
   simActive = false;
   dbConfig.set('simulation-mode', 'false');
-  if (simTimer) { clearTimeout(simTimer); simTimer = null; }
+  clearAllTimers();
 
   // Delete ALL sim cards (including DB orphans from previous runs)
   var all = cards.getAll();
@@ -145,7 +157,11 @@ async function runLoop() {
   while (simActive) {
     try {
       // Wait until pipeline is free
-      while (simActive && isPipelineBusy()) await wait(5000);
+      while (simActive && isPipelineBusy()) { await wait(5000); }
+      if (!simActive) break;
+
+      // Brief pause between cards
+      await wait(3000);
       if (!simActive) break;
 
       // Cap total sim cards

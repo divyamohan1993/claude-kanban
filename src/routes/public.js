@@ -565,15 +565,17 @@ router.get('/api/mode', optionalAuth, function(_req, res) {
   var state = autoDiscover.getState();
   try { state.simulationActive = require('../services/simulation').isSimActive(); } catch (_) { state.simulationActive = false; }
   // Include cumulative stats for showcase strip
+  // Use the DB auto-increment value for total builds ever (includes deleted sim cards)
   var allCards = cards.getAll().concat(cards.getArchived());
-  var done = 0, scored = 0, passed = 0, active = 0;
+  var active = 0, scored = 0, passed = 0;
   for (var i = 0; i < allCards.length; i++) {
     var c = allCards[i];
-    if (c.column_name === 'done' || c.column_name === 'archive') done++;
-    else if (c.column_name === 'working' || c.column_name === 'review') active++;
+    if (c.column_name === 'working' || c.column_name === 'review') active++;
     if (c.review_score > 0) { scored++; if (c.review_score >= 7) passed++; }
   }
-  state.stats = { done: done, active: active, passRate: scored > 0 ? Math.round(passed / scored * 100) : 0 };
+  var totalEver = 0;
+  try { var row = require('../db').db.prepare("SELECT seq FROM sqlite_sequence WHERE name='cards'").get(); totalEver = row ? row.seq : 0; } catch (_) { totalEver = cards.countTotal(); }
+  state.stats = { done: totalEver, active: active, passRate: scored > 0 ? Math.round(passed / scored * 100) : 0 };
   res.json(state);
 });
 

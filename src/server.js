@@ -462,6 +462,9 @@ const publicServer = app.listen(PORT, '0.0.0.0', function() {
   intelligence.init();
   specIntelligence.init();
 
+  // Restore simulation mode if it was active before restart
+  try { require('./services/simulation').init(); } catch (_) {}
+
   // Start periodic tasks — scan both log files and DB error table
   setInterval(scanLogsForErrors, runtime.logScanIntervalSecs * 1000);
   setInterval(scanDbErrors, runtime.logScanIntervalSecs * 1000);

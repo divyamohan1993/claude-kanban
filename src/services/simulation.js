@@ -306,7 +306,57 @@ function scheduleNextSimCard() {
   simTimers.push(t);
 }
 
+// --- Restore on restart ---
+// If simulation was active before server restart, resume the animation loop
+function init() {
+  try {
+    var saved = dbConfig.get('simulation-mode');
+    if (saved === 'true') {
+      log.info('Simulation: restoring active state from previous session');
+      simActive = true;
+
+      // Rebuild simCardIds from existing [SIM] cards in DB
+      var allCards = cards.getAll();
+      for (var i = 0; i < allCards.length; i++) {
+        if (allCards[i].title && allCards[i].title.indexOf('[SIM]') === 0) {
+          simCardIds.push(allCards[i].id);
+
+          // Re-animate cards that were mid-pipeline
+          var c = allCards[i];
+          if (c.column_name === 'working') {
+            animateCard(c.id, 'build', 3000);
+          } else if (c.column_name === 'review') {
+            animateCard(c.id, 'review', 2000);
+          } else if (c.column_name === 'todo' && c.status === 'queued') {
+            var buildDelay = 2000 + Math.floor(Math.random() * 4000);
+            (function(cardId, delay) {
+              var t = setTimeout(function() {
+                if (!simActive) return;
+                var card = cards.get(cardId);
+                if (!card) return;
+                cards.move(cardId, 'working');
+                cards.setStatus(cardId, 'building');
+                broadcast('card-updated', cards.get(cardId));
+                animateCard(cardId, 'full', 0);
+              }, delay);
+              simTimers.push(t);
+            })(c.id, buildDelay);
+          }
+        }
+      }
+
+      broadcast('simulation-state', { active: true });
+      // Start creating new cards
+      scheduleNextSimCard();
+      log.info({ cardCount: simCardIds.length }, 'Simulation restored');
+    }
+  } catch (err) {
+    log.error({ err: err.message }, 'Simulation restore failed');
+  }
+}
+
 module.exports = {
+  init: init,
   isSimActive: isSimActive,
   startSimulation: startSimulation,
   stopSimulation: stopSimulation,
